@@ -22,7 +22,7 @@ graph TD
 
 ### 2. Periodic Merge to Main
 **Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
-**File:** `hourly-merge-main.yml`
+**File:** `periodic-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 

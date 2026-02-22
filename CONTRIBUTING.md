@@ -33,7 +33,7 @@ Prerequisites checked by the installer: `git`, `awk`, `mktemp`, `cmp`, `tail`.
 
 If you want autonomous agents to submit upstream PRs without manual intervention, do this setup first.
 
-- `.github/workflows/hourly-merge-main.yml`
+- `.github/workflows/periodic-merge-main.yml`
 
 1. In your fork, go to `Settings -> Secrets and variables -> Actions`.
 2. Add a secret named `UPSTREAM_PR_TOKEN`.
