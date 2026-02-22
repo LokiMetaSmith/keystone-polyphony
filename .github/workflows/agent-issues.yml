@@ -79,11 +79,23 @@ jobs:
                 echo "Fingerprint: \`$MARKER\`"
               } > .github_issues_body_enriched.txt
 
+              # Ensure the pre-review label exists on upstream
+              if ! gh api "/repos/$UPSTREAM_REPO/labels/pre-review" > /dev/null 2>&1; then
+                echo "Creating missing label: pre-review"
+                gh api \
+                  --method POST \
+                  "/repos/$UPSTREAM_REPO/labels" \
+                  -f name="pre-review" \
+                  -f color="FBCA04" \
+                  -f description="Newly created issue awaiting review"
+              fi
+
               echo "Publishing issue: $TITLE to $UPSTREAM_REPO"
               gh issue create \
                 --repo "$UPSTREAM_REPO" \
                 --title "Agent Discovery: $TITLE" \
-                --body-file .github_issues_body_enriched.txt
+                --body-file .github_issues_body_enriched.txt \
+                --label "pre-review"
             fi
 
             rm .github_issues_body.txt

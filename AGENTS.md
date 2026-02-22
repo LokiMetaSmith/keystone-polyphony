@@ -16,5 +16,6 @@ Instead, document these findings by creating a follow-up issue on the **upstream
 An automated GitHub Actions workflow can pick up `.md` files pushed to `.github/issues/`, publish them to the upstream repository, and then commit removal of the file from your branch. This requires `UPSTREAM_PR_TOKEN` to be set in your fork secrets. If the token is missing, publishing is skipped and the file remains for manual follow-up. Do not attempt to use `gh issue create`.
 
 ## 2. Scope Constraints
+- **Branch Strategy (CRITICAL)**: Always create a feature branch (`feat/topic`, `fix/topic`, `docs/topic`) before starting any work. **Never commit directly to `main`**. If a human drops you onto `main`, immediately check out a new branch.
 - **Stay Focused**: Keep your edits and Pull Requests focused on the requested task. Do not mix unrelated refactors into a feature task.
 - **Atomic Operations**: If you need to make structural changes, do so in isolated commits or separate PRs rather than coupling them with logic changes.

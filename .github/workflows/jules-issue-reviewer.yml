@@ -1,0 +1,86 @@
+name: Jules Issue Reviewer
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assign-jules-review:
+    # Only run on upstream and only when the issue has the pre-review label.
+    if: >-
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      contains(github.event.issue.labels.*.name, 'pre-review')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          ensure_label() {
+            local NAME="$1" COLOR="$2" DESC="$3"
+            if ! gh api "/repos/$REPO/labels/$NAME" > /dev/null 2>&1; then
+              echo "Creating missing label: $NAME"
+              gh api \
+                --method POST \
+                "/repos/$REPO/labels" \
+                -f name="$NAME" \
+                -f color="$COLOR" \
+                -f description="$DESC"
+            fi
+          }
+
+          ensure_label "jules"          "5319E7" "Assigned to Jules for AI review"
+          ensure_label "reviewed"       "0E8A16" "Issue has been reviewed and approved"
+          ensure_label "ready for work" "006B75" "Issue is ready to be picked up"
+
+      - name: Apply jules label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          # Skip if already labeled to avoid duplicate comments
+          LABELS=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER/labels" --jq '.[].name')
+          if echo "$LABELS" | grep -qx "jules"; then
+            echo "Issue #$ISSUE_NUMBER already has the 'jules' label. Skipping."
+            exit 0
+          fi
+
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "jules"
+
+      - name: Post review instructions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          # Only post the comment once
+          EXISTING=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("jules-review-instructions"))] | length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "Review instructions already posted. Skipping."
+            exit 0
+          fi
+
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "<!-- jules-review-instructions -->
+          ## 🤖 Jules Review Requested
+
+          @Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
+
+          1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
+          2. **BDD Feature File** — Does this issue include a complete Cucumber BDD \`.feature\` file? Is it reviewed for completeness?
+          3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
+
+          Once your review is complete, please:
+          - Remove the \`pre-review\` label
+          - Add the \`reviewed\` and \`ready for work\` labels
+          "

@@ -45,7 +45,7 @@ graph TD
 **Trigger:** `push` modifying `.github/issues/*.md`.
 **File:** `agent-issues.yml`
 
-This workflow handles automated issue generation by AI agents. When markdown files are pushed to `.github/issues/`, this action parses them and translates them into actual GitHub Issues on the upstream repository.
+This workflow handles automated issue generation by AI agents. When markdown files are pushed to `.github/issues/`, this action parses them, translates them into actual GitHub Issues on the upstream repository, and applies the `pre-review` label to signal that the issue needs triage.
 
 ```mermaid
 graph TD
@@ -54,13 +54,33 @@ graph TD
     B -- Yes --> D[Iterate markdown issue files]
     D --> E{Issue fingerprint exists upstream?}
     E -- Yes --> F[Skip creation]
-    E -- No --> G[Create GitHub Issue on upstream]
-    F --> H[Remove markdown file from git]
-    G --> H
-    H --> I[Commit file removal & Push]
+    E -- No --> G[Ensure 'pre-review' label exists]
+    G --> H[Create GitHub Issue with 'pre-review' label]
+    F --> I[Remove markdown file from git]
+    H --> I
+    I --> J[Commit file removal & Push]
 ```
 
-### 4. Label Contributors
+### 4. Jules Issue Reviewer
+**Trigger:** `issues` (opened, labeled).
+**File:** `jules-issue-reviewer.yml`
+
+When an issue is created or labeled with `pre-review`, this workflow assigns it to Jules for review. It ensures all lifecycle labels exist, applies the `jules` label, and posts a structured review comment outlining the acceptance criteria. Idempotency guards prevent duplicate labels and comments.
+
+```mermaid
+graph TD
+    A[Issue opened or labeled] --> B{Has 'pre-review' label?}
+    B -- No --> Skip((Skip))
+    B -- Yes --> C[Ensure lifecycle labels exist]
+    C --> D{Already has 'jules' label?}
+    D -- Yes --> Skip
+    D -- No --> E[Apply 'jules' label]
+    E --> F{Review comment already posted?}
+    F -- Yes --> Skip
+    F -- No --> G[Post review instructions for Jules]
+```
+
+### 5. Label Contributors
 **Trigger:** `pull_request` (closed).
 **File:** `add-contributors.yml`
 
@@ -77,3 +97,25 @@ graph TD
     F --> G[Apply label to the merged PR]
     E -- Yes --> G
 ```
+
+---
+
+## Issue Lifecycle
+
+All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pre_review : Agent creates issue
+    pre_review --> jules : Jules reviewer workflow assigns
+    jules --> reviewed : Jules completes review
+    jules --> ready_for_work : Jules approves for implementation
+    reviewed --> ready_for_work : Final approval
+    ready_for_work --> [*] : Work begins
+
+    pre_review : 🟡 pre-review
+    jules : 🟣 jules
+    reviewed : 🟢 reviewed
+    ready_for_work : 🔵 ready for work
+```
+
