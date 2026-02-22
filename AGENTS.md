@@ -13,7 +13,7 @@ Instead, document these findings by creating a follow-up issue on the **upstream
 3. The rest of the file will be the issue body. 
 4. Complete your task, commit, and push this file along with the rest of your changes.
 
-An automated GitHub Actions workflow can pick up `.md` files pushed to `.github/issues/`, publish them to the upstream repository, and then commit removal of the file from your branch. This requires `UPSTREAM_PR_TOKEN` to be set in your fork secrets. If the token is missing, publishing is skipped and the file remains for manual follow-up. Do not attempt to use `gh issue create`.
+An automated GitHub Actions workflow can pick up `.md` files pushed to `.github/issues/`, publish them to the upstream repository, and then commit removal of the file from your branch. Every published issue is also logged in `meta/DISCOVERIES.md` to maintain a permanent record of the repository's evolution. This requires `UPSTREAM_PR_TOKEN` to be set in your fork secrets. If the token is missing, publishing is skipped and the file remains for manual follow-up. Do not attempt to use `gh issue create`.
 
 ## 2. Scope Constraints
 - **Branch Strategy (CRITICAL)**: Always create a feature branch (`feat/topic`, `fix/topic`, `docs/topic`) before starting any work. **Never commit directly to `main`**. If a human drops you onto `main`, immediately check out a new branch.

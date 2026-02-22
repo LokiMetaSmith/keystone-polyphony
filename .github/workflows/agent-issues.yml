@@ -97,11 +97,25 @@ jobs:
               fi
 
               echo "Publishing issue: $TITLE to $UPSTREAM_REPO"
-              gh issue create \
+              ISSUE_URL=$(gh issue create \
                 --repo "$UPSTREAM_REPO" \
                 --title "Agent Discovery: $TITLE" \
                 --body-file .github_issues_body_enriched.txt \
-                --label "pre-review"
+                --label "pre-review")
+              
+              # Log discovery for historical record and to ensure PR diff remains mergeable
+              ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+              DATE=$(date +%Y-%m-%d)
+              AUTHOR="${GITHUB_ACTOR}"
+              
+              mkdir -p meta
+              if [ ! -f meta/DISCOVERIES.md ]; then
+                echo "# Discovery Log" > meta/DISCOVERIES.md
+                echo "" >> meta/DISCOVERIES.md
+                echo "| Date | Issue | Title | Author |" >> meta/DISCOVERIES.md
+                echo "|---|---|---|---|" >> meta/DISCOVERIES.md
+              fi
+              echo "| $DATE | #$ISSUE_NUMBER | $TITLE | @$AUTHOR |" >> meta/DISCOVERIES.md
             fi
 
             rm .github_issues_body.txt
@@ -118,10 +132,11 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
           if ! git diff --staged --quiet; then
-            echo "Committing removal of processed issue files..."
-            git commit -m "chore: remove published agent issues from fork [skip ci]"
+            echo "Committing discovery log update and removal of processed issues..."
+            git add meta/DISCOVERIES.md || true
+            git commit -m "chore: log discovery and remove published agent issues [skip ci]"
             # Push specifically to the branch that triggered this run
             git push origin "HEAD:${GITHUB_REF#refs/heads/}"
           else
-            echo "No issue files needed removing."
+            echo "No changes needed."
           fi
