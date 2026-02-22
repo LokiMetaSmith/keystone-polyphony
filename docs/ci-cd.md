@@ -66,7 +66,9 @@ graph TD
 ```
 
 > [!NOTE]
-> **Issue Reviewer (planned rework):** The previous Jules-specific reviewer workflow has been removed. A new agent-agnostic triage pipeline that refines issues *before* publishing is tracked as a separate issue.
+> **Issue triage (current vs planned):**
+> Current state: `pre-review` issues are triaged manually by maintainers (for example by applying `jules` and then `ready for work` when approved).
+> Planned state: a new agent-agnostic triage pipeline will refine issues *before* publishing.
 
 ### 4. Label Contributors
 **Trigger:** `pull_request` (closed).
@@ -90,14 +92,16 @@ graph TD
 
 ## Issue Lifecycle
 
-Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation. A planned agent-agnostic triage pipeline will refine issues before they are published, replacing the previous post-publish review step.
+Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation, then triage happens manually today. A planned agent-agnostic triage pipeline will replace this manual step.
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> ready_for_work : Triage pipeline refines & approves
+    pre_review --> jules : Manual triage assignment
+    jules --> ready_for_work : Manual approval
     ready_for_work --> [*] : Work begins
 
     pre_review : 🟡 pre-review
+    jules : 🟣 jules
     ready_for_work : 🔵 ready for work
 ```
