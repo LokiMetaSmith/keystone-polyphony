@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   publish-issues:
@@ -24,21 +25,24 @@ jobs:
       - name: Check token availability
         id: auth
         env:
-          GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+          UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
           UPSTREAM_REPO: niklas-olsson/keystone-polyphony
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::UPSTREAM_PR_TOKEN is not set. Skipping issue publish; leaving files in .github/issues/ for manual follow-up."
-          else
+          if [ -n "$UPSTREAM_TOKEN" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            gh api "repos/$UPSTREAM_REPO" >/dev/null
+            echo "token_to_use=upstream" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REPOSITORY" = "$UPSTREAM_REPO" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "token_to_use=default" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::UPSTREAM_PR_TOKEN is not set and not on canonical repository. Skipping issue publish; leaving files in .github/issues/ for manual follow-up."
           fi
 
       - name: Create Issues on Upstream
         if: steps.auth.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+          GH_TOKEN: ${{ steps.auth.outputs.token_to_use == 'upstream' && secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
           UPSTREAM_REPO: niklas-olsson/keystone-polyphony
         run: |
           set -euo pipefail
