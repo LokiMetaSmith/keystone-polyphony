@@ -1,0 +1,81 @@
+name: Hourly Test and Merge to Main
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hourly-merge-main
+  cancel-in-progress: false
+
+jobs:
+  test-and-merge:
+    runs-on: ubuntu-latest
+    env:
+      HOURLY_TEST_COMMAND: ${{ vars.HOURLY_TEST_COMMAND }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Check for staging changes
+        id: check
+        run: |
+          git fetch origin main staging || git fetch origin main
+          
+          # Check if staging branch exists on remote
+          if ! git show-ref --verify --quiet refs/remotes/origin/staging; then
+            echo "Staging branch does not exist on origin. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          # Check if staging has new commits compared to main
+          AHEAD=$(git rev-list --count origin/main..origin/staging)
+          if [ "$AHEAD" -eq "0" ]; then
+            echo "No new changes in staging. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes found. Proceeding with tests."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout staging for tests
+        if: steps.check.outputs.skip == 'false'
+        run: git checkout --detach origin/staging
+
+      - name: Run Tests
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          echo "Running tests..."
+          if [ -n "$HOURLY_TEST_COMMAND" ]; then
+            echo "Using HOURLY_TEST_COMMAND from repository variables."
+            bash -lc "$HOURLY_TEST_COMMAND"
+          elif [ -f package.json ]; then
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+            npm test
+          else
+            echo "::error::No test command configured. Set repository variable HOURLY_TEST_COMMAND or add package.json test scripts."
+            exit 1
+          fi
+
+      - name: Merge staging into main
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git checkout -B main origin/main
+          git merge origin/staging --no-edit --no-ff
+          git push origin main
