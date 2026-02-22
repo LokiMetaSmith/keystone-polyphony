@@ -52,8 +52,21 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 |---|---|---|
 | `HOURLY_TEST_COMMAND` | The shell command run during hourly staging tests | `npm test` (if `package.json` exists) |
 | `JULES_DAILY_TASKS` | Max issues assigned to Jules per rolling 24h window | No limit (0 or unset) |
+| `AGENT_CLI` | CLI binary name for the autonomous agent | `opencode` |
+| `AGENT_CLI_FLAGS` | Extra flags passed to the agent CLI | (empty) |
+| `AGENT_DAILY_TASKS` | Max issues attempted by agents per rolling 24h window | `5` |
+| `AGENT_MODEL` | Model identifier to pass to the agent | (empty) |
 
-Set these in **Settings → Secrets and variables → Actions → Variables**.
+Set variables in **Settings → Secrets and variables → Actions → Variables**.
+
+### Repository Secrets
+
+| Secret | Purpose |
+|---|---|
+| `AGENT_API_KEY` | API key for the LLM provider used by the agent |
+| `UPSTREAM_PR_TOKEN` | Token with permission to open PRs on the upstream repository |
+
+Set secrets in **Settings → Secrets and variables → Actions → Secrets**.
 
 ## Upstream Sync Requirement (Before Upstream PR)
 

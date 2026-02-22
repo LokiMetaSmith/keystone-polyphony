@@ -83,7 +83,25 @@ graph TD
     F --> G[Post review instructions]
 ```
 
-### 5. Label Contributors
+### 5. CLI Agent Issue Solver
+**Trigger:** `issues` (labeled `ready for work`), `workflow_dispatch`.
+**File:** `agent-issue-solver.yml`
+
+This workflow autonomously implements solutions for issues marked as `ready for work`. It checks the `AGENT_DAILY_TASKS` quota, creates a feature branch, composes a prompt from the issue and repo context, and runs a pluggable CLI agent (e.g., OpenCode). If successful, it opens a Pull Request; otherwise, it labels the issue as `agent-failed`.
+
+```mermaid
+graph TD
+    A[Issue labeled 'ready for work' / sweep] --> B{Under daily quota?}
+    B -- No --> C[Apply 'quota-hold']
+    B -- Yes --> D[Swap labels: 'ready for work' -> 'agent-working']
+    D --> E[Checkout, create feat/agent-N branch]
+    E --> F[Compose prompt & Run CLI agent]
+    F --> G{Agent produced changes?}
+    G -- No --> H[Label 'agent-failed', post comment]
+    G -- Yes --> I[Push branch, open PR with 'agent-pr' label]
+```
+
+### 6. Label Contributors
 **Trigger:** `pull_request` (closed).
 **File:** `add-contributors.yml`
 
@@ -105,7 +123,7 @@ graph TD
 
 ## Issue Lifecycle
 
-All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` repository variable (rolling 24h window).
+All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` and `AGENT_DAILY_TASKS` repository variables (rolling 24h window).
 
 ```mermaid
 stateDiagram-v2
@@ -115,11 +133,19 @@ stateDiagram-v2
     quota_hold --> jules : Hourly sweep retries
     jules --> reviewed : Jules completes review
     reviewed --> ready_for_work : Final approval
-    ready_for_work --> [*] : Work begins
+    ready_for_work --> agent_working : Under quota — agent assigned
+    ready_for_work --> quota_hold : Over quota — held for retry
+    quota_hold --> agent_working : Hourly sweep retries
+    agent_working --> agent_failed : Agent failed
+    agent_working --> agent_pr : Agent opened PR
+    agent_pr --> [*] : PR merged
 
     pre_review : 🟡 pre-review
     quota_hold : ⏳ quota-hold
     jules : 🟣 jules
     reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
+    agent_working : 🔵 agent-working
+    agent_failed : 🔴 agent-failed
+    agent_pr : 🟣 agent-pr (Label on PR)
 ```

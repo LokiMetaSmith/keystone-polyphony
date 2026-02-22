@@ -277,3 +277,31 @@ jobs:
           else
             echo "No pending pre-review issues. Skipping."
           fi
+
+  retry-agent-queue:
+    # Retry any ready-for-work issues that haven't been picked up by an agent yet
+    # (e.g., because the daily quota was reached in a previous cycle).
+    needs: publish-swept-issues
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Agent solver sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Check if there are ready-for-work issues without the agent-working label
+          PENDING=$(gh api \
+            --method GET \
+            /search/issues \
+            -f q="repo:$REPO label:\"ready for work\" -label:agent-working type:issue state:open" \
+            --jq '.total_count')
+
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Found $PENDING ready-for-work issue(s) awaiting Agent. Triggering solver."
+            gh workflow run agent-issue-solver.yml --repo "$REPO"
+          else
+            echo "No pending ready-for-work issues. Skipping."
+          fi
