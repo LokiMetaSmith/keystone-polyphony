@@ -62,14 +62,14 @@ graph TD
 ```
 
 ### 4. Jules Issue Reviewer
-**Trigger:** `issues` (opened, labeled).
+**Trigger:** `issues` (labeled).
 **File:** `jules-issue-reviewer.yml`
 
 When an issue is created or labeled with `pre-review`, this workflow assigns it to Jules for review. It ensures all lifecycle labels exist, applies the `jules` label, and posts a structured review comment outlining the acceptance criteria. Idempotency guards prevent duplicate labels and comments.
 
 ```mermaid
 graph TD
-    A[Issue opened or labeled] --> B{Has 'pre-review' label?}
+    A[Issue labeled] --> B{Has 'pre-review' label?}
     B -- No --> Skip((Skip))
     B -- Yes --> C[Ensure lifecycle labels exist]
     C --> D{Already has 'jules' label?}
