@@ -210,3 +210,38 @@ jobs:
             --body "This automated PR contains changes promoted through the fork's tested staging-to-main pipeline." \
             --head "$HEAD_BRANCH" \
             --base "$BASE_BRANCH"
+
+  sweep-issues:
+    # Runs unconditionally — catches issue files that landed on main
+    # without triggering the push path filter (e.g., via merge).
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.check.outputs.found }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: .github/issues
+          fetch-depth: 1
+
+      - name: Check for leftover issue files
+        id: check
+        run: |
+          shopt -s nullglob
+          FILES=(.github/issues/*.md)
+          if [ ${#FILES[@]} -gt 0 ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found ${#FILES[@]} issue file(s) to process: ${FILES[*]}"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No issue files to process."
+          fi
+
+  publish-swept-issues:
+    needs: sweep-issues
+    if: needs.sweep-issues.outputs.found == 'true'
+    uses: ./.github/workflows/agent-issues.yml
+    secrets: inherit

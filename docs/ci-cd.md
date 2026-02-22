@@ -24,11 +24,12 @@ graph TD
 **Trigger:** `schedule` (cron) or `workflow_dispatch`.
 **File:** `hourly-merge-main.yml`
 
-This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`.
+This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
 ```mermaid
 graph TD
     A[Hourly Cron or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))
     C -- Yes --> D[test-staging: Run tests in Docker container]
@@ -39,6 +40,9 @@ graph TD
     G -- No --> End((Done))
     G -- Yes --> H[create-upstream-pr: Open PR to upstream]
     H --> End
+    S --> T{Issue files found?}
+    T -- No --> Skip2((No-op))
+    T -- Yes --> U[publish-swept-issues: Call agent-issues workflow]
 ```
 
 ### 3. Publish Agent Issues
