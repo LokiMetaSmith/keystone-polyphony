@@ -22,7 +22,7 @@ jobs:
        contains(github.event.issue.labels.*.name, 'pre-review'))
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
       REPO: ${{ github.repository }}
       JULES_DAILY_TASKS: ${{ vars.JULES_DAILY_TASKS }}
     steps:
