@@ -1,0 +1,28 @@
+# Keystone Polyphony - Remaining Tasks & Future Roadmap
+
+This document outlines the next steps and planned improvements for the "Liminal Bridge" system.
+
+## 1. Persistence & Durability
+- [ ] **State Persistence**: Currently, the `LiminalMesh` KV store is ephemeral (in-memory). Implement a backing store (SQLite or local JSON file) to persist state across restarts.
+- [ ] **Snapshotting**: Periodic snapshots of the "Liminal Space" to the git repository (e.g., `.liminal/snapshot.json`) to allow recovery.
+
+## 2. Conflict Resolution
+- [ ] **CRDTs**: Replace the basic "Last Write Wins" (LWW) strategy with Conflict-free Replicated Data Types (CRDTs) for the KV store and thoughts. This ensures better consistency in distributed environments.
+- [ ] **Vector Clocks**: Implement vector clocks to order events more accurately than wall-clock timestamps.
+
+## 3. Security & Authentication
+- [ ] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
+- [ ] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
+- [ ] **Message Encryption**: Ensure all P2P traffic is encrypted (Hyperswarm does this by default, but application-level encryption for sensitive payloads might be needed).
+
+## 4. Observability & Tooling
+- [ ] **Swarm Dashboard**: A web-based visualizer (React/Next.js) to see connected nodes, active locks (Batons), and the stream of thoughts in real-time.
+- [ ] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
+
+## 5. Advanced Architect Features
+- [ ] **Provider Agnosticism**: Abstract the `Architect` class to support Anthropic (Claude), Google (Gemini), and local LLMs (Ollama) in addition to OpenAI.
+- [ ] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
+
+## 6. Testing & CI/CD
+- [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
+- [ ] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
