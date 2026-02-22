@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: jules-review-${{ github.event.issue.number || 'sweep' }}
+  group: jules-review
   cancel-in-progress: false
 
 jobs:
@@ -92,10 +92,10 @@ jobs:
           echo "Daily Jules task limit: $LIMIT"
 
           # Count issues that actually received the 'jules' label in the last 24h.
-          # We query all open issues with the 'jules' label and then check the
-          # timeline of each to find when the label was applied.
+          # We query ALL issues (open + closed) so that issues assigned and then
+          # closed within 24h still count toward the quota.
           SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
-          JULES_ISSUES=$(gh api "/repos/$REPO/issues?labels=jules&state=open&per_page=100" --jq '.[].number')
+          JULES_ISSUES=$(gh api "/repos/$REPO/issues?labels=jules&state=all&per_page=100" --jq '.[].number')
           ASSIGNED_TODAY=0
           for JNUM in $JULES_ISSUES; do
             LABELED_AT=$(gh api "/repos/$REPO/issues/$JNUM/timeline" \

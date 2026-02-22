@@ -28,25 +28,31 @@ for file in "${STAGED_FILES[@]}"; do
     continue
   fi
 
-  tmp_file="$(mktemp)"
+  # Operate on the STAGED content only to avoid collapsing partial staging.
+  staged_content="$(mktemp)"
+  fixed_content="$(mktemp)"
+
+  git show ":$file" > "$staged_content"
 
   # Strip trailing spaces/tabs on each line and normalize missing EOF newline.
-  awk '{ sub(/[ \t]+$/, ""); print }' "$file" > "$tmp_file"
-  if [ -s "$file" ] && [ "$(tail -c 1 "$tmp_file" | wc -l)" -eq 0 ]; then
-    printf '\n' >> "$tmp_file"
+  awk '{ sub(/[ \t]+$/, ""); print }' "$staged_content" > "$fixed_content"
+  if [ -s "$fixed_content" ] && [ "$(tail -c 1 "$fixed_content" | wc -l)" -eq 0 ]; then
+    printf '\n' >> "$fixed_content"
   fi
 
-  if ! cmp -s "$file" "$tmp_file"; then
-    cat "$tmp_file" > "$file"
-    git add "$file"
+  if ! cmp -s "$staged_content" "$fixed_content"; then
+    # Write the fixed content back into the index without touching the working tree.
+    BLOB_HASH=$(git hash-object -w "$fixed_content")
+    FILE_MODE=$(git ls-files -s "$file" | awk '{print $1}')
+    git update-index --cacheinfo "$FILE_MODE,$BLOB_HASH,$file"
     UPDATED=1
   fi
 
-  rm -f "$tmp_file"
+  rm -f "$staged_content" "$fixed_content"
 done
 
 if [ "$UPDATED" -eq 1 ]; then
-  echo "pre-commit: normalized whitespace on staged files."
+  echo "pre-commit: normalized whitespace in staged content (working tree untouched)."
 fi
 
 CHECK_OUTPUT="$(git diff --cached --check || true)"

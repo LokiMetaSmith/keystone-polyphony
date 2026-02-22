@@ -23,7 +23,7 @@ Install hooks:
 
 Current hook coverage:
 
-1. `pre-commit` strips trailing spaces/tabs from staged text files (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`).
+1. `pre-commit` strips trailing spaces/tabs from **staged content only** (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`) — the working tree is never touched, so partial staging is safe.
 2. `pre-commit` normalizes missing EOF newline for those files.
 3. `pre-commit` runs `git diff --cached --check` and blocks commits if unresolved whitespace issues remain.
 
