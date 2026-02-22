@@ -91,15 +91,19 @@ jobs:
           fi
           echo "Daily Jules task limit: $LIMIT"
 
-          # Count issues that received the 'jules' label in the last 24h.
-          # We use 'updated' + 'label' to approximate label-assignment time,
-          # since GitHub search doesn't support filtering by label-event time.
+          # Count issues that actually received the 'jules' label in the last 24h.
+          # We query all open issues with the 'jules' label and then check the
+          # timeline of each to find when the label was applied.
           SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
-          ASSIGNED_TODAY=$(gh api \
-            --method GET \
-            /search/issues \
-            -f q="repo:$REPO label:jules updated:>=$SINCE type:issue" \
-            --jq '.total_count')
+          JULES_ISSUES=$(gh api "/repos/$REPO/issues?labels=jules&state=open&per_page=100" --jq '.[].number')
+          ASSIGNED_TODAY=0
+          for JNUM in $JULES_ISSUES; do
+            LABELED_AT=$(gh api "/repos/$REPO/issues/$JNUM/timeline" \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "jules")] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then
+              ASSIGNED_TODAY=$((ASSIGNED_TODAY + 1))
+            fi
+          done
           echo "Issues assigned to Jules in last 24h: $ASSIGNED_TODAY / $LIMIT"
 
           REMAINING=$((LIMIT - ASSIGNED_TODAY))
@@ -128,19 +132,19 @@ jobs:
             EXISTING=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
               --jq '[.[] | select(.body | contains("jules-review-instructions"))] | length')
             if [ "$EXISTING" -eq 0 ]; then
-              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "<!-- jules-review-instructions -->
-## 🤖 Jules Review Requested
+              COMMENT_BODY='<!-- jules-review-instructions -->
+          ## 🤖 Jules Review Requested
 
-@Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
+          @Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
 
-1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
-2. **BDD Feature File** — Does this issue include a complete Cucumber BDD \`.feature\` file? Is it reviewed for completeness?
-3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
+          1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
+          2. **BDD Feature File** — Does this issue include a complete Cucumber BDD `.feature` file? Is it reviewed for completeness?
+          3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
 
-Once your review is complete, please:
-- Remove the \`pre-review\` label
-- Add the \`reviewed\` and \`ready for work\` labels
-"
+          Once your review is complete, please:
+          - Remove the `pre-review` label
+          - Add the `reviewed` and `ready for work` labels'
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$COMMENT_BODY"
             fi
 
             PROCESSED=$((PROCESSED + 1))

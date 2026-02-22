@@ -46,7 +46,7 @@ graph TD
 ```
 
 ### 3. Publish Agent Issues
-**Trigger:** `push` modifying `.github/issues/*.md`.
+**Trigger:** `push` modifying `.github/issues/*.md`, `workflow_call`, or `workflow_dispatch`.
 **File:** `agent-issues.yml`
 
 This workflow handles automated issue generation by AI agents. When markdown files are pushed to `.github/issues/`, this action parses them, translates them into actual GitHub Issues on the upstream repository, and applies the `pre-review` label to signal that the issue needs triage.

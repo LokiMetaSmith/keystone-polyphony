@@ -5,12 +5,29 @@ This guide is the fastest path to making useful contributions.
 ## Quick Start
 
 1. Fork the repository.
-2. Create a branch from `main`.
-3. If you run autonomous agents, complete the token setup in `Agentic Default Flow` before launching them.
-4. Make your changes and run relevant checks locally.
-5. Open a pull request to `niklas-olsson/keystone-polyphony:main` or let the agentic workflow open it.
+2. Run `./scripts/install-hooks.sh` once per clone to install local git hooks.
+3. Create a branch from `main`.
+4. If you run autonomous agents, complete the token setup in `Agentic Default Flow` before launching them.
+5. Make your changes and run relevant checks locally.
+6. Open a pull request to `niklas-olsson/keystone-polyphony:main` or let the agentic workflow open it.
 
 Manual PRs are always supported and require no token setup.
+
+## Local Hooks (Recommended)
+
+Install hooks:
+
+```bash
+./scripts/install-hooks.sh
+```
+
+Current hook coverage:
+
+1. `pre-commit` strips trailing spaces/tabs from staged text files (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`).
+2. `pre-commit` normalizes missing EOF newline for those files.
+3. `pre-commit` runs `git diff --cached --check` and blocks commits if unresolved whitespace issues remain.
+
+Prerequisites checked by the installer: `git`, `awk`, `mktemp`, `cmp`, `tail`.
 
 ## Agentic Default Flow (Required For Autonomous Runs)
 

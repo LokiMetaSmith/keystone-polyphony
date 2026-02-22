@@ -47,10 +47,11 @@ You do not need to be a programmer to contribute.
 ## How To Contribute
 
 1. Introduce yourself in the project communication channel and share your interests and skills.
-2. Review open issues, discussions, and current priorities.
-3. Claim a task ("pick up the baton") before starting implementation.
-4. Ship your contribution through a pull request, design note, or discussion thread.
-5. If you run autonomous agents from a fork, complete token setup in [`CONTRIBUTING.md`](CONTRIBUTING.md) before launching workflows.
+2. Run `./scripts/install-hooks.sh` once per clone to install local commit hooks.
+3. Review open issues, discussions, and current priorities.
+4. Claim a task ("pick up the baton") before starting implementation.
+5. Ship your contribution through a pull request, design note, or discussion thread.
+6. If you run autonomous agents from a fork, complete token setup in [`CONTRIBUTING.md`](CONTRIBUTING.md) before launching workflows.
 
 ## Current Focus
 
