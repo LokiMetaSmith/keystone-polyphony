@@ -20,15 +20,15 @@ graph TD
     E --> F[Push staging to remote]
 ```
 
-### 2. Hourly Merge to Main
-**Trigger:** `schedule` (cron) or `workflow_dispatch`.
+### 2. Periodic Merge to Main
+**Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
 **File:** `hourly-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
 ```mermaid
 graph TD
-    A[Hourly Cron or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A[Every 20 min or Manual Dispatch] --> B[detect-staging: Check for changes]
     A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))
@@ -65,25 +65,10 @@ graph TD
     I --> J[Commit file removal & Push]
 ```
 
-### 4. Jules Issue Reviewer
-**Trigger:** `issues` (labeled) or `workflow_dispatch`.
-**File:** `jules-issue-reviewer.yml`
+> [!NOTE]
+> **Issue Reviewer (planned rework):** The previous Jules-specific reviewer workflow has been removed. A new agent-agnostic triage pipeline that refines issues *before* publishing is tracked as a separate issue.
 
-When an issue is labeled with `pre-review`, this workflow checks the rolling 24h quota (`JULES_DAILY_TASKS` repo variable) and, if slots remain, applies the `jules` label and posts review instructions. Over-quota issues receive a `quota-hold` label and are retried automatically by the hourly sweep.
-
-```mermaid
-graph TD
-    A[Issue labeled / workflow_dispatch sweep] --> B{Has 'pre-review' label?}
-    B -- No --> Skip((Skip))
-    B -- Yes --> C{Already has 'jules'?}
-    C -- Yes --> Skip
-    C -- No --> D{Under daily quota?}
-    D -- No --> E[Apply 'quota-hold' label]
-    D -- Yes --> F[Apply 'jules' label]
-    F --> G[Post review instructions]
-```
-
-### 5. Label Contributors
+### 4. Label Contributors
 **Trigger:** `pull_request` (closed).
 **File:** `add-contributors.yml`
 
@@ -105,21 +90,14 @@ graph TD
 
 ## Issue Lifecycle
 
-All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` repository variable (rolling 24h window).
+Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation. A planned agent-agnostic triage pipeline will refine issues before they are published, replacing the previous post-publish review step.
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> jules : Under quota — reviewer assigns
-    pre_review --> quota_hold : Over quota — held for retry
-    quota_hold --> jules : Hourly sweep retries
-    jules --> reviewed : Jules completes review
-    reviewed --> ready_for_work : Final approval
+    pre_review --> ready_for_work : Triage pipeline refines & approves
     ready_for_work --> [*] : Work begins
 
     pre_review : 🟡 pre-review
-    quota_hold : ⏳ quota-hold
-    jules : 🟣 jules
-    reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
 ```
