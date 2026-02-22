@@ -137,3 +137,76 @@ jobs:
           git checkout -B main origin/main
           git merge "${{ needs.detect-staging.outputs.staging_sha }}" --no-edit --no-ff
           git push origin main
+
+  create-upstream-pr:
+    needs: merge-to-main
+    if: needs.merge-to-main.result == 'success' && github.repository != 'niklas-olsson/keystone-polyphony'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      UPSTREAM_REPO: niklas-olsson/keystone-polyphony
+      BASE_BRANCH: main
+      FORK_OWNER: ${{ github.repository_owner }}
+      HEAD_BRANCH: ${{ github.repository_owner }}:main
+      GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check token availability
+        id: auth
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping upstream PR creation. Set secret UPSTREAM_PR_TOKEN with permission to open PRs on $UPSTREAM_REPO."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create upstream PR from tested main
+        if: steps.auth.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          gh api "repos/$UPSTREAM_REPO" >/dev/null
+
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch origin "$BASE_BRANCH"
+          git fetch upstream "$BASE_BRANCH"
+          git checkout -B "$BASE_BRANCH" "origin/$BASE_BRANCH"
+
+          # Ensure fork main includes latest upstream main before opening a PR.
+          if ! git merge-base --is-ancestor "upstream/$BASE_BRANCH" HEAD; then
+            echo "::notice::Fork main must be synced with upstream/$BASE_BRANCH before upstream PR creation."
+            echo "::notice::Pull/merge upstream/$BASE_BRANCH into your fork main, resolve conflicts, and rerun."
+            exit 0
+          fi
+
+          AHEAD=$(git rev-list --count "upstream/$BASE_BRANCH..HEAD")
+          if [ "$AHEAD" -eq "0" ]; then
+            echo "No new commits to PR to upstream. Skipping."
+            exit 0
+          fi
+
+          EXISTING_PR=$(gh pr list \
+            --repo "$UPSTREAM_REPO" \
+            --head "$HEAD_BRANCH" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number -q '.[0].number')
+
+          if [ "$EXISTING_PR" != "null" ] && [ -n "$EXISTING_PR" ]; then
+            echo "An open PR to upstream already exists (#$EXISTING_PR)."
+            exit 0
+          fi
+
+          echo "Creating upstream PR from tested fork main..."
+          gh pr create \
+            --repo "$UPSTREAM_REPO" \
+            --title "Automated Submissions from fork (${FORK_OWNER})" \
+            --body "This automated PR contains changes promoted through the fork's tested staging-to-main pipeline." \
+            --head "$HEAD_BRANCH" \
+            --base "$BASE_BRANCH"
