@@ -53,7 +53,14 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 | `HOURLY_TEST_COMMAND` | The shell command run during hourly staging tests | `npm test` (if `package.json` exists) |
 | `JULES_DAILY_TASKS` | Max issues assigned to Jules per rolling 24h window | No limit (0 or unset) |
 
-Set these in **Settings → Secrets and variables → Actions → Variables**.
+Additional quota variables can be defined in `.github/reviewers.yml` for other reviewers. Set these in **Settings → Secrets and variables → Actions → Variables**.
+
+### Configuring Reviewers
+
+Reviewers (agents or humans) are managed in `.github/reviewers.yml`. To add a new reviewer:
+
+1. Add an entry to the `reviewers` list with `name`, `handle` (GitHub @handle), `label` (to be applied to issues), and `quota_var` (name of the repository variable controlling their daily quota).
+2. (Optional) Set the corresponding repository variable in GitHub Settings to limit their daily task load.
 
 ## Upstream Sync Requirement (Before Upstream PR)
 

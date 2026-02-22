@@ -65,22 +65,23 @@ graph TD
     I --> J[Commit file removal & Push]
 ```
 
-### 4. Jules Issue Reviewer
+### 4. Issue Reviewer
 **Trigger:** `issues` (labeled) or `workflow_dispatch`.
-**File:** `jules-issue-reviewer.yml`
+**File:** `issue-reviewer.yml`
 
-When an issue is labeled with `pre-review`, this workflow checks the rolling 24h quota (`JULES_DAILY_TASKS` repo variable) and, if slots remain, applies the `jules` label and posts review instructions. Over-quota issues receive a `quota-hold` label and are retried automatically by the hourly sweep.
+When an issue is labeled with `pre-review`, this workflow assigns it to a reviewer (AI agent or human) defined in `.github/reviewers.yml`. It uses a round-robin strategy based on the issue number and checks per-reviewer rolling 24h quotas (defined as repository variables). Over-quota issues receive a `quota-hold` label and are retried automatically.
 
 ```mermaid
 graph TD
     A[Issue labeled / workflow_dispatch sweep] --> B{Has 'pre-review' label?}
     B -- No --> Skip((Skip))
-    B -- Yes --> C{Already has 'jules'?}
+    B -- Yes --> C{Already has a reviewer?}
     C -- Yes --> Skip
-    C -- No --> D{Under daily quota?}
-    D -- No --> E[Apply 'quota-hold' label]
-    D -- Yes --> F[Apply 'jules' label]
-    F --> G[Post review instructions]
+    C -- No --> D[Assign Reviewer Round-Robin]
+    D --> E{Under reviewer quota?}
+    E -- No --> F[Apply 'quota-hold' label]
+    E -- Yes --> G[Apply Reviewer label]
+    G --> H[Post review instructions]
 ```
 
 ### 5. Label Contributors
@@ -105,21 +106,21 @@ graph TD
 
 ## Issue Lifecycle
 
-All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` repository variable (rolling 24h window).
+All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by repository variables (rolling 24h window), with variable names defined per-reviewer in `.github/reviewers.yml`.
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> jules : Under quota — reviewer assigns
+    pre_review --> reviewer_assigned : Under quota — reviewer assigns
     pre_review --> quota_hold : Over quota — held for retry
-    quota_hold --> jules : Hourly sweep retries
-    jules --> reviewed : Jules completes review
+    quota_hold --> reviewer_assigned : Hourly sweep retries
+    reviewer_assigned --> reviewed : Reviewer completes review
     reviewed --> ready_for_work : Final approval
     ready_for_work --> [*] : Work begins
 
     pre_review : 🟡 pre-review
     quota_hold : ⏳ quota-hold
-    jules : 🟣 jules
+    reviewer_assigned : 🟣 [reviewer label]
     reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
 ```
