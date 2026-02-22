@@ -20,15 +20,15 @@ graph TD
     E --> F[Push staging to remote]
 ```
 
-### 2. Hourly Merge to Main
-**Trigger:** `schedule` (cron) or `workflow_dispatch`.
+### 2. Periodic Merge to Main
+**Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
 **File:** `hourly-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
 ```mermaid
 graph TD
-    A[Hourly Cron or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A[Every 20 min or Manual Dispatch] --> B[detect-staging: Check for changes]
     A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))
@@ -131,12 +131,12 @@ stateDiagram-v2
     [*] --> pre_review : Agent creates issue
     pre_review --> reviewer_assigned : Under quota — reviewer assigns
     pre_review --> quota_hold : Over quota — held for retry
-    quota_hold --> reviewer_assigned : Hourly sweep retries
+    quota_hold --> reviewer_assigned : Periodic sweep retries
     reviewer_assigned --> reviewed : Reviewer completes review
     reviewed --> ready_for_work : Final approval
     ready_for_work --> agent_working : Under quota — agent assigned
     ready_for_work --> quota_hold : Over quota — held for retry
-    quota_hold --> agent_working : Hourly sweep retries
+    quota_hold --> agent_working : Periodic sweep retries
     agent_working --> agent_failed : Agent failed
     agent_working --> agent_pr : Agent opened PR
     agent_pr --> [*] : PR merged
