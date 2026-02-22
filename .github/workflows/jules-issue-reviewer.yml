@@ -10,7 +10,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: jules-review-issue-${{ github.event.issue.number || 'sweep' }}
+  group: jules-review-${{ github.event.issue.number || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
           # For workflow_dispatch (sweep), find all pre-review issues missing jules.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ISSUES=$(gh api "/repos/$REPO/issues?labels=pre-review&state=open&per_page=100" \
-              --jq '[.[] | select(.labels | map(.name) | index("jules") | not)] | .[].number')
+              --jq '[.[] | select(.labels | map(.name) | index("jules") | not)] | [.[].number] | join(" ")')
           else
             NUM="${{ github.event.issue.number }}"
             # Check if already has jules
@@ -75,6 +75,7 @@ jobs:
             echo "issues=" >> "$GITHUB_OUTPUT"
           else
             echo "Eligible issues: $ISSUES"
+            # Single-line space-delimited output — safe for GITHUB_OUTPUT
             echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
           fi
 
@@ -83,15 +84,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          LIMIT="${JULES_DAILY_TASKS:-999}"
+          LIMIT="${JULES_DAILY_TASKS:-0}"
+          if [ "$LIMIT" -eq 0 ]; then
+            echo "JULES_DAILY_TASKS not set or 0. No quota limit enforced."
+            LIMIT=999999
+          fi
           echo "Daily Jules task limit: $LIMIT"
 
-          # Count issues labeled 'jules' in the last 24 hours (rolling window)
+          # Count issues that received the 'jules' label in the last 24h.
+          # We use 'updated' + 'label' to approximate label-assignment time,
+          # since GitHub search doesn't support filtering by label-event time.
           SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
           ASSIGNED_TODAY=$(gh api \
             --method GET \
             /search/issues \
-            -f q="repo:$REPO label:jules created:>=$SINCE type:issue" \
+            -f q="repo:$REPO label:jules updated:>=$SINCE type:issue" \
             --jq '.total_count')
           echo "Issues assigned to Jules in last 24h: $ASSIGNED_TODAY / $LIMIT"
 
@@ -105,7 +112,6 @@ jobs:
           for ISSUE_NUMBER in ${{ steps.collect.outputs.issues }}; do
             if [ "$PROCESSED" -ge "$REMAINING" ]; then
               echo "Quota reached. Holding issue #$ISSUE_NUMBER for next cycle."
-              # Add quota-hold label so it's easy to track
               gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "quota-hold" 2>/dev/null || true
               continue
             fi
@@ -123,18 +129,18 @@ jobs:
               --jq '[.[] | select(.body | contains("jules-review-instructions"))] | length')
             if [ "$EXISTING" -eq 0 ]; then
               gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "<!-- jules-review-instructions -->
-          ## 🤖 Jules Review Requested
+## 🤖 Jules Review Requested
 
-          @Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
+@Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
 
-          1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
-          2. **BDD Feature File** — Does this issue include a complete Cucumber BDD \`.feature\` file? Is it reviewed for completeness?
-          3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
+1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
+2. **BDD Feature File** — Does this issue include a complete Cucumber BDD \`.feature\` file? Is it reviewed for completeness?
+3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
 
-          Once your review is complete, please:
-          - Remove the \`pre-review\` label
-          - Add the \`reviewed\` and \`ready for work\` labels
-          "
+Once your review is complete, please:
+- Remove the \`pre-review\` label
+- Add the \`reviewed\` and \`ready for work\` labels
+"
             fi
 
             PROCESSED=$((PROCESSED + 1))

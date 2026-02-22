@@ -34,7 +34,7 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 | Variable | Purpose | Default |
 |---|---|---|
 | `HOURLY_TEST_COMMAND` | The shell command run during hourly staging tests | `npm test` (if `package.json` exists) |
-| `JULES_DAILY_TASKS` | Max issues assigned to Jules per rolling 24h window | Unlimited (no limit) |
+| `JULES_DAILY_TASKS` | Max issues assigned to Jules per rolling 24h window | No limit (0 or unset) |
 
 Set these in **Settings → Secrets and variables → Actions → Variables**.
 

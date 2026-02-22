@@ -6,7 +6,9 @@ on:
   workflow_dispatch: # Allow manual trigger for testing
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  actions: write
 
 concurrency:
   group: hourly-merge-main
@@ -241,17 +243,19 @@ jobs:
           fi
 
   publish-swept-issues:
-    needs: sweep-issues
-    if: needs.sweep-issues.outputs.found == 'true'
+    # Serialized after merge-to-main chain to avoid concurrent pushes to main.
+    needs: [sweep-issues, create-upstream-pr]
+    if: always() && needs.sweep-issues.outputs.found == 'true'
     uses: ./.github/workflows/agent-issues.yml
     secrets: inherit
 
   retry-jules-queue:
     # Retry any pre-review issues that haven't been assigned to Jules yet
     # (e.g., because the daily quota was reached in a previous cycle).
+    # Runs after publish-swept-issues to give new issues time to land.
+    needs: publish-swept-issues
+    if: always()
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
     steps:
       - name: Trigger Jules reviewer sweep
         env:

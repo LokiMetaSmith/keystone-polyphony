@@ -102,12 +102,12 @@ jobs:
                 --title "Agent Discovery: $TITLE" \
                 --body-file .github_issues_body_enriched.txt \
                 --label "pre-review")
-              
+
               # Log discovery for historical record and to ensure PR diff remains mergeable
               ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
               DATE=$(date +%Y-%m-%d)
               AUTHOR="${GITHUB_ACTOR}"
-              
+
               mkdir -p meta
               if [ ! -f meta/DISCOVERIES.md ]; then
                 echo "# Discovery Log" > meta/DISCOVERIES.md

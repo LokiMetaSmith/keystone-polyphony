@@ -123,4 +123,3 @@ stateDiagram-v2
     reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
 ```
-
