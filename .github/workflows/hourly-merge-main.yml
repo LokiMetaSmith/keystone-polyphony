@@ -1,14 +1,13 @@
-name: Hourly Test and Merge to Main
+name: Periodic Test and Merge to Main
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch: # Allow manual trigger for testing
 
 permissions:
   contents: write
   issues: write
-  actions: write
 
 concurrency:
   group: hourly-merge-main
@@ -33,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main staging || git fetch origin main
-          
+
           # Check if staging branch exists on remote
           if ! git show-ref --verify --quiet refs/remotes/origin/staging; then
             echo "Staging branch does not exist on origin. Skipping."
@@ -45,7 +44,7 @@ jobs:
           STAGING_SHA=$(git rev-parse origin/staging)
           echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
           echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
-          
+
           # Check if staging has new commits compared to main
           AHEAD=$(git rev-list --count origin/main..origin/staging)
           if [ "$AHEAD" -eq "0" ]; then
@@ -129,7 +128,7 @@ jobs:
           CURRENT_STAGING_SHA=$(git rev-parse origin/staging)
           TESTED_STAGING_SHA="${{ needs.detect-staging.outputs.staging_sha }}"
           if [ "$CURRENT_STAGING_SHA" != "$TESTED_STAGING_SHA" ]; then
-            echo "::error::Staging changed after tests. Wait for next hourly run."
+            echo "::error::Staging changed after tests. Wait for next cycle."
             exit 1
           fi
 
@@ -248,4 +247,3 @@ jobs:
     if: always() && needs.sweep-issues.outputs.found == 'true'
     uses: ./.github/workflows/agent-issues.yml
     secrets: inherit
-
