@@ -120,6 +120,23 @@ graph TD
     E -- Yes --> G
 ```
 
+### 7. Daily Issue Close Sweep
+**Trigger:** `schedule` (daily) or `workflow_dispatch`.
+**File:** `daily-close-merged-issues.yml`
+
+This workflow closes stale open issues that are already resolved by merged PRs when native GitHub auto-close did not fire. To prevent false positives, it only closes issues that appear in GitHub's own `closingIssuesReferences` for merged PRs, only for allowed base branches (`ISSUE_CLOSER_ALLOWED_BASE_REFS`, default: `main,staging`), only when the target is still an open issue in the same repository, and skips issues that were manually reopened after the PR merge.
+
+```mermaid
+graph TD
+    A[Daily Cron or Manual Dispatch] --> B[Search merged PRs in lookback window]
+    B --> C{PR base allowed?}
+    C -- No --> Skip1((Skip PR))
+    C -- Yes --> D[Read GitHub closingIssuesReferences]
+    D --> E{Referenced item is open same-repo issue?}
+    E -- No --> Skip2((Skip Item))
+    E -- Yes --> F[Close issue and add audit comment]
+```
+
 ---
 
 ## Issue Lifecycle

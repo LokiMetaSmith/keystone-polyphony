@@ -56,6 +56,8 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 | `AGENT_CLI_FLAGS` | Extra flags passed to the agent CLI | (empty) |
 | `AGENT_DAILY_TASKS` | Max issues attempted by agents per rolling 24h window | `5` |
 | `AGENT_MODEL` | Model identifier to pass to the agent | (empty) |
+| `ISSUE_CLOSER_LOOKBACK_DAYS` | Rolling window (days) scanned for merged PRs in the daily issue-close sweep | `30` |
+| `ISSUE_CLOSER_ALLOWED_BASE_REFS` | Comma-separated PR base branches allowed to trigger auto-close | `main,staging` |
 
 Set variables in **Settings → Secrets and variables → Actions → Variables**. Additional quota variables can be defined in `.github/reviewers.yml` for other reviewers.
 

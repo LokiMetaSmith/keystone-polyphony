@@ -1,0 +1,191 @@
+name: Daily Close Issues From Merged PRs
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: daily-close-merged-issues
+  cancel-in-progress: false
+
+jobs:
+  close-merged-issues:
+    if: github.repository == 'niklas-olsson/keystone-polyphony'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      ISSUE_CLOSER_LOOKBACK_DAYS: ${{ vars.ISSUE_CLOSER_LOOKBACK_DAYS || 30 }}
+      ISSUE_CLOSER_ALLOWED_BASE_REFS: ${{ vars.ISSUE_CLOSER_ALLOWED_BASE_REFS || 'main,staging' }}
+    steps:
+      - name: Close open issues with merged PR closing references
+        run: |
+          set -euo pipefail
+
+          LOOKBACK_DAYS="${ISSUE_CLOSER_LOOKBACK_DAYS:-30}"
+          if ! [[ "$LOOKBACK_DAYS" =~ ^[0-9]+$ ]] || [ "$LOOKBACK_DAYS" -lt 1 ]; then
+            echo "::error::ISSUE_CLOSER_LOOKBACK_DAYS must be a positive integer. Received: '$LOOKBACK_DAYS'."
+            exit 1
+          fi
+
+          declare -A ALLOWED_BASES=()
+          IFS=',' read -r -a BASE_REFS <<< "${ISSUE_CLOSER_ALLOWED_BASE_REFS:-main,staging}"
+          for base in "${BASE_REFS[@]}"; do
+            base="${base//[[:space:]]/}"
+            if [ -n "$base" ]; then
+              ALLOWED_BASES["$base"]=1
+            fi
+          done
+
+          if [ "${#ALLOWED_BASES[@]}" -eq 0 ]; then
+            echo "::error::ISSUE_CLOSER_ALLOWED_BASE_REFS resolved to an empty set."
+            exit 1
+          fi
+
+          SINCE_DATE=$(date -u -d "$LOOKBACK_DAYS days ago" +%Y-%m-%d 2>/dev/null || date -u -v-"$LOOKBACK_DAYS"d +%Y-%m-%d)
+          SEARCH_QUERY="repo:${REPO} is:pr is:merged merged:>=${SINCE_DATE} sort:updated-desc"
+
+          echo "Repository: ${REPO}"
+          echo "Lookback days: ${LOOKBACK_DAYS} (since ${SINCE_DATE})"
+          echo "Allowed base refs: ${!ALLOWED_BASES[*]}"
+          echo "Search query: ${SEARCH_QUERY}"
+
+          QUERY=$(cat <<'GRAPHQL'
+          query($search_query: String!, $cursor: String) {
+            search(type: ISSUE, query: $search_query, first: 50, after: $cursor) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              nodes {
+                ... on PullRequest {
+                  number
+                  url
+                  mergedAt
+                  baseRefName
+                  closingIssuesReferences(first: 100) {
+                    totalCount
+                    nodes {
+                      number
+                      state
+                      repository {
+                        nameWithOwner
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          GRAPHQL
+          )
+
+          declare -A SEEN_ISSUES=()
+          CLOSED_ISSUES=0
+          SKIPPED_ISSUES=0
+          SCANNED_PRS=0
+          CANDIDATE_PRS=0
+          CURSOR=""
+
+          while :; do
+            if [ -n "$CURSOR" ]; then
+              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY" -f cursor="$CURSOR")
+            else
+              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY")
+            fi
+
+            mapfile -t PR_ROWS < <(echo "$RESPONSE" | jq -r '.data.search.nodes[]? | select(.number != null) | @base64')
+            for pr_b64 in "${PR_ROWS[@]}"; do
+              PR_JSON=$(echo "$pr_b64" | base64 --decode)
+              PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+              PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+              PR_BASE=$(echo "$PR_JSON" | jq -r '.baseRefName')
+              PR_MERGED_AT=$(echo "$PR_JSON" | jq -r '.mergedAt')
+
+              SCANNED_PRS=$((SCANNED_PRS + 1))
+
+              if [ "$PR_MERGED_AT" = "null" ] || [ -z "$PR_MERGED_AT" ]; then
+                echo "Skipping PR #$PR_NUMBER: not merged."
+                continue
+              fi
+
+              if [ -z "${ALLOWED_BASES[$PR_BASE]:-}" ]; then
+                echo "Skipping PR #$PR_NUMBER: base '$PR_BASE' is not allowed."
+                continue
+              fi
+
+              mapfile -t ISSUE_NUMBERS < <(echo "$PR_JSON" | jq -r --arg repo "$REPO" '.closingIssuesReferences.nodes[]? | select(.repository.nameWithOwner == $repo and .state == "OPEN") | .number')
+              if [ "${#ISSUE_NUMBERS[@]}" -eq 0 ]; then
+                continue
+              fi
+
+              CANDIDATE_PRS=$((CANDIDATE_PRS + 1))
+              echo "PR #$PR_NUMBER ($PR_URL) has open closing references: ${ISSUE_NUMBERS[*]}"
+
+              for ISSUE_NUMBER in "${ISSUE_NUMBERS[@]}"; do
+                if [ -n "${SEEN_ISSUES[$ISSUE_NUMBER]:-}" ]; then
+                  echo "Skipping issue #$ISSUE_NUMBER: already processed in this run."
+                  continue
+                fi
+                SEEN_ISSUES["$ISSUE_NUMBER"]=1
+
+                ISSUE_JSON=$(gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}")
+                ISSUE_STATE=$(echo "$ISSUE_JSON" | jq -r '.state')
+                ISSUE_IS_PR=$(echo "$ISSUE_JSON" | jq -r 'has("pull_request")')
+
+                if [ "$ISSUE_IS_PR" = "true" ]; then
+                  echo "Skipping #$ISSUE_NUMBER: endpoint returned a PR, not an issue."
+                  SKIPPED_ISSUES=$((SKIPPED_ISSUES + 1))
+                  continue
+                fi
+
+                if [ "$ISSUE_STATE" != "open" ]; then
+                  echo "Skipping #$ISSUE_NUMBER: state is '$ISSUE_STATE'."
+                  SKIPPED_ISSUES=$((SKIPPED_ISSUES + 1))
+                  continue
+                fi
+
+                REOPENED_AFTER_MERGE=$(gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}/timeline" \
+                  -H "Accept: application/vnd.github+json" \
+                  --jq --arg merged "$PR_MERGED_AT" '[.[] | select(.event == "reopened" and .created_at > $merged)] | length')
+                if [ "$REOPENED_AFTER_MERGE" -gt 0 ]; then
+                  echo "Skipping #$ISSUE_NUMBER: issue was reopened after PR #$PR_NUMBER merged."
+                  SKIPPED_ISSUES=$((SKIPPED_ISSUES + 1))
+                  continue
+                fi
+
+                COMMENT_BODY=$(cat <<EOF
+          <!-- issue-auto-close-sweep -->
+          Closing automatically because merged PR #${PR_NUMBER} (${PR_URL}) references this issue using a GitHub closing keyword.
+
+          If this closure is unexpected, reopen the issue and remove or correct the closing reference in the PR metadata.
+          EOF
+                )
+
+                gh api --method PATCH "/repos/${REPO}/issues/${ISSUE_NUMBER}" -f state=closed >/dev/null
+                gh api --method POST "/repos/${REPO}/issues/${ISSUE_NUMBER}/comments" -f body="$COMMENT_BODY" >/dev/null
+
+                echo "Closed issue #$ISSUE_NUMBER via PR #$PR_NUMBER."
+                CLOSED_ISSUES=$((CLOSED_ISSUES + 1))
+              done
+            done
+
+            HAS_NEXT=$(echo "$RESPONSE" | jq -r '.data.search.pageInfo.hasNextPage')
+            CURSOR=$(echo "$RESPONSE" | jq -r '.data.search.pageInfo.endCursor // empty')
+            if [ "$HAS_NEXT" != "true" ]; then
+              break
+            fi
+          done
+
+          echo "Scan complete."
+          echo "Merged PRs scanned: $SCANNED_PRS"
+          echo "Merged PRs with open issue references: $CANDIDATE_PRS"
+          echo "Issues closed: $CLOSED_ISSUES"
+          echo "Issues skipped by safeguards: $SKIPPED_ISSUES"
