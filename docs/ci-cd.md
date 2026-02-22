@@ -94,6 +94,8 @@ graph TD
 
 Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation, then Jules (agent) picks up the issue and opens a PR. A planned agent-agnostic triage pipeline will replace this Jules-specific interim path.
 
+`JULES_DAILY_TASKS` remains the quota control for applying the `jules` label across Jules automation paths.
+
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
