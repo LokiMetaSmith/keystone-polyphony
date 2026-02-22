@@ -245,3 +245,31 @@ jobs:
     if: needs.sweep-issues.outputs.found == 'true'
     uses: ./.github/workflows/agent-issues.yml
     secrets: inherit
+
+  retry-jules-queue:
+    # Retry any pre-review issues that haven't been assigned to Jules yet
+    # (e.g., because the daily quota was reached in a previous cycle).
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger Jules reviewer sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Check if there are pre-review issues without the jules label
+          PENDING=$(gh api \
+            --method GET \
+            /search/issues \
+            -f q="repo:$REPO label:pre-review -label:jules type:issue state:open" \
+            --jq '.total_count')
+
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Found $PENDING pre-review issue(s) awaiting Jules. Triggering reviewer."
+            gh workflow run jules-issue-reviewer.yml --repo "$REPO"
+          else
+            echo "No pending pre-review issues. Skipping."
+          fi

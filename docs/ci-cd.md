@@ -66,22 +66,21 @@ graph TD
 ```
 
 ### 4. Jules Issue Reviewer
-**Trigger:** `issues` (labeled).
+**Trigger:** `issues` (labeled) or `workflow_dispatch`.
 **File:** `jules-issue-reviewer.yml`
 
-When an issue is labeled with `pre-review`, this workflow assigns it to Jules for review. It ensures all lifecycle labels exist, applies the `jules` label, and posts a structured review comment outlining the acceptance criteria. Idempotency guards prevent duplicate labels and comments.
+When an issue is labeled with `pre-review`, this workflow checks the rolling 24h quota (`JULES_DAILY_TASKS` repo variable) and, if slots remain, applies the `jules` label and posts review instructions. Over-quota issues receive a `quota-hold` label and are retried automatically by the hourly sweep.
 
 ```mermaid
 graph TD
-    A[Issue labeled] --> B{Has 'pre-review' label?}
+    A[Issue labeled / workflow_dispatch sweep] --> B{Has 'pre-review' label?}
     B -- No --> Skip((Skip))
-    B -- Yes --> C[Ensure lifecycle labels exist]
-    C --> D{Already has 'jules' label?}
-    D -- Yes --> Skip
-    D -- No --> E[Apply 'jules' label]
-    E --> F{Review comment already posted?}
-    F -- Yes --> Skip
-    F -- No --> G[Post review instructions for Jules]
+    B -- Yes --> C{Already has 'jules'?}
+    C -- Yes --> Skip
+    C -- No --> D{Under daily quota?}
+    D -- No --> E[Apply 'quota-hold' label]
+    D -- Yes --> F[Apply 'jules' label]
+    F --> G[Post review instructions]
 ```
 
 ### 5. Label Contributors
@@ -106,19 +105,22 @@ graph TD
 
 ## Issue Lifecycle
 
-All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist.
+All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` repository variable (rolling 24h window).
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> jules : Jules reviewer workflow assigns
+    pre_review --> jules : Under quota — reviewer assigns
+    pre_review --> quota_hold : Over quota — held for retry
+    quota_hold --> jules : Hourly sweep retries
     jules --> reviewed : Jules completes review
-    jules --> ready_for_work : Jules approves for implementation
     reviewed --> ready_for_work : Final approval
     ready_for_work --> [*] : Work begins
 
     pre_review : 🟡 pre-review
+    quota_hold : ⏳ quota-hold
     jules : 🟣 jules
     reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
 ```
+

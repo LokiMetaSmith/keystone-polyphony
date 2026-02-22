@@ -29,6 +29,15 @@ If you want autonomous agents to submit upstream PRs without manual intervention
 
 Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Tested promotion to your fork `main` still runs.
 
+### Repository Variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `HOURLY_TEST_COMMAND` | The shell command run during hourly staging tests | `npm test` (if `package.json` exists) |
+| `JULES_DAILY_TASKS` | Max issues assigned to Jules per rolling 24h window | Unlimited (no limit) |
+
+Set these in **Settings → Secrets and variables → Actions → Variables**.
+
 ## Upstream Sync Requirement (Before Upstream PR)
 
 Before opening (or auto-opening) a PR to upstream, sync your fork `main` with upstream `main` and resolve conflicts locally.
