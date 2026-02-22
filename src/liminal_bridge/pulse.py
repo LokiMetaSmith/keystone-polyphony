@@ -1,11 +1,14 @@
 import time
 import asyncio
 from typing import Any, Dict, Optional, Callable, Awaitable
-from .architect import Architect
-from .mesh import LiminalMesh
+
+try:
+    from .architect import Architect
+except ImportError:
+    from architect import Architect
 
 class Pulse:
-    def __init__(self, mesh: LiminalMesh, architect: Architect):
+    def __init__(self, mesh: Any, architect: Architect):
         self.mesh = mesh
         self.architect = architect
         self.last_consultation = 0.0

@@ -53,8 +53,11 @@ class LiminalMesh:
         """Stops the sidecar."""
         self.running = False
         if self.process:
-            self.process.terminate()
-            await self.process.wait()
+            try:
+                self.process.terminate()
+                await self.process.wait()
+            except ProcessLookupError:
+                pass  # Process already dead
 
     async def _read_stdout(self):
         """Reads JSON messages from the sidecar."""
