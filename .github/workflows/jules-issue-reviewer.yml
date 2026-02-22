@@ -1,0 +1,153 @@
+name: Jules Issue Reviewer
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: jules-review
+  cancel-in-progress: false
+
+jobs:
+  assign-jules-review:
+    # Only run on upstream and only when the issue has the pre-review label.
+    if: >-
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.issue.labels.*.name, 'pre-review'))
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      JULES_DAILY_TASKS: ${{ vars.JULES_DAILY_TASKS }}
+    steps:
+      - name: Ensure labels exist
+        run: |
+          set -euo pipefail
+
+          ensure_label() {
+            local NAME="$1" COLOR="$2" DESC="$3"
+            if ! gh api "/repos/$REPO/labels/$NAME" > /dev/null 2>&1; then
+              echo "Creating missing label: $NAME"
+              gh api \
+                --method POST \
+                "/repos/$REPO/labels" \
+                -f name="$NAME" \
+                -f color="$COLOR" \
+                -f description="$DESC"
+            fi
+          }
+
+          ensure_label "jules"          "5319E7" "Assigned to Jules for AI review"
+          ensure_label "reviewed"       "0E8A16" "Issue has been reviewed and approved"
+          ensure_label "ready for work" "006B75" "Issue is ready to be picked up"
+          ensure_label "quota-hold"     "D93F0B" "Waiting for daily Jules quota to reset"
+
+      - name: Collect eligible issues
+        id: collect
+        run: |
+          set -euo pipefail
+
+          # For labeled events, process only the triggering issue.
+          # For workflow_dispatch (sweep), find all pre-review issues missing jules.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ISSUES=$(gh api "/repos/$REPO/issues?labels=pre-review&state=open&per_page=100" \
+              --jq '[.[] | select(.labels | map(.name) | index("jules") | not)] | [.[].number] | join(" ")')
+          else
+            NUM="${{ github.event.issue.number }}"
+            # Check if already has jules
+            HAS_JULES=$(gh api "/repos/$REPO/issues/$NUM/labels" --jq '[.[].name] | index("jules") // empty')
+            if [ -n "$HAS_JULES" ]; then
+              echo "Issue #$NUM already has 'jules'. Skipping."
+              ISSUES=""
+            else
+              ISSUES="$NUM"
+            fi
+          fi
+
+          if [ -z "$ISSUES" ]; then
+            echo "No eligible issues to process."
+            echo "issues=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Eligible issues: $ISSUES"
+            # Single-line space-delimited output — safe for GITHUB_OUTPUT
+            echo "issues=$ISSUES" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check quota and assign Jules
+        if: steps.collect.outputs.issues != ''
+        run: |
+          set -euo pipefail
+
+          LIMIT="${JULES_DAILY_TASKS:-0}"
+          if [ "$LIMIT" -eq 0 ]; then
+            echo "JULES_DAILY_TASKS not set or 0. No quota limit enforced."
+            LIMIT=999999
+          fi
+          echo "Daily Jules task limit: $LIMIT"
+
+          # Count issues that actually received the 'jules' label in the last 24h.
+          # We query ALL issues (open + closed) so that issues assigned and then
+          # closed within 24h still count toward the quota.
+          SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+          JULES_ISSUES=$(gh api "/repos/$REPO/issues?labels=jules&state=all&per_page=100" --jq '.[].number')
+          ASSIGNED_TODAY=0
+          for JNUM in $JULES_ISSUES; do
+            LABELED_AT=$(gh api "/repos/$REPO/issues/$JNUM/timeline" \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "jules")] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then
+              ASSIGNED_TODAY=$((ASSIGNED_TODAY + 1))
+            fi
+          done
+          echo "Issues assigned to Jules in last 24h: $ASSIGNED_TODAY / $LIMIT"
+
+          REMAINING=$((LIMIT - ASSIGNED_TODAY))
+          if [ "$REMAINING" -le 0 ]; then
+            echo "::warning::Daily Jules quota reached ($ASSIGNED_TODAY/$LIMIT). Issues will be retried next hour."
+            REMAINING=0
+          fi
+
+          PROCESSED=0
+          for ISSUE_NUMBER in ${{ steps.collect.outputs.issues }}; do
+            if [ "$PROCESSED" -ge "$REMAINING" ]; then
+              echo "Quota reached. Holding issue #$ISSUE_NUMBER for next cycle."
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "quota-hold" 2>/dev/null || true
+              continue
+            fi
+
+            echo "Assigning Jules to issue #$ISSUE_NUMBER ($((PROCESSED + 1))/$REMAINING remaining)"
+
+            # Remove quota-hold if present from a previous cycle
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "quota-hold" 2>/dev/null || true
+
+            # Apply jules label
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "jules"
+
+            # Post review instructions (idempotent)
+            EXISTING=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
+              --jq '[.[] | select(.body | contains("jules-review-instructions"))] | length')
+            if [ "$EXISTING" -eq 0 ]; then
+              COMMENT_BODY='<!-- jules-review-instructions -->
+          ## 🤖 Jules Review Requested
+
+          @Jules — Please review this issue against the goals of **Keystone Polyphony** and ensure it meets the following acceptance criteria:
+
+          1. **Human Interaction Story** — Does this issue contain a clear narrative of how a human contributor will interact with the feature?
+          2. **BDD Feature File** — Does this issue include a complete Cucumber BDD `.feature` file? Is it reviewed for completeness?
+          3. **Self-Contained** — Is this issue self-contained? Are prerequisites explicitly listed and marked as blocking?
+
+          Once your review is complete, please:
+          - Remove the `pre-review` label
+          - Add the `reviewed` and `ready for work` labels'
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$COMMENT_BODY"
+            fi
+
+            PROCESSED=$((PROCESSED + 1))
+          done
+
+          echo "✅ Processed $PROCESSED issue(s). $((REMAINING - PROCESSED)) slot(s) remaining in quota."

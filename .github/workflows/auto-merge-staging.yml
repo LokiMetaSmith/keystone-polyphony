@@ -1,0 +1,48 @@
+name: Auto-merge PR to Staging
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-merge-staging
+  cancel-in-progress: false
+
+jobs:
+  merge-to-staging:
+    # Open-by-default policy: any non-draft PR to main can flow into staging.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Setup or checkout staging branch
+        run: |
+          git fetch origin main staging || git fetch origin main
+          # Use existing remote staging when available, otherwise initialize from main.
+          if git show-ref --verify --quiet refs/remotes/origin/staging; then
+            git checkout -B staging origin/staging
+          else
+            git checkout -B staging origin/main
+          fi
+
+      - name: Merge PR into staging
+        run: |
+          # Fetch the PR branch into a local ref
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
+          # Merge it into staging
+          git merge pr-branch --no-edit
+          # Push back to origin
+          git push origin staging

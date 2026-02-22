@@ -1,0 +1,45 @@
+name: Label Contributors
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  label-contributor:
+    # Only run on upstream when a PR is merged.
+    if: github.repository == 'niklas-olsson/keystone-polyphony' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label merged PR as CONTRIBUTOR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABEL_NAME: CONTRIBUTOR
+        run: |
+          set -euo pipefail
+
+          if [[ "$AUTHOR" == *"[bot]" ]]; then
+            echo "Author is a bot ($AUTHOR), skipping contributor label."
+            exit 0
+          fi
+
+          if ! gh api "/repos/$REPO/labels/$LABEL_NAME" >/dev/null 2>&1; then
+            echo "Creating missing label: $LABEL_NAME"
+            gh api \
+              --method POST \
+              "/repos/$REPO/labels" \
+              -f name="$LABEL_NAME" \
+              -f color="0E8A16" \
+              -f description="Merged contribution from community member"
+          fi
+
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL_NAME"
+          echo "Applied label '$LABEL_NAME' to merged PR #$PR_NUMBER by @$AUTHOR."

@@ -1,0 +1,279 @@
+name: Hourly Test and Merge to Main
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: hourly-merge-main
+  cancel-in-progress: false
+
+jobs:
+  detect-staging:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+      main_sha: ${{ steps.check.outputs.main_sha }}
+      staging_sha: ${{ steps.check.outputs.staging_sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for staging changes
+        id: check
+        run: |
+          set -euo pipefail
+          git fetch origin main staging || git fetch origin main
+          
+          # Check if staging branch exists on remote
+          if ! git show-ref --verify --quiet refs/remotes/origin/staging; then
+            echo "Staging branch does not exist on origin. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          MAIN_SHA=$(git rev-parse origin/main)
+          STAGING_SHA=$(git rev-parse origin/staging)
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
+          
+          # Check if staging has new commits compared to main
+          AHEAD=$(git rev-list --count origin/main..origin/staging)
+          if [ "$AHEAD" -eq "0" ]; then
+            echo "No new changes in staging. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes found. Proceeding with tests."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-staging:
+    needs: detect-staging
+    if: needs.detect-staging.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HOURLY_TEST_COMMAND: ${{ vars.HOURLY_TEST_COMMAND }}
+      HOURLY_TEST_IMAGE: ${{ vars.HOURLY_TEST_IMAGE }}
+    steps:
+      - name: Checkout staging snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-staging.outputs.staging_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare test command
+        id: prep
+        run: |
+          set -euo pipefail
+          if [ -n "${HOURLY_TEST_COMMAND:-}" ]; then
+            echo "command=$HOURLY_TEST_COMMAND" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -f package.json ]; then
+            echo "::notice::HOURLY_TEST_COMMAND not set. Falling back to 'npm test' in an isolated container."
+            echo "command=npm test" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::error::No test command configured. Set repository variable HOURLY_TEST_COMMAND."
+          exit 1
+
+      - name: Run Tests
+        env:
+          TEST_COMMAND: ${{ steps.prep.outputs.command }}
+        run: |
+          set -euo pipefail
+          echo "Running tests..."
+          IMAGE="${HOURLY_TEST_IMAGE:-node:20-bookworm}"
+          docker pull "$IMAGE"
+          docker run --rm --network none \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$IMAGE" \
+            bash -lc "$TEST_COMMAND"
+
+  merge-to-main:
+    needs: [detect-staging, test-staging]
+    if: needs.detect-staging.outputs.skip == 'false' && needs.test-staging.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Verify staging has not changed since tests
+        run: |
+          set -euo pipefail
+          git fetch origin main staging || git fetch origin main
+          CURRENT_STAGING_SHA=$(git rev-parse origin/staging)
+          TESTED_STAGING_SHA="${{ needs.detect-staging.outputs.staging_sha }}"
+          if [ "$CURRENT_STAGING_SHA" != "$TESTED_STAGING_SHA" ]; then
+            echo "::error::Staging changed after tests. Wait for next hourly run."
+            exit 1
+          fi
+
+      - name: Merge tested staging into main
+        run: |
+          set -euo pipefail
+          git checkout -B main origin/main
+          git merge "${{ needs.detect-staging.outputs.staging_sha }}" --ff-only
+          git push origin main
+
+  create-upstream-pr:
+    needs: merge-to-main
+    if: needs.merge-to-main.result == 'success' && github.repository != 'niklas-olsson/keystone-polyphony'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      UPSTREAM_REPO: niklas-olsson/keystone-polyphony
+      BASE_BRANCH: main
+      FORK_OWNER: ${{ github.repository_owner }}
+      HEAD_BRANCH: ${{ github.repository_owner }}:main
+      GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check token availability
+        id: auth
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping upstream PR creation. Set secret UPSTREAM_PR_TOKEN with permission to open PRs on $UPSTREAM_REPO."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create upstream PR from tested main
+        if: steps.auth.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          gh api "repos/$UPSTREAM_REPO" >/dev/null
+
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch origin "$BASE_BRANCH"
+          git fetch upstream "$BASE_BRANCH"
+          git checkout -B "$BASE_BRANCH" "origin/$BASE_BRANCH"
+
+          # Ensure fork main includes latest upstream main before opening a PR.
+          if ! git merge-base --is-ancestor "upstream/$BASE_BRANCH" HEAD; then
+            echo "::notice::Fork main must be synced with upstream/$BASE_BRANCH before upstream PR creation."
+            echo "::notice::Pull/merge upstream/$BASE_BRANCH into your fork main, resolve conflicts, and rerun."
+            exit 0
+          fi
+
+          AHEAD=$(git rev-list --count "upstream/$BASE_BRANCH..HEAD")
+          if [ "$AHEAD" -eq "0" ]; then
+            echo "No new commits to PR to upstream. Skipping."
+            exit 0
+          fi
+
+          EXISTING_PR=$(gh pr list \
+            --repo "$UPSTREAM_REPO" \
+            --head "$HEAD_BRANCH" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number -q '.[0].number')
+
+          if [ "$EXISTING_PR" != "null" ] && [ -n "$EXISTING_PR" ]; then
+            echo "An open PR to upstream already exists (#$EXISTING_PR)."
+            exit 0
+          fi
+
+          echo "Creating upstream PR from tested fork main..."
+          gh pr create \
+            --repo "$UPSTREAM_REPO" \
+            --title "Automated Submissions from fork (${FORK_OWNER})" \
+            --body "This automated PR contains changes promoted through the fork's tested staging-to-main pipeline." \
+            --head "$HEAD_BRANCH" \
+            --base "$BASE_BRANCH"
+
+  sweep-issues:
+    # Runs unconditionally — catches issue files that landed on main
+    # without triggering the push path filter (e.g., via merge).
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.check.outputs.found }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: .github/issues
+          fetch-depth: 1
+
+      - name: Check for leftover issue files
+        id: check
+        run: |
+          shopt -s nullglob
+          FILES=(.github/issues/*.md)
+          if [ ${#FILES[@]} -gt 0 ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found ${#FILES[@]} issue file(s) to process: ${FILES[*]}"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No issue files to process."
+          fi
+
+  publish-swept-issues:
+    # Serialized after merge-to-main chain to avoid concurrent pushes to main.
+    needs: [sweep-issues, create-upstream-pr]
+    if: always() && needs.sweep-issues.outputs.found == 'true'
+    uses: ./.github/workflows/agent-issues.yml
+    secrets: inherit
+
+  retry-jules-queue:
+    # Retry any pre-review issues that haven't been assigned to Jules yet
+    # (e.g., because the daily quota was reached in a previous cycle).
+    # Runs after publish-swept-issues to give new issues time to land.
+    needs: publish-swept-issues
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Jules reviewer sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Check if there are pre-review issues without the jules label
+          PENDING=$(gh api \
+            --method GET \
+            /search/issues \
+            -f q="repo:$REPO label:pre-review -label:jules type:issue state:open" \
+            --jq '.total_count')
+
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Found $PENDING pre-review issue(s) awaiting Jules. Triggering reviewer."
+            gh workflow run jules-issue-reviewer.yml --repo "$REPO"
+          else
+            echo "No pending pre-review issues. Skipping."
+          fi

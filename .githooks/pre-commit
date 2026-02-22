@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+mapfile -t STAGED_FILES < <(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ "${#STAGED_FILES[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+should_format() {
+  case "$1" in
+    *.md|*.yml|*.yaml|*.txt|*.sh) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+UPDATED=0
+
+for file in "${STAGED_FILES[@]}"; do
+  if [ ! -f "$file" ]; then
+    continue
+  fi
+
+  if ! should_format "$file"; then
+    continue
+  fi
+
+  # Operate on the STAGED content only to avoid collapsing partial staging.
+  staged_content="$(mktemp)"
+  fixed_content="$(mktemp)"
+
+  git show ":$file" > "$staged_content"
+
+  # Strip trailing spaces/tabs on each line and normalize missing EOF newline.
+  awk '{ sub(/[ \t]+$/, ""); print }' "$staged_content" > "$fixed_content"
+  if [ -s "$fixed_content" ] && [ "$(tail -c 1 "$fixed_content" | wc -l)" -eq 0 ]; then
+    printf '\n' >> "$fixed_content"
+  fi
+
+  if ! cmp -s "$staged_content" "$fixed_content"; then
+    # Write the fixed content back into the index without touching the working tree.
+    BLOB_HASH=$(git hash-object -w "$fixed_content")
+    FILE_MODE=$(git ls-files -s "$file" | awk '{print $1}')
+    git update-index --cacheinfo "$FILE_MODE,$BLOB_HASH,$file"
+    UPDATED=1
+  fi
+
+  rm -f "$staged_content" "$fixed_content"
+done
+
+if [ "$UPDATED" -eq 1 ]; then
+  echo "pre-commit: normalized whitespace in staged content (working tree untouched)."
+fi
+
+CHECK_OUTPUT="$(git diff --cached --check || true)"
+if [ -n "$CHECK_OUTPUT" ]; then
+  echo "pre-commit: unresolved whitespace/newline issues remain in staged changes."
+  echo "$CHECK_OUTPUT"
+  exit 1
+fi

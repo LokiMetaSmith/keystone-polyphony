@@ -1,0 +1,142 @@
+name: Publish Agent Issues
+
+on:
+  push:
+    paths:
+      - '.github/issues/*.md'
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: publish-agent-issues-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  publish-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check token availability
+        id: auth
+        env:
+          UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
+          UPSTREAM_REPO: niklas-olsson/keystone-polyphony
+        run: |
+          if [ -n "$UPSTREAM_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "token_to_use=upstream" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REPOSITORY" = "$UPSTREAM_REPO" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "token_to_use=default" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::UPSTREAM_PR_TOKEN is not set and not on canonical repository. Skipping issue publish; leaving files in .github/issues/ for manual follow-up."
+          fi
+
+      - name: Create Issues on Upstream
+        if: steps.auth.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token_to_use == 'upstream' && secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: niklas-olsson/keystone-polyphony
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          for file in .github/issues/*.md; do
+            echo "Processing issue file: $file"
+            
+            # Read first line as title, removing leading '# '
+            FIRST_LINE=$(head -n 1 "$file")
+            if [[ "$FIRST_LINE" == "# "* ]]; then
+              TITLE="${FIRST_LINE#\# }"
+              # Write the rest as the body
+              tail -n +2 "$file" > .github_issues_body.txt
+            else
+              # Fallback if rule wasn't followed
+              TITLE=$(basename "$file" .md)
+              cp "$file" .github_issues_body.txt
+            fi
+
+            FINGERPRINT=$(sha256sum "$file" | awk '{print $1}')
+            MARKER="agent-issue-fingerprint:$FINGERPRINT"
+            EXISTS=$(gh api \
+              --method GET \
+              /search/issues \
+              -f q="repo:$UPSTREAM_REPO type:issue in:body \"$MARKER\"" \
+              --jq '.total_count')
+
+            if [ "$EXISTS" -gt 0 ]; then
+              echo "Matching upstream issue already exists for $file ($MARKER). Skipping creation."
+            else
+              {
+                cat .github_issues_body.txt
+                echo
+                echo "---"
+                echo "Source file: \`$file\`"
+                echo "Source commit: \`${GITHUB_SHA}\`"
+                echo "Fingerprint: \`$MARKER\`"
+              } > .github_issues_body_enriched.txt
+
+              # Ensure the pre-review label exists on upstream
+              if ! gh api "/repos/$UPSTREAM_REPO/labels/pre-review" > /dev/null 2>&1; then
+                echo "Creating missing label: pre-review"
+                gh api \
+                  --method POST \
+                  "/repos/$UPSTREAM_REPO/labels" \
+                  -f name="pre-review" \
+                  -f color="FBCA04" \
+                  -f description="Newly created issue awaiting review"
+              fi
+
+              echo "Publishing issue: $TITLE to $UPSTREAM_REPO"
+              ISSUE_URL=$(gh issue create \
+                --repo "$UPSTREAM_REPO" \
+                --title "Agent Discovery: $TITLE" \
+                --body-file .github_issues_body_enriched.txt \
+                --label "pre-review")
+
+              # Log discovery for historical record and to ensure PR diff remains mergeable
+              ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+              DATE=$(date +%Y-%m-%d)
+              AUTHOR="${GITHUB_ACTOR}"
+
+              mkdir -p meta
+              if [ ! -f meta/DISCOVERIES.md ]; then
+                echo "# Discovery Log" > meta/DISCOVERIES.md
+                echo "" >> meta/DISCOVERIES.md
+                echo "| Date | Issue | Title | Author |" >> meta/DISCOVERIES.md
+                echo "|---|---|---|---|" >> meta/DISCOVERIES.md
+              fi
+              echo "| $DATE | #$ISSUE_NUMBER | $TITLE | @$AUTHOR |" >> meta/DISCOVERIES.md
+            fi
+
+            rm .github_issues_body.txt
+            rm -f .github_issues_body_enriched.txt
+            # Remove the file from git tracking
+            git rm "$file"
+          done
+
+      - name: Commit and Push Issue Removal
+        if: steps.auth.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          if ! git diff --staged --quiet; then
+            echo "Committing discovery log update and removal of processed issues..."
+            git add meta/DISCOVERIES.md || true
+            git commit -m "chore: log discovery and remove published agent issues [skip ci]"
+            # Push specifically to the branch that triggered this run
+            git push origin "HEAD:${GITHUB_REF#refs/heads/}"
+          else
+            echo "No changes needed."
+          fi
