@@ -1,8 +1,8 @@
 # Feature: Architect Pre-Commit and Pre-Push Hooks for Human/Agent Collaboration
 
-Setting up this repository for long-term success requires robust, foundational guardrails. One critical missing piece is a set of **pre-commit** and **pre-push** hooks. 
+Setting up this repository for long-term success requires robust, foundational guardrails. One critical missing piece is a set of **pre-commit** and **pre-push** hooks.
 
-Because this repository ("Keystone Polyphony") expects simultaneous, rapid contributions from both autonomous AI agents and human contributors, these hooks must feel natural, non-blocking, and informative for both types of users. 
+Because this repository ("Keystone Polyphony") expects simultaneous, rapid contributions from both autonomous AI agents and human contributors, these hooks must feel natural, non-blocking, and informative for both types of users.
 
 ## Goals
 1. Establish git hooks that catch common errors (linting, testing, formatting) before they enter the repository.
@@ -20,8 +20,8 @@ Provide a clear, written narrative (a "story") detailing how a human contributor
 Include a complete Cucumber BDD (Behavior-Driven Development) `.feature` file that documents the expected behaviors of the hooks under various conditions (human success, human failure, agent success, agent failure). This file must be reviewed for completeness against the repository goals.
 
 ### 3. Self-Contained Implementation
-The delivered Pull Request must be entirely self-contained regarding these hooks. 
-- [ ] Explicitly list any prerequisite issues that must be completed before work on this issue can begin. 
+The delivered Pull Request must be entirely self-contained regarding these hooks.
+- [ ] Explicitly list any prerequisite issues that must be completed before work on this issue can begin.
 - [ ] Ensure that work does *not* begin until those prerequisites are checked off as **Done**.
 
 ---

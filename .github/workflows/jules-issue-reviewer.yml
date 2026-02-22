@@ -2,11 +2,15 @@ name: Jules Issue Reviewer
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
 
 permissions:
   contents: read
   issues: write
+
+concurrency:
+  group: jules-review-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
   assign-jules-review:
