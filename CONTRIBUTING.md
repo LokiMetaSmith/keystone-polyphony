@@ -57,7 +57,7 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 | `AGENT_DAILY_TASKS` | Max issues attempted by agents per rolling 24h window | `5` |
 | `AGENT_MODEL` | Model identifier to pass to the agent | (empty) |
 
-Set variables in **Settings → Secrets and variables → Actions → Variables**.
+Set variables in **Settings → Secrets and variables → Actions → Variables**. Additional quota variables can be defined in `.github/reviewers.yml` for other reviewers.
 
 ### Repository Secrets
 
@@ -67,6 +67,13 @@ Set variables in **Settings → Secrets and variables → Actions → Variables*
 | `UPSTREAM_PR_TOKEN` | Token with permission to open PRs on the upstream repository |
 
 Set secrets in **Settings → Secrets and variables → Actions → Secrets**.
+
+### Configuring Reviewers
+
+Reviewers (agents or humans) are managed in `.github/reviewers.yml`. To add a new reviewer:
+
+1. Add an entry to the `reviewers` list with `name`, `handle` (GitHub @handle), `label` (to be applied to issues), and `quota_var` (name of the repository variable controlling their daily quota).
+2. (Optional) Set the corresponding repository variable in GitHub Settings to limit their daily task load.
 
 ## Upstream Sync Requirement (Before Upstream PR)
 
