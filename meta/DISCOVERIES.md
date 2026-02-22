@@ -7,3 +7,4 @@ This file tracks automated AI discoveries and issue publications within the **Ke
 | 2026-02-22 | #6 | Feature: Architect Pre-Commit and Pre-Push Hooks for Human/Agent Collaboration | @niklas-olsson |
 | 2026-02-22 | #7 | Feature: Make Issue Review Workflow Agent-Agnostic | @niklas-olsson |
 | 2026-02-22 | #10 | Workflow: CLI Agent Issue Solver (Agent-Agnostic) | @niklas-olsson |
+| 2026-02-22 | #16 | Rework Issue Pipeline — Agent-Powered Triage Before Publish | @niklas-olsson |
