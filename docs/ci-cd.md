@@ -67,7 +67,7 @@ graph TD
 
 > [!NOTE]
 > **Issue triage (current vs planned):**
-> Current state: `pre-review` issues are triaged manually by maintainers (for example by applying `jules` and then `ready for work` when approved).
+> Current state: `pre-review` issues are picked up by Jules (agent) and worked directly into PRs (no separate reviewer gate right now).
 > Planned state: a new agent-agnostic triage pipeline will refine issues *before* publishing.
 
 ### 4. Label Contributors
@@ -92,16 +92,16 @@ graph TD
 
 ## Issue Lifecycle
 
-Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation, then triage happens manually today. A planned agent-agnostic triage pipeline will replace this manual step.
+Agent-generated issues follow a label-driven lifecycle. The `pre-review` label is applied at creation, then Jules (agent) picks up the issue and opens a PR. A planned agent-agnostic triage pipeline will replace this Jules-specific interim path.
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> jules : Manual triage assignment
-    jules --> ready_for_work : Manual approval
-    ready_for_work --> [*] : Work begins
+    pre_review --> jules_agent : Jules (agent) picks up
+    jules_agent --> pr_opened : Opens PR
+    pr_opened --> [*] : Existing merge pipeline takes over
 
     pre_review : 🟡 pre-review
-    jules : 🟣 jules
-    ready_for_work : 🔵 ready for work
+    jules_agent : 🤖 Jules (Agent)
+    pr_opened : 🔵 PR opened
 ```
