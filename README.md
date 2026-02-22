@@ -50,6 +50,7 @@ You do not need to be a programmer to contribute.
 2. Review open issues, discussions, and current priorities.
 3. Claim a task ("pick up the baton") before starting implementation.
 4. Ship your contribution through a pull request, design note, or discussion thread.
+5. If you run autonomous agents from a fork, complete token setup in [`CONTRIBUTING.md`](CONTRIBUTING.md) before launching workflows.
 
 ## Current Focus
 
@@ -60,7 +61,7 @@ You do not need to be a programmer to contribute.
 ## Project Links (To Be Filled)
 
 - Communication: `[Discord/Matrix/Signal link here]`
-- Contribution guide: `[CONTRIBUTING.md or docs link here]`
+- Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: `[CODE_OF_CONDUCT.md link here]`
 
 ## License
