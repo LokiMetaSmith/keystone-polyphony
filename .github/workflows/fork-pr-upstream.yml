@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: auto-pr-upstream-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   create-pr-to-upstream:
     runs-on: ubuntu-latest
@@ -47,9 +51,18 @@ jobs:
       - name: Create Pull Request
         if: steps.auth.outputs.enabled == 'true'
         run: |
+          set -euo pipefail
+
           # We add the upstream remote to check for commit diffs
           git remote add upstream https://github.com/$UPSTREAM_REPO.git
           git fetch upstream "$BASE_BRANCH"
+
+          # Require fork main to include latest upstream main before opening PR.
+          if ! git merge-base --is-ancestor "upstream/$BASE_BRANCH" HEAD; then
+            echo "::notice::Fork main must be synced with upstream/$BASE_BRANCH before auto-PR."
+            echo "::notice::Please pull or merge upstream/$BASE_BRANCH into your fork main and resolve conflicts first."
+            exit 0
+          fi
           
           AHEAD=$(git rev-list --count "upstream/$BASE_BRANCH..HEAD")
           

@@ -22,11 +22,22 @@ If you want autonomous agents to submit upstream PRs without manual intervention
 2. Add a secret named `UPSTREAM_PR_TOKEN`.
 3. Use a token from your own GitHub account with permission to open pull requests on `niklas-olsson/keystone-polyphony`.
 4. Choose a token type that can open upstream PRs.
-5. Option A (classic PAT): `public_repo`.
-6. Option B (fine-grained token): repository access to `niklas-olsson/keystone-polyphony` with `Pull requests: Read and write` and `Contents: Read`.
-7. Trigger `Auto-PR to Upstream` once with `workflow_dispatch` to validate setup.
+5. Option A (recommended for most external contributors): classic PAT with `public_repo`.
+6. Option B (only when your account can be granted repo access): fine-grained token targeting `niklas-olsson/keystone-polyphony` with `Pull requests: Read and write` and `Contents: Read`.
+7. If fine-grained token setup cannot target the upstream repo, use Option A or use the manual PR path.
+8. Trigger `Auto-PR to Upstream` once with `workflow_dispatch` to validate setup.
 
 Without `UPSTREAM_PR_TOKEN`, the workflow intentionally skips PR creation. This is expected behavior and protects contributors from accidental credential misuse.
+
+## Upstream Sync Requirement (Before Upstream PR)
+
+Before opening (or auto-opening) a PR to upstream, sync your fork `main` with upstream `main` and resolve conflicts locally.
+
+1. Add upstream remote once: `git remote add upstream https://github.com/niklas-olsson/keystone-polyphony.git`
+2. Fetch upstream: `git fetch upstream main`
+3. Update your fork main: `git checkout main && git merge upstream/main`
+4. Resolve conflicts, run tests, then push: `git push origin main`
+5. The auto-PR workflow enforces this and skips PR creation until your fork `main` includes latest `upstream/main`.
 
 ## Standard Human Flow (No Token Required)
 

@@ -6,31 +6,30 @@ on:
   workflow_dispatch: # Allow manual trigger for testing
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: hourly-merge-main
   cancel-in-progress: false
 
 jobs:
-  test-and-merge:
+  detect-staging:
     runs-on: ubuntu-latest
-    env:
-      HOURLY_TEST_COMMAND: ${{ vars.HOURLY_TEST_COMMAND }}
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+      main_sha: ${{ steps.check.outputs.main_sha }}
+      staging_sha: ${{ steps.check.outputs.staging_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Git
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          persist-credentials: false
 
       - name: Check for staging changes
         id: check
         run: |
+          set -euo pipefail
           git fetch origin main staging || git fetch origin main
           
           # Check if staging branch exists on remote
@@ -39,6 +38,11 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          MAIN_SHA=$(git rev-parse origin/main)
+          STAGING_SHA=$(git rev-parse origin/staging)
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
           
           # Check if staging has new commits compared to main
           AHEAD=$(git rev-list --count origin/main..origin/staging)
@@ -50,32 +54,86 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout staging for tests
-        if: steps.check.outputs.skip == 'false'
-        run: git checkout --detach origin/staging
+  test-staging:
+    needs: detect-staging
+    if: needs.detect-staging.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HOURLY_TEST_COMMAND: ${{ vars.HOURLY_TEST_COMMAND }}
+      HOURLY_TEST_IMAGE: ${{ vars.HOURLY_TEST_IMAGE }}
+    steps:
+      - name: Checkout staging snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-staging.outputs.staging_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare test command
+        id: prep
+        run: |
+          set -euo pipefail
+          if [ -n "${HOURLY_TEST_COMMAND:-}" ]; then
+            echo "command=$HOURLY_TEST_COMMAND" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -f package.json ]; then
+            echo "::notice::HOURLY_TEST_COMMAND not set. Falling back to 'npm test' in an isolated container."
+            echo "command=npm test" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::error::No test command configured. Set repository variable HOURLY_TEST_COMMAND."
+          exit 1
 
       - name: Run Tests
-        if: steps.check.outputs.skip == 'false'
+        env:
+          TEST_COMMAND: ${{ steps.prep.outputs.command }}
         run: |
+          set -euo pipefail
           echo "Running tests..."
-          if [ -n "$HOURLY_TEST_COMMAND" ]; then
-            echo "Using HOURLY_TEST_COMMAND from repository variables."
-            bash -lc "$HOURLY_TEST_COMMAND"
-          elif [ -f package.json ]; then
-            if [ -f package-lock.json ]; then
-              npm ci
-            else
-              npm install
-            fi
-            npm test
-          else
-            echo "::error::No test command configured. Set repository variable HOURLY_TEST_COMMAND or add package.json test scripts."
+          IMAGE="${HOURLY_TEST_IMAGE:-node:20-bookworm}"
+          docker pull "$IMAGE"
+          docker run --rm --network none \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$IMAGE" \
+            bash -lc "$TEST_COMMAND"
+
+  merge-to-main:
+    needs: [detect-staging, test-staging]
+    if: needs.detect-staging.outputs.skip == 'false' && needs.test-staging.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Verify staging has not changed since tests
+        run: |
+          set -euo pipefail
+          git fetch origin main staging || git fetch origin main
+          CURRENT_STAGING_SHA=$(git rev-parse origin/staging)
+          TESTED_STAGING_SHA="${{ needs.detect-staging.outputs.staging_sha }}"
+          if [ "$CURRENT_STAGING_SHA" != "$TESTED_STAGING_SHA" ]; then
+            echo "::error::Staging changed after tests. Wait for next hourly run."
             exit 1
           fi
 
-      - name: Merge staging into main
-        if: steps.check.outputs.skip == 'false'
+      - name: Merge tested staging into main
         run: |
+          set -euo pipefail
           git checkout -B main origin/main
-          git merge origin/staging --no-edit --no-ff
+          git merge "${{ needs.detect-staging.outputs.staging_sha }}" --no-edit --no-ff
           git push origin main
