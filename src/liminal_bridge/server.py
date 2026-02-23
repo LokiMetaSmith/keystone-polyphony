@@ -23,9 +23,16 @@ from mcp.server.fastmcp import FastMCP
 
 # Initialize components
 SWARM_KEY = os.getenv("SWARM_KEY", "liminal-default-secret")
-mesh = LiminalMesh(secret_key=SWARM_KEY)
+# Use environment variables or defaults for persistence
+DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
+IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
+
+mesh = LiminalMesh(secret_key=SWARM_KEY, db_path=DB_PATH, identity_path=IDENTITY_PATH)
 architect = Architect()
 pulse = Pulse(mesh, architect)
+
+# Wire the callback
+mesh.on_baton_release = pulse.on_baton_release
 
 # Create MCP Server
 mcp = FastMCP("Keystone-Polyphony")
@@ -39,8 +46,14 @@ async def register_to_swarm(github_secret: str = None) -> str:
         if mesh.secret_key != github_secret:
             if mesh.running:
                 await mesh.stop()
-            mesh = LiminalMesh(secret_key=github_secret)
+            # Re-initialize with new secret but keep same DB/Identity paths?
+            # Ideally identity is tied to the node, not the swarm key, so we keep it.
+            # But DB might contain data from old swarm?
+            # For now, we reuse the paths.
+            mesh = LiminalMesh(secret_key=github_secret, db_path=DB_PATH, identity_path=IDENTITY_PATH)
             pulse = Pulse(mesh, architect)
+            # Re-wire callback
+            mesh.on_baton_release = pulse.on_baton_release
 
     if not mesh.running:
         await mesh.start()
@@ -69,7 +82,7 @@ async def release_baton(file_path: str) -> str:
     """Releases the lock on a file."""
     if not mesh.running: await mesh.start()
     await mesh.release_baton(file_path)
-    await pulse.on_baton_release(file_path)
+    # pulse.on_baton_release is now triggered via callback in mesh
     return f"Baton released for {file_path}."
 
 @mcp.tool()

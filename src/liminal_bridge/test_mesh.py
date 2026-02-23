@@ -1,14 +1,26 @@
 import pytest
 import asyncio
+import os
 from unittest.mock import AsyncMock, ANY
 from src.liminal_bridge.mesh import LiminalMesh
 
-@pytest.mark.asyncio
-async def test_mesh_baton_local():
-    """Test local baton acquisition logic."""
-    mesh = LiminalMesh("test-secret")
+@pytest.fixture
+def mesh(tmp_path):
+    """Fixture to create a LiminalMesh with temporary DB and Identity."""
+    db = tmp_path / "test.db"
+    identity = tmp_path / "test.pem"
+    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
     mesh.broadcast = AsyncMock()
+    yield mesh
+    # Cleanup is handled by tmp_path, but stop() closes DB connection
+    # Since we don't start() the mesh in these unit tests, stop() isn't strictly needed for process
+    # but good to close DB connection if needed.
+    if mesh.conn:
+        mesh.conn.close()
 
+@pytest.mark.asyncio
+async def test_mesh_baton_local(mesh):
+    """Test local baton acquisition logic."""
     # Acquire new baton
     success = await mesh.acquire_baton("file.py", timeout=0.1)
     assert success is True
@@ -23,11 +35,8 @@ async def test_mesh_baton_local():
     assert "file.py" not in mesh.batons
 
 @pytest.mark.asyncio
-async def test_mesh_baton_denial():
+async def test_mesh_baton_denial(mesh):
     """Test baton denial when another peer holds it."""
-    mesh = LiminalMesh("test-secret")
-    mesh.broadcast = AsyncMock()
-
     # Simulate another peer holding the lock
     mesh.batons["file.py"] = "other-peer-id"
 
@@ -36,11 +45,8 @@ async def test_mesh_baton_denial():
     assert success is False
 
 @pytest.mark.asyncio
-async def test_kv_store():
+async def test_kv_store(mesh):
     """Test KV store updates."""
-    mesh = LiminalMesh("test-secret")
-    mesh.broadcast = AsyncMock()
-
     await mesh.update_kv("key1", "value1")
     assert mesh.get_kv("key1") == "value1"
 
