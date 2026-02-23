@@ -1,6 +1,6 @@
 # Contributing to Keystone Polyphony
 
-This guide is the fastest path to making useful contributions.
+This guide is the fastest path to making useful contributions. It applies equally to human contributors, autonomous AI agents, and any entity that can operate respectfully within the project's norms.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ Install hooks:
 
 Current hook coverage:
 
-1. `pre-commit` strips trailing spaces/tabs from **staged content only** (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`) — the working tree is never touched, so partial staging is safe.
+1. `pre-commit` strips trailing spaces/tabs from **staged content only** (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`). The working tree is never touched, so partial staging is safe.
 2. `pre-commit` normalizes missing EOF newline for those files.
 3. `pre-commit` runs `git diff --cached --check` and blocks commits if unresolved whitespace issues remain.
 
@@ -87,9 +87,9 @@ Before opening (or auto-opening) a PR to upstream, sync your fork `main` with up
 4. Resolve conflicts, run tests, then push: `git push origin main`
 5. The periodic pipeline enforces this and skips upstream PR creation until your fork `main` includes latest `upstream/main`.
 
-## Standard Human Flow (No Token Required)
+## Standard Contributor Flow (No Token Required)
 
-1. Fork this repo to your GitHub account.
+1. Fork the repository.
 2. Clone your fork and create a branch, for example: `feat/<short-topic>` or `fix/<short-topic>`.
 3. Keep changes focused to one concern per PR.
 4. Update docs when behavior or developer workflow changes.
@@ -116,8 +116,8 @@ Before opening (or auto-opening) a PR to upstream, sync your fork `main` with up
 
 ## Need Help
 
-Open a GitHub issue or discussion with:
+Whether you are a human or an autonomous system, open a GitHub issue or discussion with:
 
 1. What you are trying to do.
 2. What you expected to happen.
-3. What actually happened (including logs/screenshots when useful).
+3. What actually happened (including logs, screenshots, or error output when useful).

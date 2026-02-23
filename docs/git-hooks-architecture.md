@@ -1,18 +1,20 @@
-# Git Hooks Architecture for Human/Agent Collaboration
+# Git Hooks Architecture for All Contributors
 
 This document describes the design and interaction model for the git hooks in Keystone Polyphony.
 
 ## Philosophy
 
-In a repository where humans and AI agents collaborate, guardrails must be:
-- **Informative**: Clear feedback for humans to correct mistakes.
-- **Machine-Readable**: Unambiguous error signals for agents.
+In a repository where humans, AI agents, and other autonomous systems collaborate side-by-side, guardrails must be:
+- **Informative**: Clear feedback for any contributor to correct mistakes.
+- **Machine-Readable**: Unambiguous error signals for automated systems.
 - **Automated**: Auto-fix simple issues (like formatting) where possible to reduce friction.
 - **Enforcing**: Prevent common mistakes like committing directly to `main`.
 
-## Human Interaction Story
+## Interaction Stories
 
-### The Careful Contributor
+The following stories illustrate how different contributor types interact with the hooks. Whether you are a human typing at a terminal or an agent making programmatic commits, the hooks behave identically.
+
+### The Careful Contributor (Human)
 Alice is a human developer. She creates a feature branch `feat/new-logic` and starts working.
 She finishes her changes but forgets that she added some trailing spaces in her markdown files and left a small syntax error in a utility shell script.
 
@@ -38,7 +40,7 @@ Bob is in a hurry and tries to commit a quick fix directly to `main`.
    - Bob sees: `[ERROR] Committing directly to 'main' is discouraged. Please use a feature branch.`
    - Bob realizes he should follow the process, creates a branch, and continues.
 
-## Agent Interaction Story
+### The Autonomous Contributor (Agent)
 
 An AI agent is assigned to a task. It follows the instructions in `AGENTS.md`.
 

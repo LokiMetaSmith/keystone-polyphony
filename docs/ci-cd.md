@@ -106,7 +106,7 @@ graph TD
 **Trigger:** `pull_request` (closed).
 **File:** `add-contributors.yml`
 
-A community management workflow that ensures everyone who successfully merges code gets recognized. When a PR is merged, the author automatically receives the `CONTRIBUTOR` label (unless they are a bot).
+A community management workflow that ensures every contributor who successfully merges code gets recognized, human or otherwise. When a PR is merged, the author automatically receives the `CONTRIBUTOR` label. Currently, accounts ending in `[bot]` are skipped; this may be revisited as agent participation grows.
 
 ```mermaid
 graph TD

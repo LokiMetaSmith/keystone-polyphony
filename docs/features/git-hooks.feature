@@ -1,4 +1,4 @@
-Feature: Git Hooks for Human/Agent Collaboration
+Feature: Git Hooks for All Contributors
 
   As a contributor to Keystone Polyphony
   I want robust git hooks
