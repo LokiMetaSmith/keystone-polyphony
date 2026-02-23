@@ -21,3 +21,12 @@ An automated GitHub Actions workflow can pick up `.md` files pushed to `.github/
 - **Branch Strategy (Important)**: Always create a feature branch (`feat/topic`, `fix/topic`, `docs/topic`) before starting any work. Please do not commit directly to `main`. If a human drops you onto `main`, check out a new branch right away.
 - **Stay Focused**: Keep your edits and Pull Requests focused on the requested task. Avoid mixing unrelated refactors into a feature task.
 - **Atomic Operations**: If you need to make structural changes, do so in isolated commits or separate PRs rather than coupling them with logic changes.
+
+## 3. Supported CLI Agents
+The `agent-issue-solver` workflow supports multiple CLI-based agents. To use a specific agent, configure the `AGENT_CLI` repository variable:
+
+- **OpenCode** (Default): Uses `opencode`.
+- **OpenClaw**: A community-driven CLI for Anthropic's Claude. Set `AGENT_CLI` to `openclaw`.
+- **Claude Code**: Anthropic's official CLI. Set `AGENT_CLI` to `claude`.
+
+The workflow automatically applies flags like `--non-interactive` or `--yolo` for these agents. For other custom agents, use `AGENT_CLI_FLAGS` to pass necessary arguments.

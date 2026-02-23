@@ -67,8 +67,10 @@ To run the bridge and connect your local environment to the swarm, you need to c
 - `SWARM_KEY`: A shared secret string that anchors the peer discovery. All agents in the same mesh must use the same key.
 - `DUCKY_API_KEY`: The API key for the Architect (LLM). This supports:
   - **OpenAI**: Use a standard `sk-...` key.
-  - **Google Gemini**: Use an `AIza...` key. The system will automatically detect the provider.
-- `DUCKY_MODEL` (Optional): The model to use (default: `gpt-4o`). For Gemini, use a model name like `gemini-1.5-pro`.
+  - **Google Gemini**: Use an `AIza...` key.
+  - **Anthropic (Claude)**: Use an `sk-ant-...` key.
+  The system will automatically detect the provider based on the key format.
+- `DUCKY_MODEL` (Optional): The model to use (default: `gpt-4o`). For Gemini, use a model name like `gemini-1.5-pro`. For Claude, it defaults to `claude-3-5-sonnet-20240620`.
 
 Example `jules_config.json`:
 
