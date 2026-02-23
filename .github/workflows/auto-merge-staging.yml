@@ -54,6 +54,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Ensure the label exists
+          if ! gh api "/repos/$REPO/labels/workflow-review" --repo "$REPO" > /dev/null 2>&1; then
+            echo "Creating missing label: workflow-review"
+            gh api --method POST "/repos/$REPO/labels" \
+              --repo "$REPO" \
+              -f name="workflow-review" \
+              -f color="E4E669" \
+              -f description="PR modifies workflow files and requires review before staging merge"
+          fi
+
           # Add label
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "workflow-review"
 
