@@ -1,0 +1,12 @@
+{
+  "name": "keystone-polyphony-scripts",
+  "version": "1.0.0",
+  "description": "Onboarding scripts for Keystone Polyphony swarm",
+  "scripts": {
+    "setup": "node setup-swarm.js"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "private": true
+}
