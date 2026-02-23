@@ -20,6 +20,16 @@ class Architect:
                     self.google_model = genai.GenerativeModel(self.model)
                 except ImportError:
                     print("Warning: google-generativeai package not installed. Architect disabled for Gemini.")
+            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
+                self.provider = "anthropic"
+                try:
+                    from anthropic import AsyncAnthropic
+                    self.client = AsyncAnthropic(api_key=self.api_key)
+                    # If model not explicitly set to a claude model (e.g. still default gpt-4o), switch default
+                    if not self.model or "claude" not in self.model:
+                         self.model = "claude-3-5-sonnet-20240620"
+                except ImportError:
+                    print("Warning: anthropic package not installed. Architect disabled for Anthropic.")
             else:
                 try:
                     from openai import AsyncOpenAI
@@ -47,6 +57,8 @@ class Architect:
 
         if self.provider == "google":
             return await self._consult_google(prompt)
+        elif self.provider == "anthropic":
+            return await self._consult_anthropic(prompt)
         else:
             return await self._consult_openai(prompt)
 
@@ -86,3 +98,25 @@ class Architect:
             return response.text
         except Exception as e:
             return f"Error consulting architect (Gemini): {str(e)}"
+
+    async def _consult_anthropic(self, prompt: str) -> str:
+        if not self.client:
+             return "Architect not configured (missing API key or anthropic package)."
+
+        try:
+            # Anthropic doesn't support 'response_format={"type": "json_object"}' natively like OpenAI
+            # but usually follows instructions well. We can just ask for JSON.
+            # However, for robustness, we might want to check if the library version supports it or just prompt harder.
+            # The prompt already asks for JSON.
+
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system="You are a precise technical architect. Output only valid JSON.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.content[0].text
+        except Exception as e:
+            return f"Error consulting architect (Anthropic): {str(e)}"
