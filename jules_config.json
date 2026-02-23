@@ -1,0 +1,10 @@
+{
+  "keystone-polyphony": {
+    "command": "python",
+    "args": ["/app/src/liminal_bridge/server.py"],
+    "env": {
+      "SWARM_KEY": "your-github-secret-key",
+      "DUCKY_API_KEY": "your-openai-or-anthropic-key"
+    }
+  }
+}

@@ -3,3 +3,5 @@ openai>=1.0.0
 pydantic
 pytest
 pytest-asyncio
+cryptography
+google-generativeai

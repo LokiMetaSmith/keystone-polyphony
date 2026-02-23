@@ -7,12 +7,12 @@ sys.path.append(os.path.abspath("src"))
 
 from liminal_bridge.mesh import LiminalMesh
 
-async def run_sim_agent(name: str, secret: str, behavior: list):
+async def run_sim_agent(name: str, secret: str, behavior: list, db_path: str, identity_path: str):
     """Simulates a single Jules agent interacting with the mesh."""
     print(f"[{name}] Booting...")
 
-    # Each agent needs its own mesh instance
-    mesh = LiminalMesh(secret_key=secret)
+    # Each agent needs its own mesh instance with distinct DB and Identity
+    mesh = LiminalMesh(secret_key=secret, db_path=db_path, identity_path=identity_path)
     await mesh.start()
 
     # Wait for connection & discovery
@@ -67,11 +67,16 @@ async def main():
         (1.0, "peek", None)
     ]
 
-    # Run them concurrently
+    # Run them concurrently with distinct storage
     await asyncio.gather(
-        run_sim_agent("Agent-1", secret, agent1_behavior),
-        run_sim_agent("Agent-2", secret, agent2_behavior)
+        run_sim_agent("Agent-1", secret, agent1_behavior, "agent1.db", "agent1.pem"),
+        run_sim_agent("Agent-2", secret, agent2_behavior, "agent2.db", "agent2.pem")
     )
+
+    # Cleanup simulation files
+    for f in ["agent1.db", "agent2.db", "agent1.pem", "agent2.pem"]:
+        if os.path.exists(f):
+            os.remove(f)
 
 if __name__ == "__main__":
     try:

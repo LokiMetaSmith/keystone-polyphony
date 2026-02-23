@@ -40,11 +40,11 @@ class Pulse:
         self.last_consultation = now
         print(f"PULSE: Plan updated.")
 
-    async def on_baton_release(self, resource: str):
+    async def on_baton_release(self, resource: str, agent_id: str):
         """
         Callback when a baton is released.
         If it was a critical resource (e.g. core file), trigger a pulse.
         """
         # Heuristic: If 'main' or 'core' is in the resource name, it's critical
         if "main" in resource or "core" in resource or "api" in resource:
-            await self.trigger(context=f"baton_released:{resource}")
+            await self.trigger(context=f"baton_released:{resource} by {agent_id}")

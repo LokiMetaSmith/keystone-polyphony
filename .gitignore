@@ -13,3 +13,5 @@ venv/
 # Application
 .liminal/
 simulation.log
+*.db
+*.pem

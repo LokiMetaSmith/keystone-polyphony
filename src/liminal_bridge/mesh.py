@@ -4,19 +4,41 @@ import hashlib
 import time
 import sys
 import os
+import sqlite3
 from typing import Dict, Optional, Any, Set, Callable, Awaitable
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
 
 class LiminalMesh:
-    def __init__(self, secret_key: str):
+    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem"):
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
-        self.node_id = hashlib.sha256((secret_key + str(time.time()) + str(os.getpid())).encode()).hexdigest()[:16]
+        self.db_path = db_path
+        self.identity_path = identity_path
+
+        # Identity Management
+        self.private_key = self._load_or_create_identity()
+        self.public_key = self.private_key.public_key()
+
+        # Public Key as Hex String for transmission
+        pub_bytes = self.public_key.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )
+        self.public_key_hex = pub_bytes.hex()
+
+        # Stable Node ID derived from Public Key
+        self.node_id = hashlib.sha256(pub_bytes).hexdigest()[:16]
 
         self.peers: Set[str] = set()
         self.thoughts: Dict[str, Any] = {}
         self.batons: Dict[str, str] = {}  # resource -> owner_id
         self.kv_store: Dict[str, Any] = {}
+
+        # Persistence
+        self._init_db()
+        self._load_state()
 
         self.process: Optional[asyncio.subprocess.Process] = None
         self.running = False
@@ -25,7 +47,89 @@ class LiminalMesh:
         self._lock_requests: Dict[str, asyncio.Future] = {}
 
         # Callbacks for Pulse
-        self.on_baton_release: Optional[Callable[[str], Awaitable[None]]] = None
+        self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
+
+    def _load_or_create_identity(self) -> ed25519.Ed25519PrivateKey:
+        """Loads the identity key pair or creates a new one."""
+        if os.path.exists(self.identity_path):
+            try:
+                with open(self.identity_path, "rb") as f:
+                    return serialization.load_pem_private_key(
+                        f.read(),
+                        password=None
+                    )
+            except Exception as e:
+                print(f"Error loading identity: {e}. Generating new one.")
+
+        # Generate new key
+        private_key = ed25519.Ed25519PrivateKey.generate()
+
+        # Save it
+        with open(self.identity_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+
+        return private_key
+
+    def _init_db(self):
+        """Initializes the SQLite database."""
+        self.conn = sqlite3.connect(self.db_path)
+        cursor = self.conn.cursor()
+
+        # Key-Value Store Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS kv_store (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+
+        # Thoughts Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS thoughts (
+                node_id TEXT PRIMARY KEY,
+                content TEXT
+            )
+        ''')
+        self.conn.commit()
+
+    def _load_state(self):
+        """Loads state from the database."""
+        cursor = self.conn.cursor()
+
+        # Load KV
+        cursor.execute("SELECT key, value FROM kv_store")
+        for key, value_json in cursor.fetchall():
+            try:
+                self.kv_store[key] = json.loads(value_json)
+            except json.JSONDecodeError:
+                pass
+
+        # Load Thoughts
+        cursor.execute("SELECT node_id, content FROM thoughts")
+        for node_id, content in cursor.fetchall():
+            self.thoughts[node_id] = content
+
+    def _save_kv(self, key: str, value: Any):
+        """Persists a KV update."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
+            (key, json.dumps(value))
+        )
+        self.conn.commit()
+
+    def _save_thought(self, node_id: str, content: str):
+        """Persists a thought."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO thoughts (node_id, content) VALUES (?, ?)",
+            (node_id, content)
+        )
+        self.conn.commit()
 
     async def start(self):
         """Starts the Node.js sidecar and begins listening."""
@@ -58,6 +162,9 @@ class LiminalMesh:
                 await self.process.wait()
             except ProcessLookupError:
                 pass  # Process already dead
+
+        if self.conn:
+            self.conn.close()
 
     async def _read_stdout(self):
         """Reads JSON messages from the sidecar."""
@@ -102,6 +209,9 @@ class LiminalMesh:
         # Attach origin info
         payload["origin"] = self.node_id
         payload["timestamp"] = time.time()
+        # Include public key for identification (could be optimized to only send once, but simplified here)
+        payload["sender_pubkey"] = self.public_key_hex
+
         await self._send_to_sidecar("broadcast", payload)
 
     async def _handle_message(self, msg: Dict[str, Any]):
@@ -128,14 +238,19 @@ class LiminalMesh:
         p_type = payload.get("type")
         origin = payload.get("origin")
 
+        # Future: Validate signature using payload.get("sender_pubkey")
+
         if p_type == "thought":
-            self.thoughts[origin] = payload.get("content")
+            content = payload.get("content")
+            self.thoughts[origin] = content
+            self._save_thought(origin, content)
 
         elif p_type == "kv_update":
             key = payload.get("key")
             value = payload.get("value")
             # Last Write Wins (using timestamp)
             self.kv_store[key] = value
+            self._save_kv(key, value)
 
         elif p_type == "baton_request":
             resource = payload.get("resource")
@@ -168,6 +283,7 @@ class LiminalMesh:
 
     async def share_thought(self, content: str):
         self.thoughts[self.node_id] = content
+        self._save_thought(self.node_id, content)
         await self.broadcast({
             "type": "thought",
             "content": content
@@ -175,6 +291,7 @@ class LiminalMesh:
 
     async def update_kv(self, key: str, value: Any):
         self.kv_store[key] = value
+        self._save_kv(key, value)
         await self.broadcast({
             "type": "kv_update",
             "key": key,
@@ -225,4 +342,5 @@ class LiminalMesh:
             })
             # Trigger Pulse
             if self.on_baton_release:
-                await self.on_baton_release(resource)
+                # Pass resource and my identity
+                await self.on_baton_release(resource, self.node_id)
