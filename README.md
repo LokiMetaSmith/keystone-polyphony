@@ -69,6 +69,6 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## License
 
-This project is open source. Add the selected license in `LICENSE` and keep this section aligned with that choice.
+This project is licensed under the [MIT License](LICENSE).
 
 "Come build the bridge with us. Every mind welcome."

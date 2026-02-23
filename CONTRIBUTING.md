@@ -96,18 +96,18 @@ Before opening (or auto-opening) a PR to upstream, sync your fork `main` with up
 5. Open a PR from your branch to upstream `main`.
 6. Respond to review and update the same branch until merged.
 
-## Token Ownership Rules
+## Token Hygiene
 
 1. Each fork owner provides and manages their own `UPSTREAM_PR_TOKEN`.
-2. Do not ask maintainers to share personal tokens.
-3. Do not reuse tokens between users or organizations.
-4. Revoke and rotate tokens immediately if exposure is suspected.
+2. Please do not ask maintainers to share personal tokens.
+3. Avoid reusing tokens between users or organizations.
+4. Revoke and rotate tokens right away if exposure is suspected.
 
-## PR Quality Bar
+## Good PR Practices
 
 1. Explain what changed and why in the PR description.
 2. Include test notes (what you ran, or why tests were not needed).
-3. Avoid unrelated refactors in the same PR.
+3. Keep unrelated refactors out of the same PR.
 
 ## Security Notes
 
