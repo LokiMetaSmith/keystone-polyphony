@@ -45,6 +45,8 @@ jobs:
     if: needs.check-workflow-changes.outputs.has_workflow_changes == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Label and comment
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
