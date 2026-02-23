@@ -19,6 +19,9 @@ jobs:
   publish-issues:
     runs-on: ubuntu-latest
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
