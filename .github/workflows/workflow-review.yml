@@ -84,5 +84,5 @@ jobs:
       - name: Cleanup label and comment
         if: steps.verify.outputs.authorized == 'true'
         run: |
-          gh pr edit "$PR_NUMBER" --remove-label "workflow-review"
-          gh pr comment "$PR_NUMBER" --body "Workflow changes approved by @$REVIEWER. PR has been merged to staging."
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "workflow-review"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Workflow changes approved by @$REVIEWER. PR has been merged to staging."

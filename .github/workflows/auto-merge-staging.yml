@@ -45,8 +45,6 @@ jobs:
     if: needs.check-workflow-changes.outputs.has_workflow_changes == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
       - name: Label and comment
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
@@ -57,14 +55,14 @@ jobs:
           set -euo pipefail
 
           # Add label
-          gh pr edit "$PR_NUMBER" --add-label "workflow-review"
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "workflow-review"
 
           # Post comment tagging reviewers
           COMMENT="PR #$PR_NUMBER modifies workflow files in \`.github/workflows/\`.
 
           Automatic merge is disabled for security. @$REVIEWERS please review and approve these changes. Once approved, the PR will be merged to staging automatically."
 
-          gh pr comment "$PR_NUMBER" --body "$COMMENT"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$COMMENT"
 
   merge-to-staging:
     # Open-by-default policy: any non-draft PR to main can flow into staging,
