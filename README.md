@@ -62,7 +62,28 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Running the Liminal Bridge
 
-To run the bridge and connect your local environment to the swarm, you need to configure the following environment variables:
+### Quick Setup (Automated)
+
+We provide scripts to automate the configuration of Jules and your GitHub secrets.
+
+1.  **Install Dependencies**:
+    ```bash
+    cd scripts
+    npm install
+    ```
+
+2.  **Run Onboarding Scripts**:
+    ```bash
+    # Configure Jules MCP and GitHub Permissions (Interactive UI)
+    npm run setup
+
+    # Inject Secrets and Variables (CLI)
+    ./inject-secrets.sh
+    ```
+
+### Manual Configuration
+
+To run the bridge manually and connect your local environment to the swarm, you need to configure the following environment variables:
 
 - `SWARM_KEY`: A shared secret string that anchors the peer discovery. All agents in the same mesh must use the same key.
 - `DUCKY_API_KEY`: The API key for the Architect (LLM). This supports:

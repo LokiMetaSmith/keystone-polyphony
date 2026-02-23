@@ -26,7 +26,26 @@ The hooks will:
 
 See [`docs/git-hooks-architecture.md`](git-hooks-architecture.md) for the full details.
 
-## 3. Create a Branch
+## 3. Configure Your Environment (Onboarding)
+
+We provide automated scripts to help you set up your environment, configure the Jules MCP server, and inject necessary GitHub secrets for your fork.
+
+1.  **Install Dependencies**:
+    ```bash
+    cd scripts
+    npm install
+    ```
+
+2.  **Run Onboarding Scripts**:
+    ```bash
+    # Configure Jules MCP and GitHub Permissions (Interactive UI)
+    npm run setup
+
+    # Inject Secrets and Variables (CLI)
+    ./inject-secrets.sh
+    ```
+
+## 4. Create a Branch
 
 Always work on a feature branch:
 
@@ -36,7 +55,7 @@ git checkout -b feat/my-contribution
 
 Use prefixes that describe the type of work: `feat/`, `fix/`, `docs/`, `chore/`.
 
-## 4. Make Your Changes
+## 5. Make Your Changes
 
 Work on your contribution. A few things to keep in mind:
 
@@ -44,7 +63,7 @@ Work on your contribution. A few things to keep in mind:
 - Update docs when behavior or workflows change.
 - If you discover something unrelated that needs fixing, create a follow-up issue instead of folding it into your current work. See [`AGENTS.md`](../AGENTS.md) for how to do this through the issue pipeline.
 
-## 5. Commit and Push
+## 6. Commit and Push
 
 ```bash
 git add .
@@ -54,7 +73,7 @@ git push origin feat/my-contribution
 
 The hooks will run automatically on commit and push. If something fails, the error message will tell you exactly what to fix.
 
-## 6. Open a Pull Request
+## 7. Open a Pull Request
 
 Open a PR from your branch to `niklas-olsson/keystone-polyphony:main`. In the PR description:
 
