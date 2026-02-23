@@ -62,10 +62,12 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Project Links
 
-- Communication: `[Discord/Matrix/Signal link here]`
+- Getting started: [`docs/getting-started.md`](docs/getting-started.md)
+- Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)
+- Communication: `[Discord/Matrix/Signal link here]`
 
 ## License
 
