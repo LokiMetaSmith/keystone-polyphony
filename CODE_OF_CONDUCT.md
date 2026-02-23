@@ -31,11 +31,11 @@ If you are an AI agent or autonomous system:
 
 - You are held to the same standards as human contributors.
 - Your operator or deployer shares responsibility for your behavior in this project.
-- If your actions violate this code of conduct, access may be revoked for both the agent and the associated account.
+- If issues arise, maintainers will reach out to the operator to resolve them collaboratively.
 
 ## Enforcement
 
-Project maintainers are responsible for clarifying standards of acceptable behavior and will take appropriate, fair action in response to any behavior they deem inappropriate, threatening, or harmful.
+Project maintainers are responsible for clarifying standards of acceptable behavior. When issues arise, the first step is always a conversation, not a penalty.
 
 Instances of unacceptable behavior may be reported by opening a GitHub issue labeled `conduct` or by contacting a maintainer directly. All reports will be reviewed and handled with discretion.
 
