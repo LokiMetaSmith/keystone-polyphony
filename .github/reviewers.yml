@@ -1,0 +1,5 @@
+reviewers:
+  - name: Jules
+    handle: "@Jules"
+    label: jules
+    quota_var: JULES_DAILY_TASKS

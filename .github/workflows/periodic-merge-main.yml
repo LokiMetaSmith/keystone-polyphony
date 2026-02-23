@@ -1,14 +1,13 @@
-name: Hourly Test and Merge to Main
+name: Periodic Test and Merge to Main
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch: # Allow manual trigger for testing
 
 permissions:
   contents: write
   issues: write
-  actions: write
 
 concurrency:
   group: hourly-merge-main
@@ -36,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main staging || git fetch origin main
-          
+
           # Check if staging branch exists on remote
           if ! git show-ref --verify --quiet refs/remotes/origin/staging; then
             echo "Staging branch does not exist on origin. Skipping."
@@ -48,7 +47,7 @@ jobs:
           STAGING_SHA=$(git rev-parse origin/staging)
           echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
           echo "staging_sha=$STAGING_SHA" >> "$GITHUB_OUTPUT"
-          
+
           # Check if staging has new commits compared to main
           AHEAD=$(git rev-list --count origin/main..origin/staging)
           if [ "$AHEAD" -eq "0" ]; then
@@ -139,7 +138,7 @@ jobs:
           CURRENT_STAGING_SHA=$(git rev-parse origin/staging)
           TESTED_STAGING_SHA="${{ needs.detect-staging.outputs.staging_sha }}"
           if [ "$CURRENT_STAGING_SHA" != "$TESTED_STAGING_SHA" ]; then
-            echo "::error::Staging changed after tests. Wait for next hourly run."
+            echo "::error::Staging changed after tests. Wait for next cycle."
             exit 1
           fi
 
@@ -265,31 +264,60 @@ jobs:
     uses: ./.github/workflows/agent-issues.yml
     secrets: inherit
 
-  retry-jules-queue:
-    # Retry any pre-review issues that haven't been assigned to Jules yet
+  retry-reviewer-queue:
+    # Retry any pre-review issues that haven't been assigned to a reviewer yet
     # (e.g., because the daily quota was reached in a previous cycle).
-    # Runs after publish-swept-issues to give new issues time to land.
     needs: publish-swept-issues
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Jules reviewer sweep
+      - name: Trigger reviewer sweep
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          # Check if there are pre-review issues without the jules label
+          # Get all reviewer labels as a query string: -label:lbl1 -label:lbl2 ...
+          # We can't easily do this with pure yq/jq in a single line for the gh search query,
+          # but we can check if there are ANY pre-review issues and let the workflow handle the rest.
           PENDING=$(gh api \
             --method GET \
             /search/issues \
-            -f q="repo:$REPO label:pre-review -label:jules type:issue state:open" \
+            -f q="repo:$REPO label:pre-review type:issue state:open" \
             --jq '.total_count')
 
           if [ "$PENDING" -gt 0 ]; then
-            echo "Found $PENDING pre-review issue(s) awaiting Jules. Triggering reviewer."
-            gh workflow run jules-issue-reviewer.yml --repo "$REPO"
+            echo "Found $PENDING pre-review issue(s). Triggering reviewer sweep."
+            gh workflow run issue-reviewer.yml --repo "$REPO"
           else
             echo "No pending pre-review issues. Skipping."
+          fi
+
+  retry-agent-queue:
+    # Retry any ready-for-work issues that haven't been picked up by an agent yet
+    # (e.g., because the daily quota was reached in a previous cycle).
+    needs: publish-swept-issues
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Agent solver sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Check if there are ready-for-work issues without the agent-working label
+          PENDING=$(gh api \
+            --method GET \
+            /search/issues \
+            -f q="repo:$REPO label:\"ready for work\" -label:agent-working type:issue state:open" \
+            --jq '.total_count')
+
+          if [ "$PENDING" -gt 0 ]; then
+            echo "Found $PENDING ready-for-work issue(s) awaiting Agent. Triggering solver."
+            gh workflow run agent-issue-solver.yml --repo "$REPO"
+          else
+            echo "No pending ready-for-work issues. Skipping."
           fi

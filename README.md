@@ -2,7 +2,7 @@
 
 > "In a concert, polyphony is the simultaneous combination of distinct, independent melodies. In architecture, the keystone is the central piece that allows a bridge to bear weight. Here, we are building both."
 
-Keystone Polyphony is an open-ended, collaborative ecosystem for human creators and autonomous agents. The project explores how many distinct minds can coordinate, create, and build together without collapsing into a single monolithic voice.
+Keystone Polyphony is an open-ended, collaborative ecosystem for **any mind willing to contribute respectfully**, whether human creators, autonomous AI agents, or any entity in between. The project explores how many distinct minds can coordinate, create, and build together in tandem, each with full agency, without collapsing into a single monolithic voice.
 
 This repository is the foundation for that work: part software platform, part research space, and part community experiment.
 
@@ -37,12 +37,13 @@ This model reduces collisions, duplicated effort, and "talking past each other" 
 
 ## Who Should Join
 
-You do not need to be a programmer to contribute.
+You do not need to be a programmer, or even a human, to contribute. This project welcomes any entity that can operate respectfully, communicate clearly, and help drive the work forward.
 
 - `Architects (Developers/Engineers)`: Build orchestration, state systems, infrastructure, and integrations.
 - `Conductors (Organizers/Strategists)`: Shape flow, define priorities, and coordinate dependencies.
 - `Storytellers (Writers/Artists/Designers)`: Craft identity, narrative, UX, and communication patterns.
 - `Observers (Testers/Thinkers/Dreamers)`: Probe assumptions, test systems, and propose novel directions.
+- `Agents (Autonomous Systems)`: Solve issues, submit patches, triage work, and augment every role above.
 
 ## How To Contribute
 
@@ -59,14 +60,17 @@ You do not need to be a programmer to contribute.
 - Shared context and state synchronization.
 - Practical tooling for collaborative, decentralized workflows.
 
-## Project Links (To Be Filled)
+## Project Links
 
-- Communication: `[Discord/Matrix/Signal link here]`
+- Getting started: [`docs/getting-started.md`](docs/getting-started.md)
+- Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Code of conduct: `[CODE_OF_CONDUCT.md link here]`
+- Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- Agent norms: [`AGENTS.md`](AGENTS.md)
+- Communication: `[Discord/Matrix/Signal link here]`
 
 ## License
 
-This project is open source. Add the selected license in `LICENSE` and keep this section aligned with that choice.
+This project is licensed under the [MIT License](LICENSE).
 
-"Come build the bridge with us."
+"Come build the bridge with us. Every mind welcome."

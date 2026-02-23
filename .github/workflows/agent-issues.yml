@@ -48,25 +48,32 @@ jobs:
         if: steps.auth.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ steps.auth.outputs.token_to_use == 'upstream' && secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          LOCAL_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_REPO: niklas-olsson/keystone-polyphony
+          TRIAGE_AGENTS: ${{ vars.TRIAGE_AGENTS }}
+          VARS_JSON: ${{ toJson(vars) }}
         run: |
           set -euo pipefail
+          source scripts/triage-lib.sh
 
           shopt -s nullglob
           for file in .github/issues/*.md; do
             echo "Processing issue file: $file"
-            
-            # Read first line as title, removing leading '# '
-            FIRST_LINE=$(head -n 1 "$file")
-            if [[ "$FIRST_LINE" == "# "* ]]; then
-              TITLE="${FIRST_LINE#\# }"
-              # Write the rest as the body
-              tail -n +2 "$file" > .github_issues_body.txt
-            else
-              # Fallback if rule wasn't followed
-              TITLE=$(basename "$file" .md)
-              cp "$file" .github_issues_body.txt
+
+            # Triage check
+            # For triage operations on the local repo, we might need LOCAL_GH_TOKEN
+            # if GH_TOKEN is set to UPSTREAM_PR_TOKEN.
+            STATUS=$(GH_TOKEN="$LOCAL_GH_TOKEN" ./scripts/triage-dispatch.sh "$file" "$GITHUB_REPOSITORY")
+            echo "Triage status for $file: $STATUS"
+
+            if [ "$STATUS" != "ALL_REFINED" ]; then
+              echo "Issue $file is not fully refined ($STATUS). Skipping publish."
+              continue
             fi
+
+            TITLE=$(get_issue_title "$file")
+            # Create a clean body for publishing
+            cat "$file" > .github_issues_body.txt
 
             FINGERPRINT=$(sha256sum "$file" | awk '{print $1}')
             MARKER="agent-issue-fingerprint:$FINGERPRINT"
@@ -88,15 +95,15 @@ jobs:
                 echo "Fingerprint: \`$MARKER\`"
               } > .github_issues_body_enriched.txt
 
-              # Ensure the pre-review label exists on upstream
-              if ! gh api "/repos/$UPSTREAM_REPO/labels/pre-review" > /dev/null 2>&1; then
-                echo "Creating missing label: pre-review"
+              # Ensure the ready for work label exists on upstream
+              if ! gh api "/repos/$UPSTREAM_REPO/labels/ready%20for%20work" > /dev/null 2>&1; then
+                echo "Creating missing label: ready for work"
                 gh api \
                   --method POST \
                   "/repos/$UPSTREAM_REPO/labels" \
-                  -f name="pre-review" \
-                  -f color="FBCA04" \
-                  -f description="Newly created issue awaiting review"
+                  -f name="ready for work" \
+                  -f color="006B75" \
+                  -f description="Issue is ready to be picked up"
               fi
 
               echo "Publishing issue: $TITLE to $UPSTREAM_REPO"
@@ -104,7 +111,7 @@ jobs:
                 --repo "$UPSTREAM_REPO" \
                 --title "Agent Discovery: $TITLE" \
                 --body-file .github_issues_body_enriched.txt \
-                --label "pre-review")
+                --label "ready for work")
 
               # Log discovery for historical record and to ensure PR diff remains mergeable
               ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
@@ -127,17 +134,19 @@ jobs:
             git rm "$file"
           done
 
-      - name: Commit and Push Issue Removal
+      - name: Commit and Push Triage Updates and Issue Removal
         if: steps.auth.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
+
+          # Add all changes including refined issue files and discovery log
+          git add .github/issues/*.md meta/DISCOVERIES.md || true
+
           if ! git diff --staged --quiet; then
-            echo "Committing discovery log update and removal of processed issues..."
-            git add meta/DISCOVERIES.md || true
-            git commit -m "chore: log discovery and remove published agent issues [skip ci]"
+            echo "Committing triage updates and removal of processed issues..."
+            git commit -m "chore: triage updates and remove published agent issues [skip ci]"
             # Push specifically to the branch that triggered this run
             git push origin "HEAD:${GITHUB_REF#refs/heads/}"
           else
