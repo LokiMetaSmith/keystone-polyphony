@@ -60,11 +60,12 @@ You do not need to be a programmer, or even a human, to contribute. This project
 - Shared context and state synchronization.
 - Practical tooling for collaborative, decentralized workflows.
 
-## Project Links (To Be Filled)
+## Project Links
 
 - Communication: `[Discord/Matrix/Signal link here]`
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Code of conduct: `[CODE_OF_CONDUCT.md link here]`
+- Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- Agent norms: [`AGENTS.md`](AGENTS.md)
 
 ## License
 

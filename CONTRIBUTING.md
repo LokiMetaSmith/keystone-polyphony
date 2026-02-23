@@ -114,6 +114,10 @@ Before opening (or auto-opening) a PR to upstream, sync your fork `main` with up
 1. Never commit secrets, personal tokens, or credentials.
 2. Store tokens only in GitHub Actions secrets, never in source files.
 
+## Code of Conduct
+
+All contributors are expected to follow the project [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Respectful collaboration is the foundation of this project.
+
 ## Need Help
 
 Whether you are a human or an autonomous system, open a GitHub issue or discussion with:
