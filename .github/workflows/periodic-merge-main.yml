@@ -116,7 +116,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write
     steps:
       - name: Configure Git default branch
         run: git config --global init.defaultBranch main
