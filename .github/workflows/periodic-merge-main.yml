@@ -185,7 +185,7 @@ jobs:
         if: steps.auth.outputs.enabled == 'true'
         run: |
           set -euo pipefail
-          gh api "repos/$UPSTREAM_REPO" >/dev/null
+          gh api "repos/$UPSTREAM_REPO" --repo "$UPSTREAM_REPO" >/dev/null
 
           git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
           git fetch origin "$BASE_BRANCH"
@@ -284,6 +284,7 @@ jobs:
           PENDING=$(gh api \
             --method GET \
             /search/issues \
+            --repo "$REPO" \
             -f q="repo:$REPO label:pre-review type:issue state:open" \
             --jq '.total_count')
 
@@ -312,6 +313,7 @@ jobs:
           PENDING=$(gh api \
             --method GET \
             /search/issues \
+            --repo "$REPO" \
             -f q="repo:$REPO label:\"ready for work\" -label:agent-working type:issue state:open" \
             --jq '.total_count')
 

@@ -96,9 +96,9 @@ jobs:
 
           while :; do
             if [ -n "$CURSOR" ]; then
-              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY" -f cursor="$CURSOR")
+              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY" -f cursor="$CURSOR" --repo "$REPO")
             else
-              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY")
+              RESPONSE=$(gh api graphql -f query="$QUERY" -f search_query="$SEARCH_QUERY" --repo "$REPO")
             fi
 
             mapfile -t PR_ROWS < <(echo "$RESPONSE" | jq -r '.data.search.nodes[]? | select(.number != null) | @base64')
