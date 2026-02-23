@@ -15,6 +15,7 @@ keystone-polyphony/
 ├── docs/                       # Documentation
 │   ├── getting-started.md      # First contribution walkthrough
 │   ├── architecture.md         # This file
+│   ├── liminal-bridge.md       # Liminal Bridge architecture and operation guide
 │   ├── ci-cd.md                # CI/CD pipeline reference
 │   ├── git-hooks-architecture.md  # Hook design and interaction stories
 │   └── features/               # BDD feature specs
@@ -82,6 +83,7 @@ graph TD
 | If you are... | Start here |
 |---|---|
 | New to the project | [`docs/getting-started.md`](getting-started.md) |
+| Working on the swarm substrate | [`docs/liminal-bridge.md`](liminal-bridge.md) |
 | Setting up agent automation | [`CONTRIBUTING.md`](../CONTRIBUTING.md) (Agentic Default Flow) |
 | An AI agent on a task | [`AGENTS.md`](../AGENTS.md) |
 | Curious about the CI/CD pipelines | [`docs/ci-cd.md`](ci-cd.md) |
