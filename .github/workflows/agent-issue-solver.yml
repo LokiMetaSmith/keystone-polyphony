@@ -37,9 +37,8 @@ jobs:
           set -euo pipefail
           ensure_label() {
             local NAME="$1" COLOR="$2" DESC="$3"
-            if ! gh api "/repos/$REPO/labels/$NAME" > /dev/null 2>&1; then
-              echo "Creating missing label: $NAME"
               gh api --method POST "/repos/$REPO/labels" \
+                --repo "$REPO" \
                 -f name="$NAME" \
                 -f color="$COLOR" \
                 -f description="$DESC"
@@ -107,7 +106,7 @@ jobs:
           echo "Issues assigned to agents in last 24h: $ASSIGNED_TODAY / $LIMIT"
           if [ "$ASSIGNED_TODAY" -ge "$LIMIT" ]; then
             echo "Quota reached. Holding issue #${{ steps.identify.outputs.issue_number }}."
-            gh issue edit "${{ steps.identify.outputs.issue_number }}" --add-label "quota-hold"
+            gh issue edit "${{ steps.identify.outputs.issue_number }}" --repo "$REPO" --add-label "quota-hold"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -121,7 +120,7 @@ jobs:
           BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
 
           # Label swap
-          gh issue edit "$ISSUE_NUMBER" --remove-label "ready for work" --remove-label "quota-hold" --add-label "agent-working"
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "ready for work" --remove-label "quota-hold" --add-label "agent-working"
 
           # Branch creation
           git config user.name "github-actions[bot]"
@@ -134,7 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
-          ISSUE_DATA=$(gh issue view "$ISSUE_NUMBER" --json title,body)
+          ISSUE_DATA=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json title,body)
           TITLE=$(echo "$ISSUE_DATA" | jq -r .title)
           BODY=$(echo "$ISSUE_DATA" | jq -r .body)
 
@@ -228,7 +227,7 @@ jobs:
         run: |
           set -euo pipefail
           ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
-          ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q .title)
+          ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json title -q .title)
           BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
 
           gh pr create \
