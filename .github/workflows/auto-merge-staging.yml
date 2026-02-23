@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  workflows: write
 
 concurrency:
   group: auto-merge-staging
