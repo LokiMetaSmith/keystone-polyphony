@@ -1,0 +1,30 @@
+name: Polyphony Swarm Seed
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '*/30 * * * *'  # Re-anchor every 30 minutes to keep DHT entries alive
+
+jobs:
+  anchor-swarm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Liminal Base Image
+        run: docker build -t jules-liminal .
+
+      - name: Run Swarm Anchor
+        env:
+          SWARM_KEY: ${{ secrets.SWARM_KEY }}
+          DUCKY_API_KEY: ${{ secrets.DUCKY_API_KEY }}
+        # Run in detached mode or with a timeout since this is a long-running process
+        # For a true "always on" seed, we'd need a self-hosted runner or a VPS.
+        # This action just "pings" the DHT to announce presence and perform architect duties.
+        run: |
+          docker run --rm \
+            -e SWARM_KEY="$SWARM_KEY" \
+            -e DUCKY_API_KEY="$DUCKY_API_KEY" \
+            jules-liminal \
+            python src/liminal_bridge/server.py --mode=seed --timeout=300

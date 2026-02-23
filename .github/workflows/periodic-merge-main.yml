@@ -21,6 +21,9 @@ jobs:
       main_sha: ${{ steps.check.outputs.main_sha }}
       staging_sha: ${{ steps.check.outputs.staging_sha }}
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -65,6 +68,9 @@ jobs:
       HOURLY_TEST_COMMAND: ${{ vars.HOURLY_TEST_COMMAND }}
       HOURLY_TEST_IMAGE: ${{ vars.HOURLY_TEST_IMAGE }}
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout staging snapshot
         uses: actions/checkout@v4
         with:
@@ -110,7 +116,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      workflows: write
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -152,6 +162,9 @@ jobs:
       HEAD_BRANCH: ${{ github.repository_owner }}:main
       GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN }}
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -221,6 +234,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Configure Git default branch
+        run: git config --global init.defaultBranch main
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
