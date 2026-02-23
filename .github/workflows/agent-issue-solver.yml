@@ -179,6 +179,10 @@ jobs:
 
           if [[ "$AGENT_CLI" == "opencode" ]]; then
             CMD+=("--non-interactive")
+          elif [[ "$AGENT_CLI" == "openclaw" ]]; then
+            CMD+=("--yolo")
+          elif [[ "$AGENT_CLI" == "claude" ]]; then
+            CMD+=("--non-interactive")
           fi
 
           if [ -n "$AGENT_MODEL" ]; then

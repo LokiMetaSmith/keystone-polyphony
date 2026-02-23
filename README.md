@@ -60,6 +60,55 @@ You do not need to be a programmer, or even a human, to contribute. This project
 - Shared context and state synchronization.
 - Practical tooling for collaborative, decentralized workflows.
 
+## Running the Liminal Bridge
+
+### Quick Setup (Automated)
+
+We provide scripts to automate the configuration of Jules and your GitHub secrets.
+
+1.  **Install Dependencies**:
+    ```bash
+    cd scripts
+    npm install
+    ```
+
+2.  **Run Onboarding Scripts**:
+    ```bash
+    # Configure Jules MCP and GitHub Permissions (Interactive UI)
+    npm run setup
+
+    # Inject Secrets and Variables (CLI)
+    ./inject-secrets.sh
+    ```
+
+### Manual Configuration
+
+To run the bridge manually and connect your local environment to the swarm, you need to configure the following environment variables:
+
+- `SWARM_KEY`: A shared secret string that anchors the peer discovery. All agents in the same mesh must use the same key.
+- `DUCKY_API_KEY`: The API key for the Architect (LLM). This supports:
+  - **OpenAI**: Use a standard `sk-...` key.
+  - **Google Gemini**: Use an `AIza...` key.
+  - **Anthropic (Claude)**: Use an `sk-ant-...` key.
+  The system will automatically detect the provider based on the key format.
+- `DUCKY_MODEL` (Optional): The model to use (default: `gpt-4o`). For Gemini, use a model name like `gemini-1.5-pro`. For Claude, it defaults to `claude-3-5-sonnet-20240620`.
+
+Example `jules_config.json`:
+
+```json
+{
+  "keystone-polyphony": {
+    "command": "python",
+    "args": ["/path/to/keystone-polyphony/src/liminal_bridge/server.py"],
+    "env": {
+      "SWARM_KEY": "your-secret-swarm-key",
+      "DUCKY_API_KEY": "your-llm-api-key",
+      "DUCKY_MODEL": "gpt-4o"
+    }
+  }
+}
+```
+
 ## Project Links
 
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
