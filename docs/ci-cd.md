@@ -8,16 +8,33 @@ This document outlines the automated pipelines that power the development lifecy
 **Trigger:** `pull_request_target` (opened, synchronize, reopened, ready_for_review) against `main`.
 **File:** `auto-merge-staging.yml`
 
-This workflow enforces an "open-by-default" staging environment. Whenever a non-draft Pull Request is opened against the `main` branch, it is automatically merged into the `staging` branch so that it can be tested in an integrated environment.
+This workflow enforces an "open-by-default" staging environment. Whenever a non-draft Pull Request is opened against the `main` branch, it is automatically merged into the `staging` branch — **unless** the PR modifies files in `.github/workflows/`, in which case it is held for review (see *Workflow File Protection*).
 
 ```mermaid
 graph TD
     A[PR to main opened or updated] --> B{Is PR a Draft?}
     B -- Yes --> End((Skip Workflow))
-    B -- No --> C[Fetch or Create staging branch]
+    B -- No --> W{Touches .github/workflows/?}
+    W -- Yes --> R[Apply 'workflow-review' label & request review]
+    W -- No --> C[Fetch or Create staging branch]
     C --> D[Fetch PR branch changes]
     D --> E[Merge PR branch into staging]
     E --> F[Push staging to remote]
+```
+
+### 1b. Workflow File Protection
+**Trigger:** `pull_request_review` (submitted) on PRs labeled `workflow-review`.
+**File:** `workflow-review.yml`
+
+PRs that modify `.github/workflows/` files have supply-chain security implications (arbitrary code execution, secret access). These PRs are not auto-merged; instead they receive a `workflow-review` label and a comment tagging configured reviewers. When a repository collaborator approves the PR review, this workflow merges the PR into staging.
+
+```mermaid
+graph TD
+    A[PR labeled 'workflow-review'] --> B[Reviewer submits approval]
+    B --> C{Reviewer is collaborator?}
+    C -- No --> D((Ignore))
+    C -- Yes --> E[Merge PR into staging]
+    E --> F[Remove 'workflow-review' label]
 ```
 
 ### 2. Periodic Merge to Main
