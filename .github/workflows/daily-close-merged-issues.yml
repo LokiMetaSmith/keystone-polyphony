@@ -136,7 +136,7 @@ jobs:
                 fi
                 SEEN_ISSUES["$ISSUE_NUMBER"]=1
 
-                ISSUE_JSON=$(gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}")
+                ISSUE_JSON=$(gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}" --repo "${REPO}")
                 ISSUE_STATE=$(echo "$ISSUE_JSON" | jq -r '.state')
                 ISSUE_IS_PR=$(echo "$ISSUE_JSON" | jq -r 'has("pull_request")')
 
@@ -153,6 +153,7 @@ jobs:
                 fi
 
                 REOPENED_AFTER_MERGE=$(gh api "/repos/${REPO}/issues/${ISSUE_NUMBER}/timeline" \
+                  --repo "${REPO}" \
                   -H "Accept: application/vnd.github+json" \
                   --jq --arg merged "$PR_MERGED_AT" '[.[] | select(.event == "reopened" and .created_at > $merged)] | length')
                 if [ "$REOPENED_AFTER_MERGE" -gt 0 ]; then
@@ -169,8 +170,8 @@ jobs:
           EOF
                 )
 
-                gh api --method PATCH "/repos/${REPO}/issues/${ISSUE_NUMBER}" -f state=closed >/dev/null
-                gh api --method POST "/repos/${REPO}/issues/${ISSUE_NUMBER}/comments" -f body="$COMMENT_BODY" >/dev/null
+                gh api --method PATCH "/repos/${REPO}/issues/${ISSUE_NUMBER}" --repo "${REPO}" -f state=closed >/dev/null
+                gh api --method POST "/repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --repo "${REPO}" -f body="$COMMENT_BODY" >/dev/null
 
                 echo "Closed issue #$ISSUE_NUMBER via PR #$PR_NUMBER."
                 CLOSED_ISSUES=$((CLOSED_ISSUES + 1))

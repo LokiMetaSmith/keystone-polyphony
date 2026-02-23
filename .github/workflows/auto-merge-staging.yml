@@ -29,7 +29,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          FILES=$(gh api "/repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[] .filename')
+          FILES=$(gh api "/repos/$REPO/pulls/$PR_NUMBER/files" --repo "$REPO" --paginate --jq '.[] .filename')
 
           if echo "$FILES" | grep -q '^.github/workflows/'; then
             echo "PR #$PR_NUMBER modifies workflow files."
