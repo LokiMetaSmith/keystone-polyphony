@@ -5,12 +5,15 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  pull_request:
+    types: [labeled]
 
 jobs:
   opencode:
     if: |
-      contains(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, '/opencode')
+      (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+      (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+      (github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -24,6 +27,35 @@ jobs:
            fetch-depth: 1
            persist-credentials: false
 
+       - name: Handle Label-Triggered Review
+         id: label_prompt
+         if: github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         run: |
+           LABEL="${{ github.event.label.name }}"
+           case "$LABEL" in
+             "workflow-review")
+               COMMAND="/oc review-workflow"
+               DESC="Deep dive into .github/workflows/ and docs/ci-cd.md. Focus on security, permissions, and best practices."
+               ;;
+             "arch-review")
+               COMMAND="/oc review-arch"
+               DESC="Analyze codebase alignment with README.md, docs/architecture.md, and AGENTS.md."
+               ;;
+             "security-review")
+               COMMAND="/oc review-security"
+               DESC="Focus on secret handling, token scopes, and potential vulnerabilities in scripts or configs."
+               ;;
+             *)
+               COMMAND="/oc review"
+               DESC="Perform a general review based on the $LABEL tag."
+               ;;
+           esac
+           PROMPT="$COMMAND: $DESC"
+           echo "prompt=$PROMPT" >> "$GITHUB_OUTPUT"
+           gh pr comment ${{ github.event.pull_request.number }} --body "$PROMPT"
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
        - name: Run OpenCode
          uses: anomalyco/opencode/github@latest
          env:
@@ -32,7 +64,9 @@ jobs:
            GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
            DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+           OPENAI_API_BASE: https://openrouter.ai/api/v1
          with:
            model: opencode/big-pickle
+           prompt: ${{ steps.label_prompt.outputs.prompt }}
            # share: true
            # github_token: xxxx
