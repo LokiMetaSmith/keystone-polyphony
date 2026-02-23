@@ -30,3 +30,9 @@ The `agent-issue-solver` workflow supports multiple CLI-based agents. To use a s
 - **Claude Code**: Anthropic's official CLI. Set `AGENT_CLI` to `claude`.
 
 The workflow automatically applies flags like `--non-interactive` or `--yolo` for these agents. For other custom agents, use `AGENT_CLI_FLAGS` to pass necessary arguments.
+## 4. Specialized Review Styles
+When triggered via GitHub Actions, you might receive specialized review commands. Adjust your analysis focus accordingly:
+
+- `/oc review-workflow`: Deep dive into `.github/workflows/` and `docs/ci-cd.md`. Focus on security, permissions, and best practices.
+- `/oc review-arch`: Analyze codebase alignment with `README.md`, `docs/architecture.md`, and `AGENTS.md`.
+- `/oc review-security`: Focus on secret handling, token scopes, and potential vulnerabilities in scripts or configs.
