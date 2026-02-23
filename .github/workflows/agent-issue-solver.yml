@@ -219,6 +219,8 @@ jobs:
 
       - name: Create Pull Request
         if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false' && steps.commit.outputs.changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"

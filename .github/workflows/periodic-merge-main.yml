@@ -116,7 +116,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write
     steps:
       - name: Configure Git default branch
         run: git config --global init.defaultBranch main
@@ -125,6 +124,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Setup Git
         run: |

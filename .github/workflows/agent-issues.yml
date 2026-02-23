@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Check token availability
         id: auth
@@ -148,6 +149,8 @@ jobs:
             echo "Committing triage updates and removal of processed issues..."
             git commit -m "chore: triage updates and remove published agent issues [skip ci]"
             # Push specifically to the branch that triggered this run
+            # Use the identified token for the push
+            GH_TOKEN="${{ steps.auth.outputs.token_to_use == 'upstream' && secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}" \
             git push origin "HEAD:${GITHUB_REF#refs/heads/}"
           else
             echo "No changes needed."

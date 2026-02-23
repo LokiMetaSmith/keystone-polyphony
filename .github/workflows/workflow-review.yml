@@ -1,0 +1,88 @@
+name: Workflow Review Gate Merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-approved-workflow-pr:
+    # Only run when a PR with the 'workflow-review' label receives an approval.
+    if: >-
+      github.event.review.state == 'approved' &&
+      contains(github.event.pull_request.labels.*.name, 'workflow-review')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      REVIEWER: ${{ github.event.review.user.login }}
+    steps:
+      - name: Verify reviewer is a collaborator
+        id: verify
+        run: |
+          set -euo pipefail
+
+          # Check if the reviewer has collaborator (contributor) access
+          PERMISSION=$(gh api "/repos/$REPO/collaborators/$REVIEWER/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+
+          echo "Reviewer '$REVIEWER' has permission level: $PERMISSION"
+
+          case "$PERMISSION" in
+            admin|maintain|write|triage)
+              echo "Reviewer is an authorized collaborator."
+              echo "authorized=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Reviewer does not have sufficient permissions. Ignoring approval."
+              echo "authorized=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Configure Git default branch
+        if: steps.verify.outputs.authorized == 'true'
+        run: git config --global init.defaultBranch main
+
+      - name: Checkout repository
+        if: steps.verify.outputs.authorized == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        if: steps.verify.outputs.authorized == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Setup or checkout staging branch
+        if: steps.verify.outputs.authorized == 'true'
+        run: |
+          git fetch origin main staging || git fetch origin main
+          # Use existing remote staging when available, otherwise initialize from main.
+          if git show-ref --verify --quiet refs/remotes/origin/staging; then
+            git checkout -B staging origin/staging
+          else
+            git checkout -B staging origin/main
+          fi
+
+      - name: Merge PR into staging
+        if: steps.verify.outputs.authorized == 'true'
+        run: |
+          # Fetch the PR branch into a local ref
+          git fetch origin pull/$PR_NUMBER/head:pr-branch
+          # Merge it into staging
+          git merge pr-branch --no-edit
+          # Push back to origin
+          git push origin staging
+
+      - name: Cleanup label and comment
+        if: steps.verify.outputs.authorized == 'true'
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "workflow-review"
+          gh pr comment "$PR_NUMBER" --body "Workflow changes approved by @$REVIEWER. PR has been merged to staging."
