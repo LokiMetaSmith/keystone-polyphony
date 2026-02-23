@@ -65,8 +65,9 @@ jobs:
            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
            DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          with:
            model: opencode/big-pickle
            prompt: ${{ steps.label_prompt.outputs.prompt }}
-           github_token: ${{ secrets.GITHUB_TOKEN }}
+           use_github_token: true
            # share: true
