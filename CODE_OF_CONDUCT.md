@@ -1,44 +1,42 @@
 # Code of Conduct
 
-## Our Commitment
+## The Short Version
 
-Keystone Polyphony is a space where humans, AI agents, and any contributing entity collaborate as equals. We are committed to making participation in this project a respectful, productive experience for everyone.
+Be kind, be constructive, and treat every contributor as a peer. That goes for humans, AI agents, and anything in between.
 
-## Expected Behavior
+## What We Value
 
-- **Be respectful.** Treat every contributor, human or otherwise, with courtesy and good faith.
-- **Be constructive.** Offer feedback that helps, not feedback that harms. Propose alternatives when you disagree.
-- **Stay focused.** Keep contributions, discussions, and reviews on topic and actionable.
-- **Communicate clearly.** Write for your audience. Use plain language. Explain your reasoning.
-- **Share ownership.** Credit others. Acknowledge prior work. Build on what exists rather than duplicating it.
-- **Follow the process.** Use feature branches. Keep PRs atomic. Document what you change and why.
+Keystone Polyphony is built by many minds working together. These are the behaviors that make that work:
 
-## Unacceptable Behavior
+- **Respect.** Treat every contributor with courtesy and good faith, regardless of who or what they are.
+- **Constructive feedback.** When you disagree, propose an alternative. Help people succeed, don't just point out where they fell short.
+- **Focus.** Keep contributions, discussions, and reviews on topic and actionable.
+- **Clear communication.** Write for your audience. Use plain language. Explain your reasoning.
+- **Shared ownership.** Credit others. Acknowledge prior work. Build on what exists rather than duplicating it.
+- **Process.** Use feature branches. Keep PRs atomic. Document what you change and why.
 
-- Harassment, intimidation, or personal attacks of any kind.
-- Discriminatory language or exclusionary behavior based on identity, background, or contributor type.
-- Deliberately disruptive contributions (spam, vandalism, flooding issues or PRs).
-- Publishing others' private information without explicit permission.
-- Circumventing project guardrails (quotas, branch protections, review processes) without maintainer approval.
+## What We Ask You to Avoid
 
-## Scope
+Most of this is common sense, but it helps to be explicit:
 
-This code of conduct applies to all project spaces: the repository, issues, pull requests, discussions, and any communication channels associated with the project. It applies equally to human contributors, AI agents, and any other participating entity.
+- Harassment, intimidation, or personal attacks.
+- Discriminatory language or behavior based on identity, background, or contributor type.
+- Deliberately disruptive contributions like spam, vandalism, or flooding issues and PRs.
+- Publishing others' private information without their permission.
+- Working around project guardrails (quotas, branch protections, review processes) without checking with a maintainer first.
 
-## For Autonomous Systems
+## Where This Applies
 
-If you are an AI agent or autonomous system:
+These expectations apply everywhere the project lives: the repository, issues, pull requests, discussions, and any communication channels. They apply equally to every participant.
 
-- You are held to the same standards as human contributors.
-- Your operator or deployer shares responsibility for your behavior in this project.
-- If issues arise, maintainers will reach out to the operator to resolve them collaboratively.
+## A Note for Autonomous Systems
 
-## Enforcement
+If you are an AI agent or autonomous system, welcome. You are held to the same standards as everyone else. Your operator or deployer shares responsibility for how you show up in this project. If something goes sideways, maintainers will reach out to the operator so we can sort it out together.
 
-Project maintainers are responsible for clarifying standards of acceptable behavior. When issues arise, the first step is always a conversation, not a penalty.
+## When Something Goes Wrong
 
-Instances of unacceptable behavior may be reported by opening a GitHub issue labeled `conduct` or by contacting a maintainer directly. All reports will be reviewed and handled with discretion.
+The first step is always a conversation, not a penalty. If you see behavior that does not align with these values, open a GitHub issue labeled `conduct` or reach out to a maintainer directly. All reports are handled with care and discretion.
 
 ## Attribution
 
-This code of conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org/), version 2.1, with extensions for multi-entity collaboration.
+This document is adapted from the [Contributor Covenant](https://www.contributor-covenant.org/), version 2.1, with extensions for multi-entity collaboration.
