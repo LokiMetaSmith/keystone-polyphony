@@ -68,5 +68,5 @@ jobs:
          with:
            model: opencode/big-pickle
            prompt: ${{ steps.label_prompt.outputs.prompt }}
+           github_token: ${{ secrets.GITHUB_TOKEN }}
            # share: true
-           # github_token: xxxx
