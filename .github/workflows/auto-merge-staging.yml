@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
   workflows: write
 
 concurrency:
@@ -14,9 +15,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  merge-to-staging:
-    # Open-by-default policy: any non-draft PR to main can flow into staging.
+  check-workflow-changes:
+    # Detect whether the PR touches any workflow files.
     if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      has_workflow_changes: ${{ steps.detect.outputs.has_workflow_changes }}
+    steps:
+      - name: Check for workflow file changes
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          FILES=$(gh api "/repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
+
+          if echo "$FILES" | grep -q '^\.github/workflows/'; then
+            echo "PR #$PR_NUMBER modifies workflow files."
+            echo "has_workflow_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No workflow file changes detected."
+            echo "has_workflow_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  merge-to-staging:
+    # Open-by-default policy: any non-draft PR to main can flow into staging,
+    # UNLESS it modifies .github/workflows/ files (those need review first).
+    needs: check-workflow-changes
+    if: needs.check-workflow-changes.outputs.has_workflow_changes == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Configure Git default branch
@@ -50,3 +78,62 @@ jobs:
           git merge pr-branch --no-edit
           # Push back to origin
           git push origin staging
+
+  request-workflow-review:
+    # When a PR touches workflow files, label it and request a review
+    # instead of auto-merging.
+    needs: check-workflow-changes
+    if: needs.check-workflow-changes.outputs.has_workflow_changes == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure workflow-review label exists
+        run: |
+          set -euo pipefail
+          if ! gh api "/repos/$REPO/labels/workflow-review" > /dev/null 2>&1; then
+            gh api --method POST "/repos/$REPO/labels" \
+              -f name="workflow-review" \
+              -f color="E4E669" \
+              -f description="PR modifies workflow files and requires review before staging merge"
+          fi
+
+      - name: Label PR and request review
+        run: |
+          set -euo pipefail
+
+          # Apply the label
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "workflow-review"
+
+          # Check if we already posted the review-request comment
+          COMMENT_ID="workflow-review-request"
+          EXISTING=$(gh api "/repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq "[.[] | select(.body | contains(\"$COMMENT_ID\"))] | length")
+
+          if [ "$EXISTING" -eq 0 ]; then
+            # Build reviewer mention list from reviewers.yml
+            REVIEWERS=$(yq '.reviewers[].handle' .github/reviewers.yml | tr '\n' ' ')
+
+            COMMENT_BODY="<!-- $COMMENT_ID -->
+          ## ⚠️ Workflow Review Required
+
+          This PR modifies files in \`.github/workflows/\` and **cannot be auto-merged** to staging.
+
+          Workflow changes have supply-chain security implications (arbitrary code execution, secret access, etc.) and must be reviewed before promotion.
+
+          **Reviewers:** $REVIEWERS
+
+          Please review the workflow changes and **approve this PR** if the changes are:
+          1. ✅ Benign — no secret exfiltration, no external data sends, no privilege escalation
+          2. ✅ Value-adding — the changes serve a legitimate project purpose
+          3. ✅ Correct — the YAML is well-formed and the logic is sound
+
+          Once approved by a contributor, the PR will be automatically merged to staging."
+
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$COMMENT_BODY"
+          fi
