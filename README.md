@@ -92,6 +92,7 @@ Example `jules_config.json`:
 
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
+- Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)
