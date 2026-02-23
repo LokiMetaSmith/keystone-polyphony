@@ -3,7 +3,7 @@
 This document outlines the next steps and planned improvements for the "Liminal Bridge" system.
 
 ## 1. Persistence & Durability
-- [ ] **State Persistence**: Currently, the `LiminalMesh` KV store is ephemeral (in-memory). Implement a backing store (SQLite or local JSON file) to persist state across restarts.
+- [x] **State Persistence**: Currently, the `LiminalMesh` KV store is ephemeral (in-memory). Implement a backing store (SQLite or local JSON file) to persist state across restarts.
 - [ ] **Snapshotting**: Periodic snapshots of the "Liminal Space" to the git repository (e.g., `.liminal/snapshot.json`) to allow recovery.
 
 ## 2. Conflict Resolution
@@ -11,7 +11,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [ ] **Vector Clocks**: Implement vector clocks to order events more accurately than wall-clock timestamps.
 
 ## 3. Security & Authentication
-- [ ] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
+- [x] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
 - [ ] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
 - [ ] **Message Encryption**: Ensure all P2P traffic is encrypted (Hyperswarm does this by default, but application-level encryption for sensitive payloads might be needed).
 
