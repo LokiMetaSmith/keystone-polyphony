@@ -56,12 +56,11 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Find oldest 'ready for work' issue that isn't being worked on
             ISSUE_NUMBER=$(gh api "/repos/$REPO/issues?labels=ready+for+work&state=open&sort=created&direction=asc&per_page=100" \
-              --repo "$REPO" \
               --jq '.[] | select(.labels | map(.name) | index("agent-working") | not) | .number' | head -n 1)
           else
             ISSUE_NUMBER="${{ github.event.issue.number }}"
             # Verify it has 'ready for work' and not 'agent-working'
-            LABELS=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER" --repo "$REPO" --jq '.labels[].name')
+            LABELS=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER" --jq '.labels[].name')
             if ! echo "$LABELS" | grep -q "ready for work"; then
               echo "Issue #$ISSUE_NUMBER does not have 'ready for work' label. Skipping."
               ISSUE_NUMBER=""
@@ -93,10 +92,9 @@ jobs:
 
           ASSIGNED_TODAY=0
           # Audit timelines of issues updated in the last 24h to count 'agent-working' assignments
-          RECENT_ISSUES=$(gh api "/repos/$REPO/issues?state=all&since=$SINCE&per_page=100" --repo "$REPO" --jq '.[].number')
+          RECENT_ISSUES=$(gh api "/repos/$REPO/issues?state=all&since=$SINCE&per_page=100" --jq '.[].number')
           for JNUM in $RECENT_ISSUES; do
             LABELED_AT=$(gh api "/repos/$REPO/issues/$JNUM/timeline" \
-              --repo "$REPO" \
               --jq '[.[] | select(.event == "labeled" and .label.name == "agent-working")] | .[].created_at' 2>/dev/null | grep -E "^[0-9]{4}" | sort | tail -n 1 || echo "")
 
             if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then

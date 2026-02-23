@@ -36,12 +36,11 @@ jobs:
           ensure_label() {
             local NAME="$1" COLOR="$2" DESC="$3"
             # Check labels
-            if ! gh api "/repos/$REPO/labels/$NAME" --repo "$REPO" > /dev/null 2>&1; then
+            if ! gh api "/repos/$REPO/labels/$NAME" > /dev/null 2>&1; then
               echo "Creating missing label: $NAME"
               gh api \
                 --method POST \
                 "/repos/$REPO/labels" \
-                --repo "$REPO" \
                 -f name="$NAME" \
                 -f color="$COLOR" \
                 -f description="$DESC"
@@ -71,13 +70,11 @@ jobs:
           # For workflow_dispatch (sweep), find all pre-review issues missing ALL reviewer labels.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ISSUES=$(gh api "/repos/$REPO/issues?labels=pre-review&state=open&per_page=100" \
-              --repo "$REPO" \
               --jq "--argjson labels '$REVIEWER_LABELS_JSON' '[.[] | select(.labels | map(.name) | any(.[] ; . as \$x | \$labels | index(\$x)) | not )] | [.[].number] | join(\" \")'")
           else
             NUM="${{ github.event.issue.number }}"
             # Check if it already has any reviewer label
             HAS_REVIEWER=$(gh api "/repos/$REPO/issues/$NUM/labels" \
-              --repo "$REPO" \
               --jq "--argjson labels '$REVIEWER_LABELS_JSON' '[.[].name] | any(.[] ; . as \$x | \$labels | index(\$x)) | if . then \"true\" else empty end'")
 
             if [ "$HAS_REVIEWER" = "true" ]; then
@@ -123,18 +120,17 @@ jobs:
             echo "Reviewer for issue #$ISSUE_NUMBER: $NAME ($LABEL) using $QUOTA_VAR"
 
             # Fetch quota limit from repository variables
-            LIMIT=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --repo "$REPO" --jq '.value' 2>/dev/null || echo "0")
+            LIMIT=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null || echo "0")
             if [ "$LIMIT" -eq 0 ]; then
               echo "Quota variable $QUOTA_VAR not set or 0. No quota limit enforced."
               LIMIT=999999
             fi
 
             # Count issues assigned to this reviewer in last 24h
-            REV_ISSUES=$(gh api "/repos/$REPO/issues?labels=$LABEL&state=all&per_page=100" --repo "$REPO" --jq '.[].number')
+            REV_ISSUES=$(gh api "/repos/$REPO/issues?labels=$LABEL&state=all&per_page=100" --jq '.[].number')
             ASSIGNED_TODAY=0
             for RNUM in $REV_ISSUES; do
               LABELED_AT=$(gh api "/repos/$REPO/issues/$RNUM/timeline" \
-                --repo "$REPO" \
                 --jq "[.[] | select(.event == \"labeled\" and .label.name == \"$LABEL\")] | last | .created_at // empty" 2>/dev/null || echo "")
               if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then
                 ASSIGNED_TODAY=$((ASSIGNED_TODAY + 1))
@@ -159,7 +155,6 @@ jobs:
             # Post review instructions (idempotent)
             COMMENT_ID="reviewer-instructions"
             EXISTING=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER/comments" \
-              --repo "$REPO" \
               --jq "[.[] | select(.body | contains(\"$COMMENT_ID\"))] | length")
 
             if [ "$EXISTING" -eq 0 ]; then

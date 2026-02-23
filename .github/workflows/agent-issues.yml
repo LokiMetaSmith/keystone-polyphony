@@ -97,12 +97,11 @@ jobs:
               } > .github_issues_body_enriched.txt
 
               # Ensure the ready for work label exists on upstream
-              if ! gh api "/repos/$UPSTREAM_REPO/labels/ready%20for%20work" --repo "$UPSTREAM_REPO" > /dev/null 2>&1; then
+              if ! gh api "/repos/$UPSTREAM_REPO/labels/ready%20for%20work" > /dev/null 2>&1; then
                 echo "Creating missing label: ready for work"
                 gh api \
                   --method POST \
                   "/repos/$UPSTREAM_REPO/labels" \
-                  --repo "$UPSTREAM_REPO" \
                   -f name="ready for work" \
                   -f color="006B75" \
                   -f description="Issue is ready to be picked up"

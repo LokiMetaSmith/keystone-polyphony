@@ -31,12 +31,11 @@ jobs:
             exit 0
           fi
 
-          if ! gh api "/repos/$REPO/labels/$LABEL_NAME" --repo "$REPO" >/dev/null 2>&1; then
+          if ! gh api "/repos/$REPO/labels/$LABEL_NAME" >/dev/null 2>&1; then
             echo "Creating missing label: $LABEL_NAME"
             gh api \
               --method POST \
               "/repos/$REPO/labels" \
-              --repo "$REPO" \
               -f name="$LABEL_NAME" \
               -f color="0E8A16" \
               -f description="Merged contribution from community member"
