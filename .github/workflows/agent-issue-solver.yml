@@ -232,6 +232,7 @@ jobs:
           BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
 
           gh pr create \
+            --repo "$REPO" \
             --title "feat/agent-$ISSUE_NUMBER: $ISSUE_TITLE" \
             --body "Closes #$ISSUE_NUMBER" \
             --head "$BRANCH_NAME" \
@@ -239,7 +240,7 @@ jobs:
             --label "agent-pr"
 
           # Remove working label from issue
-          gh issue edit "$ISSUE_NUMBER" --remove-label "agent-working"
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "agent-working"
 
       - name: Handle Failure
         if: >-
@@ -255,8 +256,8 @@ jobs:
             REASON="No changes were produced by the agent."
           fi
 
-          gh issue edit "$ISSUE_NUMBER" --remove-label "agent-working" --add-label "agent-failed"
-          gh issue comment "$ISSUE_NUMBER" --body "## ❌ Agent Task Failed
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "agent-working" --add-label "agent-failed"
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "## ❌ Agent Task Failed
 
           $REASON
 
