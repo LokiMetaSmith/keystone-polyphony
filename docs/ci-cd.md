@@ -20,15 +20,15 @@ graph TD
     E --> F[Push staging to remote]
 ```
 
-### 2. Hourly Merge to Main
-**Trigger:** `schedule` (cron) or `workflow_dispatch`.
-**File:** `hourly-merge-main.yml`
+### 2. Periodic Merge to Main
+**Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
+**File:** `periodic-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
 ```mermaid
 graph TD
-    A[Hourly Cron or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A[Every 20 min or Manual Dispatch] --> B[detect-staging: Check for changes]
     A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))
@@ -65,29 +65,48 @@ graph TD
     I --> J[Commit file removal & Push]
 ```
 
-### 4. Jules Issue Reviewer
+### 4. Issue Reviewer
 **Trigger:** `issues` (labeled) or `workflow_dispatch`.
-**File:** `jules-issue-reviewer.yml`
+**File:** `issue-reviewer.yml`
 
-When an issue is labeled with `pre-review`, this workflow checks the rolling 24h quota (`JULES_DAILY_TASKS` repo variable) and, if slots remain, applies the `jules` label and posts review instructions. Over-quota issues receive a `quota-hold` label and are retried automatically by the hourly sweep.
+When an issue is labeled with `pre-review`, this workflow assigns it to a reviewer (AI agent or human) defined in `.github/reviewers.yml`. It uses a round-robin strategy based on the issue number and checks per-reviewer rolling 24h quotas (defined as repository variables). Over-quota issues receive a `quota-hold` label and are retried automatically.
 
 ```mermaid
 graph TD
     A[Issue labeled / workflow_dispatch sweep] --> B{Has 'pre-review' label?}
     B -- No --> Skip((Skip))
-    B -- Yes --> C{Already has 'jules'?}
+    B -- Yes --> C{Already has a reviewer?}
     C -- Yes --> Skip
-    C -- No --> D{Under daily quota?}
-    D -- No --> E[Apply 'quota-hold' label]
-    D -- Yes --> F[Apply 'jules' label]
-    F --> G[Post review instructions]
+    C -- No --> D[Assign Reviewer Round-Robin]
+    D --> E{Under reviewer quota?}
+    E -- No --> F[Apply 'quota-hold' label]
+    E -- Yes --> G[Apply Reviewer label]
+    G --> H[Post review instructions]
 ```
 
-### 5. Label Contributors
+### 5. CLI Agent Issue Solver
+**Trigger:** `issues` (labeled `ready for work`), `workflow_dispatch`.
+**File:** `agent-issue-solver.yml`
+
+This workflow autonomously implements solutions for issues marked as `ready for work`. It checks the `AGENT_DAILY_TASKS` quota, creates a feature branch, composes a prompt from the issue and repo context, and runs a pluggable CLI agent (e.g., OpenCode). If successful, it opens a Pull Request; otherwise, it labels the issue as `agent-failed`.
+
+```mermaid
+graph TD
+    A[Issue labeled 'ready for work' / sweep] --> B{Under daily quota?}
+    B -- No --> C[Apply 'quota-hold']
+    B -- Yes --> D[Swap labels: 'ready for work' -> 'agent-working']
+    D --> E[Checkout, create feat/agent-N branch]
+    E --> F[Compose prompt & Run CLI agent]
+    F --> G{Agent produced changes?}
+    G -- No --> H[Label 'agent-failed', post comment]
+    G -- Yes --> I[Push branch, open PR with 'agent-pr' label]
+```
+
+### 6. Label Contributors
 **Trigger:** `pull_request` (closed).
 **File:** `add-contributors.yml`
 
-A community management workflow that ensures everyone who successfully merges code gets recognized. When a PR is merged, the author automatically receives the `CONTRIBUTOR` label (unless they are a bot).
+A community management workflow that ensures every contributor who successfully merges code gets recognized, human or otherwise. When a PR is merged, the author automatically receives the `CONTRIBUTOR` label. Currently, accounts ending in `[bot]` are skipped; this may be revisited as agent participation grows.
 
 ```mermaid
 graph TD
@@ -101,25 +120,50 @@ graph TD
     E -- Yes --> G
 ```
 
+### 7. Daily Issue Close Sweep
+**Trigger:** `schedule` (daily) or `workflow_dispatch`.
+**File:** `daily-close-merged-issues.yml`
+
+This workflow closes stale open issues that are already resolved by merged PRs when native GitHub auto-close did not fire. To prevent false positives, it only closes issues that appear in GitHub's own `closingIssuesReferences` for merged PRs, only for allowed base branches (`ISSUE_CLOSER_ALLOWED_BASE_REFS`, default: `main,staging`), only when the target is still an open issue in the same repository, and skips issues that were manually reopened after the PR merge.
+
+```mermaid
+graph TD
+    A[Daily Cron or Manual Dispatch] --> B[Search merged PRs in lookback window]
+    B --> C{PR base allowed?}
+    C -- No --> Skip1((Skip PR))
+    C -- Yes --> D[Read GitHub closingIssuesReferences]
+    D --> E{Referenced item is open same-repo issue?}
+    E -- No --> Skip2((Skip Item))
+    E -- Yes --> F[Close issue and add audit comment]
+```
+
 ---
 
 ## Issue Lifecycle
 
-All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by the `JULES_DAILY_TASKS` repository variable (rolling 24h window).
+All agent-generated issues follow a label-driven state machine. Labels are created automatically by workflows if they do not already exist. Issue throughput is governed by repository variables (rolling 24h window), with variable names defined per-reviewer in `.github/reviewers.yml`, and the `AGENT_DAILY_TASKS` variable for implementing agents.
 
 ```mermaid
 stateDiagram-v2
     [*] --> pre_review : Agent creates issue
-    pre_review --> jules : Under quota — reviewer assigns
+    pre_review --> reviewer_assigned : Under quota — reviewer assigns
     pre_review --> quota_hold : Over quota — held for retry
-    quota_hold --> jules : Hourly sweep retries
-    jules --> reviewed : Jules completes review
+    quota_hold --> reviewer_assigned : Periodic sweep retries
+    reviewer_assigned --> reviewed : Reviewer completes review
     reviewed --> ready_for_work : Final approval
-    ready_for_work --> [*] : Work begins
+    ready_for_work --> agent_working : Under quota — agent assigned
+    ready_for_work --> quota_hold : Over quota — held for retry
+    quota_hold --> agent_working : Periodic sweep retries
+    agent_working --> agent_failed : Agent failed
+    agent_working --> agent_pr : Agent opened PR
+    agent_pr --> [*] : PR merged
 
     pre_review : 🟡 pre-review
     quota_hold : ⏳ quota-hold
-    jules : 🟣 jules
+    reviewer_assigned : 🟣 [reviewer label]
     reviewed : 🟢 reviewed
     ready_for_work : 🔵 ready for work
+    agent_working : 🔵 agent-working
+    agent_failed : 🔴 agent-failed
+    agent_pr : 🟣 agent-pr (Label on PR)
 ```

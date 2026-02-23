@@ -1,0 +1,257 @@
+name: CLI Agent Issue Solver
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  solve-issue:
+    # Only run on upstream and only when the issue has the 'ready for work' label.
+    if: >-
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.label.name == 'ready for work' || contains(github.event.issue.labels.*.name, 'ready for work')))
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+      AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
+      AGENT_DAILY_TASKS: ${{ vars.AGENT_DAILY_TASKS || 5 }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure labels exist
+        run: |
+          set -euo pipefail
+          ensure_label() {
+            local NAME="$1" COLOR="$2" DESC="$3"
+            if ! gh api "/repos/$REPO/labels/$NAME" > /dev/null 2>&1; then
+              echo "Creating missing label: $NAME"
+              gh api --method POST "/repos/$REPO/labels" \
+                -f name="$NAME" \
+                -f color="$COLOR" \
+                -f description="$DESC"
+            fi
+          }
+          ensure_label "agent-working" "1D76DB" "Agent is currently working on this issue"
+          ensure_label "agent-failed"  "E11D48" "Agent attempted but failed to solve the issue"
+          ensure_label "agent-pr"      "7C3AED" "PR was created by an agent"
+          ensure_label "quota-hold"    "D93F0B" "Waiting for daily quota to reset"
+
+      - name: Identify issue
+        id: identify
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Find oldest 'ready for work' issue that isn't being worked on
+            ISSUE_NUMBER=$(gh api "/repos/$REPO/issues?labels=ready+for+work&state=open&sort=created&direction=asc&per_page=100" \
+              --jq '.[] | select(.labels | map(.name) | index("agent-working") | not) | .number' | head -n 1)
+          else
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+            # Verify it has 'ready for work' and not 'agent-working'
+            LABELS=$(gh api "/repos/$REPO/issues/$ISSUE_NUMBER" --jq '.labels[].name')
+            if ! echo "$LABELS" | grep -q "ready for work"; then
+              echo "Issue #$ISSUE_NUMBER does not have 'ready for work' label. Skipping."
+              ISSUE_NUMBER=""
+            elif echo "$LABELS" | grep -q "agent-working"; then
+              echo "Issue #$ISSUE_NUMBER is already being worked on. Skipping."
+              ISSUE_NUMBER=""
+            fi
+          fi
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No eligible issue found."
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Selected issue #$ISSUE_NUMBER"
+            echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Quota
+        if: steps.identify.outputs.issue_number != ''
+        id: quota
+        run: |
+          set -euo pipefail
+          LIMIT="${AGENT_DAILY_TASKS:-5}"
+          if [ "$LIMIT" -eq 0 ]; then LIMIT=999999; fi
+
+          SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "Checking quota since $SINCE (Limit: $LIMIT)"
+
+          ASSIGNED_TODAY=0
+          # Audit timelines of issues updated in the last 24h to count 'agent-working' assignments
+          RECENT_ISSUES=$(gh api "/repos/$REPO/issues?state=all&since=$SINCE&per_page=100" --jq '.[].number')
+          for JNUM in $RECENT_ISSUES; do
+            LABELED_AT=$(gh api "/repos/$REPO/issues/$JNUM/timeline" \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "agent-working")] | .[].created_at' 2>/dev/null | grep -E "^[0-9]{4}" | sort | tail -n 1 || echo "")
+
+            if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then
+              echo "Issue #$JNUM was assigned to agent at $LABELED_AT"
+              ASSIGNED_TODAY=$((ASSIGNED_TODAY + 1))
+            fi
+          done
+
+          echo "Issues assigned to agents in last 24h: $ASSIGNED_TODAY / $LIMIT"
+          if [ "$ASSIGNED_TODAY" -ge "$LIMIT" ]; then
+            echo "Quota reached. Holding issue #${{ steps.identify.outputs.issue_number }}."
+            gh issue edit "${{ steps.identify.outputs.issue_number }}" --add-label "quota-hold"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare Workspace
+        if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
+          BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
+
+          # Label swap
+          gh issue edit "$ISSUE_NUMBER" --remove-label "ready for work" --remove-label "quota-hold" --add-label "agent-working"
+
+          # Branch creation
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+
+      - name: Compose Prompt
+        if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
+        id: prompt
+        run: |
+          set -euo pipefail
+          ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
+          ISSUE_DATA=$(gh issue view "$ISSUE_NUMBER" --json title,body)
+          TITLE=$(echo "$ISSUE_DATA" | jq -r .title)
+          BODY=$(echo "$ISSUE_DATA" | jq -r .body)
+
+          {
+            echo "Issue #$ISSUE_NUMBER: $TITLE"
+            echo ""
+            echo "$BODY"
+            echo ""
+            if [ -f AGENTS.md ]; then
+              echo "Repository Conventions (AGENTS.md):"
+              cat AGENTS.md
+              echo ""
+            fi
+
+            # Find .feature files referenced in body
+            FEATURE_FILES=$(echo "$BODY" | grep -oE "docs/features/[a-zA-Z0-9_-]+\.feature" | sort -u || true)
+            for FILE in $FEATURE_FILES; do
+              if [ -f "$FILE" ]; then
+                echo ""
+                echo "Reference Feature File ($FILE):"
+                cat "$FILE"
+              fi
+            done
+          } > agent_prompt.txt
+
+          echo "prompt_file=agent_prompt.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Run Agent
+        if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+
+          # Build command using bash array for safe argument handling
+          CMD=("$AGENT_CLI")
+
+          if [ -n "$AGENT_CLI_FLAGS" ]; then
+            # Use read to split flags while respecting quotes if possible,
+            # though simple read -ra is common in GHA.
+            read -ra FLAGS <<< "$AGENT_CLI_FLAGS"
+            CMD+=("${FLAGS[@]}")
+          fi
+
+          if [[ "$AGENT_CLI" == "opencode" ]]; then
+            CMD+=("--non-interactive")
+          fi
+
+          if [ -n "$AGENT_MODEL" ]; then
+            CMD+=("--model" "$AGENT_MODEL")
+          fi
+
+          # We still use --prompt but pass the content of the file.
+          # To avoid ARG_MAX issues, some agents support reading from a file or stdin.
+          # For now, we follow the suggested pattern but wrap it carefully.
+          PROMPT_CONTENT=$(cat agent_prompt.txt)
+          CMD+=("--prompt" "$PROMPT_CONTENT")
+
+          echo "Running agent: ${CMD[0]} ${CMD[1]} ... (redacted prompt)"
+
+          set +e
+          "${CMD[@]}"
+          EXIT_CODE=$?
+          set -e
+
+          echo "agent_exit_code=$EXIT_CODE" >> "$GITHUB_ENV"
+
+      - name: Commit and Push
+        if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
+        id: commit
+        run: |
+          set -euo pipefail
+          ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
+          BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "feat/agent-$ISSUE_NUMBER: solve issue"
+            git push origin "$BRANCH_NAME"
+            echo "changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false' && steps.commit.outputs.changes == 'true'
+        run: |
+          set -euo pipefail
+          ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
+          ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q .title)
+          BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
+
+          gh pr create \
+            --title "feat/agent-$ISSUE_NUMBER: $ISSUE_TITLE" \
+            --body "Closes #$ISSUE_NUMBER" \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --label "agent-pr"
+
+          # Remove working label from issue
+          gh issue edit "$ISSUE_NUMBER" --remove-label "agent-working"
+
+      - name: Handle Failure
+        if: >-
+          steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false' &&
+          (env.agent_exit_code != '0' || steps.commit.outputs.changes == 'false')
+        run: |
+          set -euo pipefail
+          ISSUE_NUMBER="${{ steps.identify.outputs.issue_number }}"
+
+          if [ "${{ env.agent_exit_code }}" != "0" ]; then
+            REASON="Agent exited with non-zero code (${{ env.agent_exit_code }})."
+          else
+            REASON="No changes were produced by the agent."
+          fi
+
+          gh issue edit "$ISSUE_NUMBER" --remove-label "agent-working" --add-label "agent-failed"
+          gh issue comment "$ISSUE_NUMBER" --body "## ❌ Agent Task Failed
+
+          $REASON
+
+          Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details."
