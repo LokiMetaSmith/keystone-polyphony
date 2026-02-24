@@ -28,8 +28,13 @@ jobs:
   review:
     if: |
       github.repository == 'niklas-olsson/keystone-polyphony' &&
-      ((github.event_name == 'issue_comment' && github.event.issue.pull_request && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-       (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+      ((github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') &&
+        (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+       (github.event_name == 'pull_request_review_comment' &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') &&
+        (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
        ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
         ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
          (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
@@ -50,6 +55,9 @@ jobs:
       AGENT_MODEL_FLAG_FROM_VAR: ${{ vars.REVIEW_AGENT_MODEL_FLAG || '--model' }}
       AGENT_PROMPT_FLAG_FROM_VAR: ${{ vars.REVIEW_AGENT_PROMPT_FLAG || '--prompt' }}
       AGENT_PROMPT_MODE_FROM_VAR: ${{ vars.REVIEW_AGENT_PROMPT_MODE || '' }}
+      OPENCODE_NPM_PACKAGE: ${{ vars.REVIEW_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
+      OPENCLAW_NPM_PACKAGE: ${{ vars.REVIEW_OPENCLAW_NPM_PACKAGE || 'openclaw@2026.2.23' }}
+      CLAUDE_NPM_PACKAGE: ${{ vars.REVIEW_CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code@2.1.52' }}
     permissions:
       contents: read
       issues: write
@@ -248,13 +256,13 @@ jobs:
           else
             case "$CLI_LOWER" in
               opencode)
-                npm install -g opencode-ai
+                npm install -g "$OPENCODE_NPM_PACKAGE"
                 ;;
               openclaw)
-                npm install -g openclaw
+                npm install -g "$OPENCLAW_NPM_PACKAGE"
                 ;;
               claude)
-                npm install -g @anthropic-ai/claude-code
+                npm install -g "$CLAUDE_NPM_PACKAGE"
                 ;;
               *)
                 echo "No default install command for '$CLI'. Set REVIEW_AGENT_INSTALL_CMD."
@@ -303,12 +311,31 @@ jobs:
 
           # Resolve provider key from selected model so provider-specific CLIs can use AGENT_API_KEY.
           case "$MODEL" in
-            anthropic/*) KEY="${{ secrets.ANTHROPIC_API_KEY }}" ;;
-            google/*)    KEY="${{ secrets.GEMINI_API_KEY }}" ;;
-            grok/*)      KEY="${{ secrets.GROK_API_KEY }}" ;;
-            deepseek/*)  KEY="${{ secrets.DEEPSEEK_API_KEY }}" ;;
-            *)           KEY="${{ secrets.OPENROUTER_API_KEY }}" ;;
+            anthropic/*)
+              KEY_PROVIDER="anthropic"
+              KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+              ;;
+            google/*)
+              KEY_PROVIDER="google"
+              KEY="${{ secrets.GEMINI_API_KEY }}"
+              ;;
+            grok/*)
+              KEY_PROVIDER="grok"
+              KEY="${{ secrets.GROK_API_KEY }}"
+              ;;
+            deepseek/*)
+              KEY_PROVIDER="deepseek"
+              KEY="${{ secrets.DEEPSEEK_API_KEY }}"
+              ;;
+            *)
+              KEY_PROVIDER="openrouter"
+              KEY="${{ secrets.OPENROUTER_API_KEY }}"
+              ;;
           esac
+          if [ -z "$KEY" ]; then
+            echo "Missing API key for provider '$KEY_PROVIDER' and model '$MODEL'."
+            exit 1
+          fi
 
           CMD=("$CLI")
           if [ -n "$FLAGS" ]; then
@@ -339,17 +366,29 @@ jobs:
           fi
 
           echo "Running review CLI '$CLI' (selection: ${{ steps.resolve.outputs.selection_source }})"
+          ENV_VARS=("AGENT_API_KEY=$KEY" "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}")
+          case "$KEY_PROVIDER" in
+            anthropic)
+              ENV_VARS+=("ANTHROPIC_API_KEY=$KEY")
+              ;;
+            google)
+              ENV_VARS+=("GEMINI_API_KEY=$KEY")
+              ;;
+            grok)
+              ENV_VARS+=("GROK_API_KEY=$KEY")
+              ;;
+            deepseek)
+              ENV_VARS+=("DEEPSEEK_API_KEY=$KEY")
+              ;;
+            openrouter)
+              ENV_VARS+=("OPENAI_API_KEY=$KEY")
+              ENV_VARS+=("OPENROUTER_API_KEY=$KEY")
+              ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
+              ;;
+          esac
+
           set +e
-          AGENT_API_KEY="$KEY" \
-          ANTHROPIC_API_KEY="$KEY" \
-          OPENAI_API_KEY="$KEY" \
-          OPENROUTER_API_KEY="$KEY" \
-          GROK_API_KEY="$KEY" \
-          GEMINI_API_KEY="$KEY" \
-          DEEPSEEK_API_KEY="$KEY" \
-          OPENAI_API_BASE="https://openrouter.ai/api/v1" \
-          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-          "${CMD[@]}" 2>&1 | tee review_output_raw.txt
+          env "${ENV_VARS[@]}" "${CMD[@]}" 2>&1 | tee review_output_raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 

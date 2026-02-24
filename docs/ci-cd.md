@@ -167,6 +167,11 @@ CLI selection precedence is:
 
 Model override uses the same pattern (`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> review-model:<model>`). For custom tooling, install and argument behavior can be customized with repository variables such as `REVIEW_AGENT_INSTALL_CMD`, `REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`, and `REVIEW_AGENT_PROMPT_MODE`.
 
+Security hardening notes:
+- `/oc` and `/opencode` comment-triggered reviews only run for trusted associations (`OWNER`, `MEMBER`, `COLLABORATOR`).
+- Default CLI installs are version-pinned, with package override variables (`REVIEW_OPENCODE_NPM_PACKAGE`, `REVIEW_OPENCLAW_NPM_PACKAGE`, `REVIEW_CLAUDE_NPM_PACKAGE`).
+- Only the provider-specific API key for the selected model is injected into the CLI environment.
+
 ```mermaid
 graph TD
     A[PR Labeled / Comment / Dispatch] --> B{Is Canonical Repo?}
