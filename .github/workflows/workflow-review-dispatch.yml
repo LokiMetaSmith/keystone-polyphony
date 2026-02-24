@@ -1,0 +1,225 @@
+name: Agent PR Review Dispatch
+
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR Number to review (for manual dispatch)"
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  dispatch-review:
+    if: >-
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.pull_request.labels.*.name, 'workflow-review'))
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+      AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+      AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Identify PR
+        id: identify
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.pr_number }}" ]; then
+              PR_NUMBER="${{ inputs.pr_number }}"
+            else
+              # Find first PR with workflow-review label
+              PR_NUMBER=$(gh pr list --label "workflow-review" --limit 1 --json number --jq '.[0].number')
+            fi
+          else
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" == "null" ]; then
+            echo "No eligible PR found."
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if already reviewed (optional optimization, but we can re-review)
+          echo "Selected PR #$PR_NUMBER"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Select Reviewer & Check Quota
+        if: steps.identify.outputs.pr_number != ''
+        id: quota
+        run: |
+          set -euo pipefail
+          PR_NUMBER="${{ steps.identify.outputs.pr_number }}"
+
+          # 1. Load reviewers config
+          # We use yq to parse .github/reviewers.yml
+          REVIEWERS_JSON=$(yq -o json . .github/reviewers.yml | jq -c '.reviewers')
+          COUNT=$(echo "$REVIEWERS_JSON" | jq 'length')
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No reviewers configured."
+            exit 1
+          fi
+
+          # 2. Select Reviewer (Simple Round Robin based on PR Number)
+          INDEX=$((PR_NUMBER % COUNT))
+          REVIEWER=$(echo "$REVIEWERS_JSON" | jq -c ".[$INDEX]")
+
+          NAME=$(echo "$REVIEWER" | jq -r '.name')
+          HANDLE=$(echo "$REVIEWER" | jq -r '.handle')
+          LABEL=$(echo "$REVIEWER" | jq -r '.label')
+          QUOTA_VAR=$(echo "$REVIEWER" | jq -r '.quota_var')
+
+          echo "Selected Reviewer: $NAME ($LABEL)"
+          echo "reviewer_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "reviewer_handle=$HANDLE" >> "$GITHUB_OUTPUT"
+          echo "reviewer_label=$LABEL" >> "$GITHUB_OUTPUT"
+
+          # 3. Check Quota
+          LIMIT=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null || echo "0")
+          if [ "$LIMIT" -eq 0 ]; then
+             # If var is missing or 0, treat as unlimited or fallback?
+             # issue-reviewer treats 0 as unlimited if not set, but here we assume safe default.
+             # Let's align with issue-reviewer: "Quota variable ... not set or 0. No quota limit enforced."
+             LIMIT=999999
+          fi
+
+          SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+
+          # Count items (issues/PRs) assigned to this reviewer label in last 24h
+          ASSIGNED_TODAY=0
+          RECENT_ITEMS=$(gh api "/repos/$REPO/issues?labels=$LABEL&state=all&since=$SINCE&per_page=100" --jq '.[].number')
+
+          for ITEM in $RECENT_ITEMS; do
+            LABELED_AT=$(gh api "/repos/$REPO/issues/$ITEM/timeline" \
+                --jq "[.[] | select(.event == \"labeled\" and .label.name == \"$LABEL\")] | last | .created_at // empty" 2>/dev/null || echo "")
+            if [ -n "$LABELED_AT" ] && [[ "$LABELED_AT" > "$SINCE" ]]; then
+               ASSIGNED_TODAY=$((ASSIGNED_TODAY + 1))
+            fi
+          done
+
+          echo "Quota usage for $NAME: $ASSIGNED_TODAY / $LIMIT"
+
+          if [ "$ASSIGNED_TODAY" -ge "$LIMIT" ]; then
+            echo "Quota reached."
+            # Tag PR with quota-hold if not present
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "quota-hold"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+             # Remove quota-hold if present
+             gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "quota-hold" --add-label "$LABEL"
+             echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compose Prompt
+        if: steps.identify.outputs.pr_number != '' && steps.quota.outputs.skip == 'false'
+        id: prompt
+        run: |
+          set -euo pipefail
+          PR_NUMBER="${{ steps.identify.outputs.pr_number }}"
+          REVIEWER_NAME="${{ steps.quota.outputs.reviewer_name }}"
+          REVIEWER_HANDLE="${{ steps.quota.outputs.reviewer_handle }}"
+
+          PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title,body,baseRefName,headRefName)
+          TITLE=$(echo "$PR_DATA" | jq -r .title)
+          BODY=$(echo "$PR_DATA" | jq -r .body)
+          BASE=$(echo "$PR_DATA" | jq -r .baseRefName)
+          HEAD=$(echo "$PR_DATA" | jq -r .headRefName)
+
+          # Generate Diff for workflow files only
+          # We need to fetch the PR head
+          git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER
+
+          echo "Generating diff for .github/workflows/..."
+          DIFF_CONTENT=$(git diff origin/$BASE...pr-$PR_NUMBER -- .github/workflows/ || echo "No workflow changes found or diff failed.")
+
+          {
+            echo "You are acting as **$REVIEWER_NAME** ($REVIEWER_HANDLE)."
+            echo "Your task is to review Pull Request #$PR_NUMBER which modifies GitHub Actions workflow files."
+            echo ""
+            echo "## PR Context"
+            echo "Title: $TITLE"
+            echo "Description:"
+            echo "$BODY"
+            echo ""
+            echo "## Changes to Workflow Files (.github/workflows/)"
+            echo "\`\`\`diff"
+            echo "$DIFF_CONTENT"
+            echo "\`\`\`"
+            echo ""
+            if [ -f AGENTS.md ]; then
+              echo "## Repository Conventions (AGENTS.md)"
+              cat AGENTS.md
+              echo ""
+            fi
+            echo "## Review Criteria"
+            echo "1. **Security**: Check for secret exfiltration, unauthorized external requests, privilege escalation, or malicious code patterns."
+            echo "2. **Value**: Confirm the workflow changes serve a legitimate project purpose."
+            echo "3. **Legitimacy**: Ensure the code is not malicious."
+            echo ""
+            echo "## Instructions"
+            echo "- Analyze the diff carefully."
+            echo "- If the changes are benign and safe, APPROVE the PR."
+            echo "- If there are concerns, REQUEST CHANGES with a detailed explanation."
+            echo "- **CRITICAL**: You MUST execute the GitHub CLI command to submit your review."
+            echo "  - To Approve: \`gh pr review $PR_NUMBER --approve --body \"LGTM\"\`"
+            echo "  - To Request Changes: \`gh pr review $PR_NUMBER --request-changes --body \"[Detailed Reason]\"\`"
+          } > agent_prompt.txt
+
+          echo "Prompt prepared."
+
+      - name: Run Agent
+        if: steps.identify.outputs.pr_number != '' && steps.quota.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+
+          CMD=("$AGENT_CLI")
+          if [ -n "$AGENT_CLI_FLAGS" ]; then
+            read -ra FLAGS <<< "$AGENT_CLI_FLAGS"
+            CMD+=("${FLAGS[@]}")
+          fi
+
+          if [[ "$AGENT_CLI" == "opencode" ]]; then
+            CMD+=("--non-interactive")
+          elif [[ "$AGENT_CLI" == "openclaw" ]]; then
+            CMD+=("--yolo")
+          elif [[ "$AGENT_CLI" == "claude" ]]; then
+            CMD+=("--non-interactive")
+          fi
+
+          if [ -n "$AGENT_MODEL" ]; then
+            CMD+=("--model" "$AGENT_MODEL")
+          fi
+
+          # Read prompt from file
+          PROMPT_CONTENT=$(cat agent_prompt.txt)
+          CMD+=("--prompt" "$PROMPT_CONTENT")
+
+          echo "Running agent: ${CMD[0]} ... (redacted prompt)"
+
+          set +e
+          "${CMD[@]}"
+          EXIT_CODE=$?
+          set -e
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "Agent failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi

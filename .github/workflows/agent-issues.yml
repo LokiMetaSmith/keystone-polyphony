@@ -45,6 +45,18 @@ jobs:
             echo "::notice::UPSTREAM_PR_TOKEN is not set and not on canonical repository. Skipping issue publish; leaving files in .github/issues/ for manual follow-up."
           fi
 
+      - name: Setup Python
+        if: steps.auth.outputs.enabled == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.auth.outputs.enabled == 'true'
+        run: |
+          pip install -r requirements.txt
+
       - name: Create Issues on Upstream
         if: steps.auth.outputs.enabled == 'true'
         env:
@@ -53,6 +65,8 @@ jobs:
           UPSTREAM_REPO: niklas-olsson/keystone-polyphony
           TRIAGE_AGENTS: ${{ vars.TRIAGE_AGENTS }}
           VARS_JSON: ${{ toJson(vars) }}
+          DUCKY_API_KEY: ${{ secrets.DUCKY_API_KEY }}
+          DUCKY_MODEL: ${{ vars.DUCKY_MODEL }}
         run: |
           set -euo pipefail
           source scripts/triage-lib.sh
