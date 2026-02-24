@@ -156,6 +156,7 @@ async def test_concurrent_writes(mesh_a, mesh_b):
     else:
         assert val_c == "val_a"
 
+
 @pytest.mark.asyncio
 async def test_get_all_kv_unwraps_values(mesh_a):
     """Test that get_all_kv returns unwrapped values."""
