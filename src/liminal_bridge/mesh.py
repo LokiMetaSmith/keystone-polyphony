@@ -10,7 +10,16 @@ from cryptography.hazmat.primitives import serialization
 
 
 class LiminalMesh:
-    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem", bootstrap: Optional[str] = None, swarm_seed: Optional[str] = None, snapshot_path: str = ".liminal/snapshot.json", snapshot_interval: int = 300):
+    def __init__(
+        self,
+        secret_key: str,
+        db_path: str = "liminal.db",
+        identity_path: str = "identity.pem",
+        bootstrap: Optional[str] = None,
+        swarm_seed: Optional[str] = None,
+        snapshot_path: str = ".liminal/snapshot.json",
+        snapshot_interval: int = 300,
+    ):
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
@@ -72,7 +81,7 @@ class LiminalMesh:
             "node_id": self.node_id,
             "kv_store": self.kv_store,
             "thoughts": self.thoughts,
-            "batons": self.batons
+            "batons": self.batons,
         }
 
         # Ensure directory exists
@@ -230,7 +239,9 @@ class LiminalMesh:
         # Start snapshot task
         self._snapshot_task = asyncio.create_task(self._periodic_snapshot())
 
-        print(f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}...")
+        print(
+            f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
+        )
 
     async def stop(self):
         """Stops the sidecar."""
