@@ -26,6 +26,7 @@ class DashboardServer:
         self.app.router.add_get("/api/batons", self.handle_batons)
         self.app.router.add_get("/api/kv", self.handle_kv)
         self.app.router.add_get("/api/logs", self.handle_logs)
+        self.app.router.add_get("/api/network", self.handle_network)
 
         # CORS (Simplified for local dev)
         # self.app.on_response_prepare.append(self.add_cors_headers)
@@ -72,6 +73,9 @@ class DashboardServer:
 
     async def handle_logs(self, request):
         return web.json_response(self.mesh.log_aggregator.get_logs())
+
+    async def handle_network(self, request):
+        return web.json_response(self.mesh.network_map)
 
     async def start(self):
         self.runner = web.AppRunner(self.app)
