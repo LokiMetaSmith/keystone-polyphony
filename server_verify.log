@@ -1,0 +1,6 @@
+127.0.0.1 [24/Feb/2026:17:14:03 +0000] "GET / HTTP/1.1" 200 236 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:17:14:03 +0000] "GET /assets/index-Cc_YGJ0s.js HTTP/1.1" 200 247 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:17:14:03 +0000] "GET /assets/index-DAFHU7Zl.css HTTP/1.1" 200 236 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:17:14:04 +0000] "GET /api/status HTTP/1.1" 200 298 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:17:14:04 +0000] "GET /api/thoughts HTTP/1.1" 200 160 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:17:14:06 +0000] "GET /api/logs HTTP/1.1" 200 160 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"

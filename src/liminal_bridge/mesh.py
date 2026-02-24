@@ -12,6 +12,10 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
+try:
+    from .observability import LogAggregator
+except ImportError:
+    from observability import LogAggregator
 from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
 
 
@@ -68,6 +72,10 @@ class LiminalMesh:
         self.kv_store: Dict[str, CRDT] = {}
         self.vector_clock: Dict[str, int] = {self.node_id: 0}
 
+        # Network Graph
+        self.peer_map: Dict[str, str] = {}  # transport_id -> node_id
+        self.network_map: Dict[str, list[str]] = {}  # node_id -> [connected_node_ids]
+
         # Persistence
         self._init_db()
         self._load_state()
@@ -81,6 +89,9 @@ class LiminalMesh:
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
 
+        # Observability
+        self.log_aggregator = LogAggregator()
+
     async def _periodic_snapshot(self):
         """Periodically saves a snapshot of the mesh state."""
         loop = asyncio.get_running_loop()
@@ -92,6 +103,9 @@ class LiminalMesh:
                 break
             except Exception as e:
                 print(f"Error saving snapshot: {e}")
+
+            # Also periodically broadcast network state
+            await self.broadcast_network_state()
 
     def _save_snapshot(self):
         """Saves the current state to a JSON file."""
@@ -320,6 +334,9 @@ class LiminalMesh:
         # Start snapshot task
         self._snapshot_task = asyncio.create_task(self._periodic_snapshot())
 
+        # Broadcast initial state (so dashboard sees us)
+        asyncio.create_task(self.broadcast_network_state())
+
         print(
             f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
         )
@@ -430,11 +447,13 @@ class LiminalMesh:
             # Re-broadcast my state to new peer
             if self.node_id in self.thoughts:
                 await self.share_thought(self.thoughts[self.node_id])
+            await self.broadcast_network_state()
 
         elif msg_type == "peer_disconnected":
             pid = msg.get("peer_id")
             if pid in self.peers:
                 self.peers.remove(pid)
+            await self.broadcast_network_state()
 
         elif msg_type == "message":
             payload = msg.get("payload", {})
@@ -446,6 +465,12 @@ class LiminalMesh:
                 except Exception as e:
                     print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
                     return
+
+            # Update peer map
+            origin = payload.get("origin")
+            peer_id = msg.get("peer_id")
+            if origin and peer_id:
+                self.peer_map[peer_id] = origin
 
             await self._handle_payload(payload)
 
@@ -538,7 +563,46 @@ class LiminalMesh:
                 if resource in self._lock_requests:
                     self._lock_requests[resource].set_result(False)
 
+        elif p_type == "log":
+            # Add remote log to aggregator
+            self.log_aggregator.add_log(payload)
+
+        elif p_type == "peer_update":
+            # Update network map
+            node = payload.get("node")
+            peers = payload.get("peers", [])
+            if node:
+                self.network_map[node] = peers
+
+    async def broadcast_network_state(self):
+        """Broadcasts the current list of connected peers (Node IDs)."""
+        # Resolve peers to node IDs
+        connected_nodes = []
+        for pid in self.peers:
+            if pid in self.peer_map:
+                connected_nodes.append(self.peer_map[pid])
+
+        # Update local map
+        self.network_map[self.node_id] = connected_nodes
+
+        # Broadcast
+        await self.broadcast(
+            {"type": "peer_update", "node": self.node_id, "peers": connected_nodes}
+        )
+
     # --- Public API ---
+
+    async def log(self, level: str, message: str):
+        """Broadcasts a log message."""
+        entry = {
+            "type": "log",
+            "level": level,
+            "message": message,
+            "origin": self.node_id,
+            "timestamp": time.time(),
+        }
+        self.log_aggregator.add_log(entry)
+        await self.broadcast(entry)
 
     async def share_thought(self, content: str):
         self.thoughts[self.node_id] = content
