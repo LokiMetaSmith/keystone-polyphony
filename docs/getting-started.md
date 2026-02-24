@@ -28,7 +28,7 @@ See [`docs/git-hooks-architecture.md`](git-hooks-architecture.md) for the full d
 
 ## 3. Configure Your Environment (Onboarding)
 
-We provide automated scripts to help you set up your environment, configure the Jules MCP server, and inject necessary GitHub secrets for your fork.
+We provide automated scripts to help you set up your environment, configure the Jules MCP server, Integrations, API Key, and inject necessary GitHub secrets for your fork.
 
 1.  **Install Dependencies**:
     ```bash
@@ -38,7 +38,7 @@ We provide automated scripts to help you set up your environment, configure the 
 
 2.  **Run Onboarding Scripts**:
     ```bash
-    # Configure Jules MCP and GitHub Permissions (Interactive UI)
+    # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
     npm run setup
 
     # Inject Secrets and Variables (CLI)
