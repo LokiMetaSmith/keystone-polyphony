@@ -1,5 +1,9 @@
 import pytest
-from unittest.mock import AsyncMock
+import asyncio
+import os
+import json
+import time
+from unittest.mock import AsyncMock, ANY
 from src.liminal_bridge.mesh import LiminalMesh
 
 
@@ -53,6 +57,57 @@ async def test_kv_store(mesh):
     assert mesh.get_kv("key1") == "value1"
 
     # Verify broadcast call using ANY for the timestamp
-    mesh.broadcast.assert_called_with(
-        {"type": "kv_update", "key": "key1", "value": "value1"}
-    )
+    mesh.broadcast.assert_called_with({
+        "type": "kv_update",
+        "key": "key1",
+        "value": "value1"
+    })
+
+@pytest.mark.asyncio
+async def test_snapshot_creation(tmp_path):
+    """Test manual snapshot creation."""
+    db = tmp_path / "test.db"
+    identity = tmp_path / "test.pem"
+    snapshot = tmp_path / "snapshot.json"
+
+    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity), snapshot_path=str(snapshot))
+    mesh.broadcast = AsyncMock()
+
+    # Add some data
+    await mesh.update_kv("key1", "value1")
+    await mesh.share_thought("hello world")
+
+    # Save snapshot
+    mesh._save_snapshot()
+
+    assert snapshot.exists()
+
+    with open(snapshot, "r") as f:
+        data = json.load(f)
+
+    assert data["node_id"] == mesh.node_id
+    assert data["kv_store"]["key1"] == "value1"
+    assert data["thoughts"][mesh.node_id] == "hello world"
+
+@pytest.mark.asyncio
+async def test_periodic_snapshot_task(tmp_path):
+    """Test that the snapshot task runs periodically."""
+    db = tmp_path / "test.db"
+    identity = tmp_path / "test.pem"
+    snapshot = tmp_path / "snapshot.json"
+
+    # Set a very short interval
+    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity), snapshot_path=str(snapshot), snapshot_interval=0.1)
+
+    # Manually start the task without starting the full mesh/sidecar
+    mesh.running = True
+    task = asyncio.create_task(mesh._periodic_snapshot())
+
+    # Wait long enough for a snapshot to happen
+    await asyncio.sleep(0.15)
+
+    # Stop
+    mesh.running = False
+    await task
+
+    assert snapshot.exists()
