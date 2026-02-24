@@ -5,9 +5,12 @@ import sys
 # Ensure we can import local modules
 sys.path.append(os.path.abspath("src"))
 
-from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.mesh import LiminalMesh  # noqa: E402
 
-async def run_sim_agent(name: str, secret: str, behavior: list, db_path: str, identity_path: str):
+
+async def run_sim_agent(
+    name: str, secret: str, behavior: list, db_path: str, identity_path: str
+):
     """Simulates a single Jules agent interacting with the mesh."""
     print(f"[{name}] Booting...")
 
@@ -49,6 +52,7 @@ async def run_sim_agent(name: str, secret: str, behavior: list, db_path: str, id
     await mesh.stop()
     print(f"[{name}] Shutdown.")
 
+
 async def main():
     secret = "simulation-secret-123"
 
@@ -63,20 +67,25 @@ async def main():
     agent2_behavior = [
         (1.0, "share", "Writing tests for auth"),
         (1.5, "acquire", "src/auth.py"),  # T=2.5s: Should fail (locked by Agent 1)
-        (3.0, "acquire", "src/auth.py"),  # T=5.5s: Should succeed (after Agent 1 releases)
-        (1.0, "peek", None)
+        (
+            3.0,
+            "acquire",
+            "src/auth.py",
+        ),  # T=5.5s: Should succeed (after Agent 1 releases)
+        (1.0, "peek", None),
     ]
 
     # Run them concurrently with distinct storage
     await asyncio.gather(
         run_sim_agent("Agent-1", secret, agent1_behavior, "agent1.db", "agent1.pem"),
-        run_sim_agent("Agent-2", secret, agent2_behavior, "agent2.db", "agent2.pem")
+        run_sim_agent("Agent-2", secret, agent2_behavior, "agent2.db", "agent2.pem"),
     )
 
     # Cleanup simulation files
     for f in ["agent1.db", "agent2.db", "agent1.pem", "agent2.pem"]:
         if os.path.exists(f):
             os.remove(f)
+
 
 if __name__ == "__main__":
     try:

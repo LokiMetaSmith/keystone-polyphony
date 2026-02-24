@@ -2,6 +2,7 @@ import os
 import json
 from typing import Dict, Any, Optional
 
+
 class Architect:
     def __init__(self, api_key: Optional[str] = None, model: str = None):
         self.api_key = api_key or os.getenv("DUCKY_API_KEY")
@@ -12,30 +13,41 @@ class Architect:
 
         if self.api_key:
             # Simple heuristic to detect provider
-            if self.model.startswith("gemini") or (self.api_key.startswith("AIza") and len(self.api_key) > 30):
+            if self.model.startswith("gemini") or (
+                self.api_key.startswith("AIza") and len(self.api_key) > 30
+            ):
                 self.provider = "google"
                 try:
                     import google.generativeai as genai
+
                     genai.configure(api_key=self.api_key)
                     self.google_model = genai.GenerativeModel(self.model)
                 except ImportError:
-                    print("Warning: google-generativeai package not installed. Architect disabled for Gemini.")
+                    print(
+                        "Warning: google-generativeai package not installed. Architect disabled for Gemini."
+                    )
             elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
                 self.provider = "anthropic"
                 try:
                     from anthropic import AsyncAnthropic
+
                     self.client = AsyncAnthropic(api_key=self.api_key)
                     # If model not explicitly set to a claude model (e.g. still default gpt-4o), switch default
                     if not self.model or "claude" not in self.model:
-                         self.model = "claude-3-5-sonnet-20240620"
+                        self.model = "claude-3-5-sonnet-20240620"
                 except ImportError:
-                    print("Warning: anthropic package not installed. Architect disabled for Anthropic.")
+                    print(
+                        "Warning: anthropic package not installed. Architect disabled for Anthropic."
+                    )
             else:
                 try:
                     from openai import AsyncOpenAI
+
                     self.client = AsyncOpenAI(api_key=self.api_key)
                 except ImportError:
-                    print("Warning: openai package not installed. Architect disabled for OpenAI.")
+                    print(
+                        "Warning: openai package not installed. Architect disabled for OpenAI."
+                    )
 
     async def consult(self, swarm_state: Dict[str, Any]) -> str:
         """
@@ -64,16 +76,19 @@ class Architect:
 
     async def _consult_openai(self, prompt: str) -> str:
         if not self.client:
-             return "Architect not configured (missing API key or openai package)."
+            return "Architect not configured (missing API key or openai package)."
 
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a precise technical architect."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -93,7 +108,7 @@ class Architect:
 
             response = await self.google_model.generate_content_async(
                 contents=[prompt],
-                generation_config={"response_mime_type": "application/json"}
+                generation_config={"response_mime_type": "application/json"},
             )
             return response.text
         except Exception as e:
@@ -101,7 +116,7 @@ class Architect:
 
     async def _consult_anthropic(self, prompt: str) -> str:
         if not self.client:
-             return "Architect not configured (missing API key or anthropic package)."
+            return "Architect not configured (missing API key or anthropic package)."
 
         try:
             # Anthropic doesn't support 'response_format={"type": "json_object"}' natively like OpenAI
@@ -113,9 +128,7 @@ class Architect:
                 model=self.model,
                 max_tokens=1024,
                 system="You are a precise technical architect. Output only valid JSON.",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
             return response.content[0].text
         except Exception as e:
