@@ -16,8 +16,10 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **Message Encryption**: Ensure all P2P traffic is encrypted (Hyperswarm does this by default, but application-level encryption for sensitive payloads might be needed).
 
 ## 4. Observability & Tooling
-- [ ] **Swarm Dashboard**: A web-based visualizer (React/Next.js) to see connected nodes, active locks (Batons), and the stream of thoughts in real-time.
-- [ ] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
+- [x] **Swarm Dashboard**: A web-based visualizer (React/Next.js) to see connected nodes, active locks (Batons), and the stream of thoughts in real-time.
+- [x] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
+- [ ] **Interactive Dashboard**: Allow sending thoughts and acquiring batons from the dashboard.
+- [ ] **Secure Dashboard**: Add authentication to the dashboard to prevent unauthorized access.
 
 ## 5. Advanced Architect Features
 - [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini), Anthropic (Claude), and local LLMs (Ollama) in addition to OpenAI.
@@ -26,3 +28,4 @@ This document outlines the next steps and planned improvements for the "Liminal 
 ## 6. Testing & CI/CD
 - [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
 - [x] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
+- [ ] **Automated Sidecar Setup**: Ensure Node.js dependencies are installed automatically when the python package is installed or run.

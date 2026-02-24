@@ -12,6 +12,11 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
+try:
+    from .observability import LogAggregator
+except ImportError:
+    from observability import LogAggregator
+
 
 class LiminalMesh:
     def __init__(
@@ -76,6 +81,9 @@ class LiminalMesh:
 
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
+
+        # Observability
+        self.log_aggregator = LogAggregator()
 
     async def _periodic_snapshot(self):
         """Periodically saves a snapshot of the mesh state."""
@@ -527,7 +535,23 @@ class LiminalMesh:
                 if resource in self._lock_requests:
                     self._lock_requests[resource].set_result(False)
 
+        elif p_type == "log":
+            # Add remote log to aggregator
+            self.log_aggregator.add_log(payload)
+
     # --- Public API ---
+
+    async def log(self, level: str, message: str):
+        """Broadcasts a log message."""
+        entry = {
+            "type": "log",
+            "level": level,
+            "message": message,
+            "origin": self.node_id,
+            "timestamp": time.time(),
+        }
+        self.log_aggregator.add_log(entry)
+        await self.broadcast(entry)
 
     async def share_thought(self, content: str):
         self.thoughts[self.node_id] = content

@@ -15,10 +15,12 @@ try:
     from .mesh import LiminalMesh  # noqa: E402
     from .architect import Architect  # noqa: E402
     from .pulse import Pulse  # noqa: E402
+    from .dashboard import DashboardServer  # noqa: E402
 except ImportError:
     from mesh import LiminalMesh  # noqa: E402
     from architect import Architect  # noqa: E402
     from pulse import Pulse  # noqa: E402
+    from dashboard import DashboardServer  # noqa: E402
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
@@ -33,6 +35,10 @@ IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
 mesh = None
 architect = Architect()
 pulse = None  # Will be initialized with mesh
+dashboard_server = None  # Will be initialized if requested
+
+# Global args placeholder
+args = None
 
 # Create MCP Server
 mcp = FastMCP("Keystone-Polyphony")
@@ -52,7 +58,7 @@ def ensure_mesh():
 @mcp.tool()
 async def register_to_swarm(github_secret: str = None) -> str:
     """Initializes the connection to the P2P swarm."""
-    global mesh, pulse
+    global mesh, pulse, dashboard_server
 
     if github_secret and (not mesh or mesh.secret_key != github_secret):
         if mesh and mesh.running:
@@ -67,6 +73,12 @@ async def register_to_swarm(github_secret: str = None) -> str:
 
     if not mesh.running:
         await mesh.start()
+
+    # Start dashboard if requested and not running
+    if args and args.dashboard_port and not dashboard_server:
+        dashboard_server = DashboardServer(mesh, port=args.dashboard_port)
+        await dashboard_server.start()
+
     return f"Connected to Liminal Swarm. Node ID: {mesh.node_id}. Topic: {mesh.topic[:8]}..."
 
 
@@ -127,7 +139,7 @@ async def consult_architect(context: str) -> str:
 
 
 # --- Seed Mode ---
-async def run_seed_mode(timeout: int = None):
+async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
     """Runs the mesh in seed mode (no MCP server)."""
     global mesh, pulse
 
@@ -145,6 +157,11 @@ async def run_seed_mode(timeout: int = None):
 
     print(f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}...)...")
     await mesh.start()
+
+    dashboard = None
+    if dashboard_port:
+        dashboard = DashboardServer(mesh, port=dashboard_port)
+        await dashboard.start()
 
     start_time = time.time()
     try:
@@ -164,6 +181,8 @@ async def run_seed_mode(timeout: int = None):
         pass
     finally:
         print("Stopping seed node...")
+        if dashboard:
+            await dashboard.stop()
         await mesh.stop()
 
 
@@ -247,13 +266,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--timeout", type=int, default=None, help="Timeout in seconds for seed mode"
     )
+    parser.add_argument(
+        "--dashboard-port", type=int, default=None, help="Port for the swarm dashboard"
+    )
 
     # FastMCP uses click/typer which might grab args, so we use parse_known_args
+    # Use global args so MCP tools can access it
     args, unknown = parser.parse_known_args()
 
     if args.mode == "seed":
         try:
-            asyncio.run(run_seed_mode(args.timeout))
+            asyncio.run(run_seed_mode(args.timeout, args.dashboard_port))
         except KeyboardInterrupt:
             pass
     elif args.mode == "verify":
