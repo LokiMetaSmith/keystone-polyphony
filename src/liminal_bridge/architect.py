@@ -99,10 +99,11 @@ class Architect:
         {json.dumps(swarm_state, indent=2)}
 
         Task:
-        1. Analyze the current state of thoughts and locks.
-        2. Identify any conflicts or missing tasks.
-        3. Generate a refined Backlog of the next 3-5 critical tasks.
-        4. Output the result as a concise JSON object with a 'backlog' key.
+        1. Analyze the current state of thoughts and locks (batons).
+        2. Identify any conflicts, missing tasks, or potential deadlocks (e.g. locks held for too long).
+        3. Suggest releasing locks if tasks appear complete but the lock is still held.
+        4. Generate a refined Backlog of the next 3-5 critical tasks, prioritized by dependency.
+        5. Output the result as a concise JSON object with a 'backlog' key and an optional 'advisories' key for warnings.
         """
 
         if self.provider == "google":
@@ -129,10 +130,12 @@ class Architect:
 
         Requirements for the Refined Issue:
         1. **Human Interaction Story**: A clear narrative of how a user interacts with the feature.
-        2. **BDD Feature File**: A complete Cucumber/Gherkin .feature section.
-        3. **Self-Contained**: Explicitly list prerequisites and mark them as blocking if known.
-        4. **Surgical Scope**: Ensure the issue covers one specific concern.
-        5. **Format**: Return ONLY the markdown content for the new issue body. Do not include JSON.
+        2. **Technical Approach**: High-level architectural decisions, data models, and key components.
+        3. **BDD Feature File**: A complete Cucumber/Gherkin .feature section.
+        4. **Verification Plan**: Step-by-step instructions to manually verify the feature.
+        5. **Self-Contained**: Explicitly list prerequisites and mark them as blocking dependencies if known.
+        6. **Surgical Scope**: Ensure the issue covers one specific concern.
+        7. **Format**: Return ONLY the markdown content for the new issue body. Do not include JSON.
 
         Refined Output:
         """

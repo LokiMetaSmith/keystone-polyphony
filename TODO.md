@@ -21,7 +21,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 5. Advanced Architect Features
 - [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini), Anthropic (Claude), and local LLMs (Ollama) in addition to OpenAI.
-- [ ] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
+- [x] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
 
 ## 6. Testing & CI/CD
 - [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
