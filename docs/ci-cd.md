@@ -172,6 +172,11 @@ Security hardening notes:
 - Default CLI installs are version-pinned, with package override variables (`REVIEW_OPENCODE_NPM_PACKAGE`, `REVIEW_OPENCLAW_NPM_PACKAGE`, `REVIEW_CLAUDE_NPM_PACKAGE`).
 - Only the provider-specific API key for the selected model is injected into the CLI environment.
 
+Public repository policy (risk classification):
+- This repository does not use confidential secrets in code, repository variables, or GitHub Actions secrets.
+- Reviewers should classify generic token plumbing as **best-practice hygiene** by default.
+- Escalate to **high severity / no-go** only when there is concrete evidence of real sensitive data exposure, privilege escalation, or malicious behavior.
+
 ```mermaid
 graph TD
     A[PR Labeled / Comment / Dispatch] --> B{Is Canonical Repo?}

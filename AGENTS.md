@@ -36,3 +36,13 @@ When triggered via GitHub Actions, you might receive specialized review commands
 - `/oc review-workflow`: Focuses on **changed workflows** in `.github/workflows/`. Guideline: `docs/ci-cd.md`.
 - `/oc review-arch`: Focuses on **changed code files**. Guideline: project architecture in `README.md`, `docs/architecture.md`, and `AGENTS.md`.
 - `/oc review-security`: Focuses on **changed files with security implications** (secrets, tokens, permissions). Guideline: `AGENTS.md` and `docs/architecture.md`.
+
+## 5. Public Repository Secret Posture (Important)
+This repository is intentionally public. Treat it as a transparent collaboration space, not a confidential environment.
+
+- **No sensitive secrets policy**: Do not store real secrets (production credentials, private keys, PII-bearing tokens, customer data) in code, commit history, repository variables, or GitHub Actions secrets.
+- **Operational token assumption**: Existing repository vars/secrets are treated as non-sensitive operational tokens for automation in public workflows.
+- **Review severity rubric**:
+  - Raise **high-severity/blocking** findings when there is concrete evidence of true sensitive data exposure or privilege escalation risk.
+  - Treat generic token wiring patterns (e.g., passing repo vars/secrets into jobs, provider env mapping) as **best-practice hardening** unless sensitive data is explicitly involved.
+- **Still enforce hygiene**: Keep least-privilege permissions, version pinning, and minimal secret surface area as recommended best practices.
