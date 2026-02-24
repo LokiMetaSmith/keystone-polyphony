@@ -16,7 +16,7 @@ try:
     from .architect import Architect  # noqa: E402
     from .pulse import Pulse  # noqa: E402
     from .dashboard import DashboardServer  # noqa: E402
-except ImportError:
+except (ImportError, ValueError):
     from mesh import LiminalMesh  # noqa: E402
     from architect import Architect  # noqa: E402
     from pulse import Pulse  # noqa: E402
