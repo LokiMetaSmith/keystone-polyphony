@@ -1,59 +1,69 @@
-import pytest
-import sys
 import os
-from unittest.mock import patch, MagicMock, AsyncMock
-
-# Create a mock ollama module
-mock_ollama_module = MagicMock()
-sys.modules["ollama"] = mock_ollama_module
-
-# Now import Architect, which will use the mock
+import pytest
+from unittest.mock import AsyncMock, patch
 from src.liminal_bridge.architect import Architect
 
-@pytest.fixture
-def mock_ollama():
-    mock_client = MagicMock()
-    mock_client.chat = AsyncMock()
-    mock_ollama_module.AsyncClient.return_value = mock_client
-    return mock_client
 
 @pytest.mark.asyncio
-async def test_architect_initialization_ollama_env(mock_ollama):
-    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama"}):
-        architect = Architect()
-        assert architect.provider == "ollama"
-        assert architect.client == mock_ollama
-        mock_ollama_module.AsyncClient.assert_called()
+async def test_architect_detects_ollama_provider_via_env():
+    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama", "DUCKY_MODEL": "llama2"}):
+        with patch("ollama.AsyncClient", return_value=AsyncMock()):
+            arch = Architect()
+            assert arch.provider == "ollama"
+            assert arch.client is not None
+
 
 @pytest.mark.asyncio
-async def test_architect_initialization_ollama_model(mock_ollama):
-    architect = Architect(model="ollama:llama2")
-    assert architect.provider == "ollama"
-    assert architect.model == "llama2"
-    assert architect.client == mock_ollama
+async def test_architect_detects_ollama_provider_via_model_prefix():
+    # Ensure DUCKY_PROVIDER is not interfering
+    with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"DUCKY_MODEL": "ollama:llama3"}):
+            with patch("ollama.AsyncClient", return_value=AsyncMock()):
+                arch = Architect()
+                assert arch.provider == "ollama"
+                assert arch.model == "llama3"
+                assert arch.client is not None
+
 
 @pytest.mark.asyncio
-async def test_consult_ollama(mock_ollama):
-    mock_ollama.chat.return_value = {"message": {"content": "Test Response"}}
+async def test_consult_ollama():
+    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama", "DUCKY_MODEL": "llama2"}):
+        with patch("ollama.AsyncClient") as MockClient:
+            mock_client_instance = AsyncMock()
+            MockClient.return_value = mock_client_instance
 
-    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama"}):
-        architect = Architect()
-        response = await architect.consult({"state": "test"})
+            # Mock the chat response
+            mock_client_instance.chat.return_value = {
+                "message": {"content": '{"backlog": ["task1"]}'}
+            }
 
-        assert response == "Test Response"
-        mock_ollama.chat.assert_called_once()
-        args, kwargs = mock_ollama.chat.call_args
-        assert kwargs["format"] == "json"
+            arch = Architect()
+            result = await arch.consult({})
+
+            assert '{"backlog": ["task1"]}' in result
+            mock_client_instance.chat.assert_called_once()
+            call_args = mock_client_instance.chat.call_args[1]
+            assert call_args["model"] == "llama2"
+            assert call_args["format"] == "json"
+
 
 @pytest.mark.asyncio
-async def test_refine_issue_ollama(mock_ollama):
-    mock_ollama.chat.return_value = {"message": {"content": "Refined Issue"}}
+async def test_refine_issue_ollama():
+    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama", "DUCKY_MODEL": "llama2"}):
+        with patch("ollama.AsyncClient") as MockClient:
+            mock_client_instance = AsyncMock()
+            MockClient.return_value = mock_client_instance
 
-    with patch.dict(os.environ, {"DUCKY_PROVIDER": "ollama"}):
-        architect = Architect()
-        response = await architect.refine_issue("Raw Issue")
+            mock_client_instance.chat.return_value = {
+                "message": {"content": "Refined Issue Content"}
+            }
 
-        assert response == "Refined Issue"
-        mock_ollama.chat.assert_called_once()
-        args, kwargs = mock_ollama.chat.call_args
-        assert "format" not in kwargs # refine_issue doesn't use format="json"
+            arch = Architect()
+            result = await arch.refine_issue("Raw issue")
+
+            assert result == "Refined Issue Content"
+            mock_client_instance.chat.assert_called_once()
+            call_args = mock_client_instance.chat.call_args[1]
+            assert call_args["model"] == "llama2"
+            # refine_issue doesn't use format="json"
+            assert "format" not in call_args
