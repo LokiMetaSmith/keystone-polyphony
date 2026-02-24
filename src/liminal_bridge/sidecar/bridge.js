@@ -3,10 +3,6 @@ const crypto = require('hypercore-crypto');
 const b4a = require('b4a');
 const readline = require('readline');
 
-// Initialize Hyperswarm
-const swarm = new Hyperswarm();
-const peers = new Map();
-
 // Get topic from args
 const topicHex = process.argv[2];
 if (!topicHex) {
@@ -16,9 +12,39 @@ if (!topicHex) {
 
 const topic = b4a.from(topicHex, 'hex');
 
+// Check for bootstrap nodes
+let bootstrap = undefined;
+if (process.argv.includes('--bootstrap')) {
+    const idx = process.argv.indexOf('--bootstrap');
+    if (idx !== -1 && process.argv[idx + 1]) {
+        const addr = process.argv[idx + 1];
+        const [host, port] = addr.split(':');
+        bootstrap = [{ host, port: parseInt(port) }];
+        process.stderr.write(`[Sidecar] Using bootstrap node: ${host}:${port}\n`);
+    }
+}
+
+// Check for seed
+let keyPair = undefined;
+if (process.argv.includes('--seed')) {
+    const idx = process.argv.indexOf('--seed');
+    if (idx !== -1 && process.argv[idx + 1]) {
+        const seedHex = process.argv[idx + 1];
+        const seed = b4a.from(seedHex, 'hex');
+        keyPair = crypto.keyPair(seed);
+        process.stderr.write(`[Sidecar] Using stable identity: ${b4a.toString(keyPair.publicKey, 'hex')}\n`);
+    }
+}
+
+// Initialize Hyperswarm
+const swarm = new Hyperswarm({ bootstrap, keyPair });
+const peers = new Map();
+
 // Join the swarm
-// Wait for discovery to be fully announced
-swarm.join(topic);
+const discovery = swarm.join(topic, { client: true, server: true });
+discovery.flushed().then(() => {
+    process.stderr.write(`[Sidecar] Joined topic ${topicHex}\n`);
+});
 
 // Handle connections
 swarm.on('connection', (conn, info) => {
@@ -58,7 +84,6 @@ swarm.on('connection', (conn, info) => {
 // Handle local input from Python (stdin)
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout,
   terminal: false
 });
 
