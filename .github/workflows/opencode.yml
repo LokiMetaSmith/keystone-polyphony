@@ -5,7 +5,7 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  pull_request:
+  pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
@@ -27,7 +27,7 @@ jobs:
       github.repository == 'niklas-olsson/keystone-polyphony' &&
       ((github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-       (github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')) ||
+       (github.event_name == 'pull_request_target' && endsWith(github.event.label.name, '-review')) ||
        (github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     permissions:
@@ -38,16 +38,20 @@ jobs:
        - name: Checkout repository
          uses: actions/checkout@v4
          with:
+           # For pull_request_target, we want the PR's head code.
+           # For issue_comment on a PR, we use refs/pull/N/head.
+           # Fallback to github.sha for issues and manual dispatch.
+           ref: ${{ github.event.pull_request.head.sha || (github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number)) || github.sha }}
            fetch-depth: 1
            persist-credentials: false
 
        - name: Handle Label-Triggered Review
          id: label_prompt
-         if: github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         if: github.event_name == 'pull_request_target' && endsWith(github.event.label.name, '-review')
          run: |
            set -euo pipefail
            LABEL="${{ github.event.label.name }}"
-           PR_NUMBER="${{ github.event.pull_request.number }}"
+           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
 
            # Get changed files in the PR
            CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' || echo "")
@@ -146,7 +150,7 @@ jobs:
            use_github_token: true
 
        - name: Ensure Reviewed Label
-         if: always() && github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && endsWith(github.event.label.name, '-review')
          run: |
            gh api --method POST "/repos/${{ github.repository }}/labels" \
              -f name="reviewed" \
@@ -156,9 +160,10 @@ jobs:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
        - name: Cleanup Review Label
-         if: always() && github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && endsWith(github.event.label.name, '-review')
          run: |
-           gh pr edit "${{ github.event.pull_request.number }}" --remove-label "${{ github.event.label.name }}" --add-label "reviewed"
+           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+           gh pr edit "$PR_NUMBER" --remove-label "${{ github.event.label.name }}" --add-label "reviewed"
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
