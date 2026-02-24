@@ -1,6 +1,10 @@
 import os
+import uuid
+import sqlite3
+import time
 from aiohttp import web
 from typing import Optional
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 
 class DashboardServer:
@@ -14,14 +18,40 @@ class DashboardServer:
         else:
             self.frontend_path = frontend_path
 
+        # Auth state
+        self.challenges = {}  # pub_key -> nonce
+        self.sessions = {}  # session_id -> pub_key
+        self.invite_code = self._generate_invite_code()
+        self._init_auth_db()
+
         self.app = web.Application(middlewares=[self.auth_middleware])
         self._setup_routes()
         self.runner = None
         self.site = None
 
+    def _init_auth_db(self):
+        self.conn = sqlite3.connect(self.mesh.db_path)
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS authorized_identities (
+                public_key TEXT PRIMARY KEY,
+                created_at REAL
+            )
+        """)
+        self.conn.commit()
+
+    def _generate_invite_code(self):
+        code = str(uuid.uuid4())
+        print("\n" + "=" * 40)
+        print(f"ADMIN INVITE CODE: {code}")
+        print("=" * 40 + "\n")
+        return code
+
     def _setup_routes(self):
         # API Routes
-        self.app.router.add_post("/api/login", self.handle_login)
+        self.app.router.add_post("/api/auth/challenge", self.handle_auth_challenge)
+        self.app.router.add_post("/api/auth/verify", self.handle_auth_verify)
+        self.app.router.add_post("/api/auth/register", self.handle_auth_register)
         self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_get("/api/status", self.handle_status)
         self.app.router.add_get("/api/thoughts", self.handle_thoughts)
@@ -53,38 +83,136 @@ class DashboardServer:
 
     @web.middleware
     async def auth_middleware(self, request, handler):
-        # Allow static files and login endpoint
-        if not request.path.startswith("/api/") or request.path in ["/api/login"]:
+        # Allow static files and auth endpoints
+        if not request.path.startswith("/api/") or request.path.startswith(
+            "/api/auth/"
+        ):
             return await handler(request)
 
         # Check cookie
-        session = request.cookies.get("LIMINAL_SESSION")
-        if not session or session != "authenticated":
+        session_id = request.cookies.get("LIMINAL_SESSION")
+        if not session_id or session_id not in self.sessions:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
         return await handler(request)
 
-    async def handle_login(self, request):
+    async def handle_auth_challenge(self, request):
         try:
             data = await request.json()
-            password = data.get("password")
+            public_key = data.get("public_key")
+            if not public_key:
+                return web.json_response({"error": "Missing public_key"}, status=400)
 
-            expected_password = (
-                os.getenv("DASHBOARD_PASSWORD") or os.getenv("SWARM_KEY") or "admin"
-            )
-
-            if password == expected_password:
-                resp = web.json_response({"status": "ok"})
-                resp.set_cookie(
-                    "LIMINAL_SESSION", "authenticated", httponly=True, samesite="Strict"
-                )
-                return resp
-            else:
-                return web.json_response({"error": "Invalid password"}, status=401)
+            nonce = os.urandom(32).hex()
+            self.challenges[public_key] = nonce
+            return web.json_response({"nonce": nonce})
         except Exception:
             return web.json_response({"error": "Invalid request"}, status=400)
 
+    async def handle_auth_verify(self, request):
+        try:
+            data = await request.json()
+            public_key_hex = data.get("public_key")
+            signature_hex = data.get("signature")
+
+            if not public_key_hex or not signature_hex:
+                return web.json_response({"error": "Missing params"}, status=400)
+
+            nonce_hex = self.challenges.get(public_key_hex)
+            if not nonce_hex:
+                return web.json_response({"error": "No challenge found"}, status=400)
+
+            # Verify Signature
+            try:
+                public_key = ed25519.Ed25519PublicKey.from_public_bytes(
+                    bytes.fromhex(public_key_hex)
+                )
+                public_key.verify(
+                    bytes.fromhex(signature_hex), bytes.fromhex(nonce_hex)
+                )
+            except Exception:
+                return web.json_response({"error": "Invalid signature"}, status=401)
+
+            # Check Authorization
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM authorized_identities WHERE public_key = ?",
+                (public_key_hex,),
+            )
+            if not cursor.fetchone():
+                return web.json_response(
+                    {
+                        "status": "unauthorized",
+                        "error": "Identity verified but not authorized.",
+                    }
+                )
+
+            # Issue Session
+            session_id = str(uuid.uuid4())
+            self.sessions[session_id] = public_key_hex
+
+            # Cleanup challenge
+            del self.challenges[public_key_hex]
+
+            resp = web.json_response({"status": "ok"})
+            resp.set_cookie(
+                "LIMINAL_SESSION", session_id, httponly=True, samesite="Strict"
+            )
+            return resp
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_auth_register(self, request):
+        try:
+            data = await request.json()
+            public_key_hex = data.get("public_key")
+            invite_code = data.get("invite_code")
+            signature_hex = data.get("signature")
+
+            if not public_key_hex or not invite_code or not signature_hex:
+                return web.json_response({"error": "Missing params"}, status=400)
+
+            # Check Invite Code
+            if invite_code != self.invite_code:
+                return web.json_response({"error": "Invalid invite code"}, status=401)
+
+            # Verify Signature
+            try:
+                public_key = ed25519.Ed25519PublicKey.from_public_bytes(
+                    bytes.fromhex(public_key_hex)
+                )
+                # The user signs the invite code to prove ownership of the key claiming the code
+                public_key.verify(bytes.fromhex(signature_hex), invite_code.encode())
+            except Exception:
+                return web.json_response({"error": "Invalid signature"}, status=401)
+
+            # Authorize
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT OR IGNORE INTO authorized_identities (public_key, created_at) VALUES (?, ?)",
+                (public_key_hex, time.time()),
+            )
+            self.conn.commit()
+
+            # Issue Session
+            session_id = str(uuid.uuid4())
+            self.sessions[session_id] = public_key_hex
+
+            resp = web.json_response({"status": "registered"})
+            resp.set_cookie(
+                "LIMINAL_SESSION", session_id, httponly=True, samesite="Strict"
+            )
+            return resp
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_logout(self, request):
+        session_id = request.cookies.get("LIMINAL_SESSION")
+        if session_id and session_id in self.sessions:
+            del self.sessions[session_id]
+
         resp = web.json_response({"status": "logged_out"})
         resp.del_cookie("LIMINAL_SESSION")
         return resp

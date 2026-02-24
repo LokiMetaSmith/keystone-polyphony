@@ -28,7 +28,7 @@ class Pulse:
         swarm_state = {
             "thoughts": self.mesh.thoughts,
             "batons": self.mesh.batons,
-            "kv": self.mesh.kv_store,
+            "kv": self.mesh.get_all_kv(),
             "context": context,
         }
 

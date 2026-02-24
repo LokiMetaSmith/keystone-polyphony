@@ -1,0 +1,23 @@
+Starting Liminal Swarm Seed Node (Key: liminal-...)...
+LiminalMesh started. Node ID: 5b418a2e37b052cb. Topic: 544879d5...
+
+========================================
+ADMIN INVITE CODE: 49e65081-f5a7-4923-877d-dac1194fcea5
+========================================
+
+Dashboard Server started at http://localhost:8080
+SIDECAR LOG: [Sidecar] Using stable identity: 99fffd9ae9b8156cb54d987469a0115d343bb592685d164d2267b8b7b74a0c5f
+SIDECAR LOG: [Sidecar] Joined topic 544879d50a1324e24eeac31dcca31024054e428fcff79ec9fbe8866a04a5c0b0
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "GET / HTTP/1.1" 200 236 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "GET /assets/index-CLUOE2EB.js HTTP/1.1" 200 247 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "GET /assets/index-DAFHU7Zl.css HTTP/1.1" 200 236 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "GET /api/status HTTP/1.1" 401 194 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "POST /api/auth/challenge HTTP/1.1" 200 236 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "POST /api/auth/verify HTTP/1.1" 200 235 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "POST /api/auth/register HTTP/1.1" 200 284 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:43 +0000] "GET /api/status HTTP/1.1" 200 298 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:44 +0000] "GET / HTTP/1.1" 304 178 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:44 +0000] "GET /api/status HTTP/1.1" 200 298 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+127.0.0.1 [24/Feb/2026:21:49:44 +0000] "GET /api/status HTTP/1.1" 200 298 "http://localhost:8080/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+PULSE: Triggering Architect consultation (seed_heartbeat)...
+PULSE: Plan updated.
