@@ -8,3 +8,4 @@ google-generativeai
 anthropic
 flake8
 black
+ollama

@@ -11,12 +11,36 @@ class Architect:
         self.client = None
         self.google_model = None
 
-        if self.api_key:
+        # Check for explicit provider override
+        provider_env = os.getenv("DUCKY_PROVIDER")
+        if provider_env:
+            self.provider = provider_env.lower()
+        # Heuristics if provider not explicit
+        elif self.model.startswith("ollama:"):
+            self.provider = "ollama"
+            self.model = self.model.split(":", 1)[1]
+        elif self.api_key:
             # Simple heuristic to detect provider
             if self.model.startswith("gemini") or (
                 self.api_key.startswith("AIza") and len(self.api_key) > 30
             ):
                 self.provider = "google"
+            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
+                self.provider = "anthropic"
+
+        # Initialize based on provider
+        if self.provider == "ollama":
+            try:
+                import ollama
+
+                self.client = ollama.AsyncClient()
+            except ImportError:
+                print(
+                    "Warning: ollama package not installed. Architect disabled for Ollama."
+                )
+
+        elif self.provider == "google":
+            if self.api_key:
                 try:
                     import google.generativeai as genai
 
@@ -26,8 +50,11 @@ class Architect:
                     print(
                         "Warning: google-generativeai package not installed. Architect disabled for Gemini."
                     )
-            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
-                self.provider = "anthropic"
+            else:
+                print("Warning: API key missing for Google provider.")
+
+        elif self.provider == "anthropic":
+            if self.api_key:
                 try:
                     from anthropic import AsyncAnthropic
 
@@ -40,6 +67,11 @@ class Architect:
                         "Warning: anthropic package not installed. Architect disabled for Anthropic."
                     )
             else:
+                print("Warning: API key missing for Anthropic provider.")
+
+        else:
+            # OpenAI / Default
+            if self.api_key:
                 try:
                     from openai import AsyncOpenAI
 
@@ -48,6 +80,9 @@ class Architect:
                     print(
                         "Warning: openai package not installed. Architect disabled for OpenAI."
                     )
+            else:
+                # No API key, no client for OpenAI
+                pass
 
     async def consult(self, swarm_state: Dict[str, Any]) -> str:
         """
@@ -71,6 +106,8 @@ class Architect:
             return await self._consult_google(prompt)
         elif self.provider == "anthropic":
             return await self._consult_anthropic(prompt)
+        elif self.provider == "ollama":
+            return await self._consult_ollama(prompt)
         else:
             return await self._consult_openai(prompt)
 
@@ -101,6 +138,8 @@ class Architect:
             return await self._refine_google(prompt)
         elif self.provider == "anthropic":
             return await self._refine_anthropic(prompt)
+        elif self.provider == "ollama":
+            return await self._refine_ollama(prompt)
         else:
             return await self._refine_openai(prompt)
 
@@ -192,3 +231,41 @@ class Architect:
             return response.content[0].text
         except Exception as e:
             return f"Error refining issue (Anthropic): {str(e)}"
+
+    async def _consult_ollama(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing ollama package)."
+
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                format="json",
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            return f"Error consulting architect (Ollama): {str(e)}"
+
+    async def _refine_ollama(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing ollama package)."
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            return f"Error refining issue (Ollama): {str(e)}"
