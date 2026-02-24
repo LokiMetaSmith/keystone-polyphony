@@ -43,6 +43,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      # Some versions of the action benefit from OIDC permissions
       id-token: write
     steps:
        - name: Checkout repository
@@ -75,7 +76,6 @@ jobs:
            echo ">>> Resolving review for PR #$PR_NUMBER (Label: $LABEL)"
 
            # Get changed files in the PR, ensuring we target the upstream repo
-           # Explicitly target upstream for fork PR resolution
            UPSTREAM_REPO="${{ github.repository }}"
            CHANGED_FILES=$(gh pr view "$PR_NUMBER" --repo "$UPSTREAM_REPO" --json files --jq '.files[].path' || echo "")
 
@@ -155,28 +155,7 @@ jobs:
            echo "provider_key=$KEY" >> "$GITHUB_OUTPUT"
 
        - name: Run OpenCode
-         run: |
-           set -euo pipefail
-
-           # Build command using bash array for safe argument handling
-           # We use npx -y opencode-ai to ensure the CLI is available
-           CMD=("npx" "-y" "opencode-ai" "review")
-
-           CMD+=("--non-interactive")
-
-           if [ -n "${{ steps.prep.outputs.model }}" ]; then
-             CMD+=("--model" "${{ steps.prep.outputs.model }}")
-           fi
-
-           # Resolve prompt from multiple sources
-           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
-
-           CMD+=("--prompt" "$PROMPT")
-
-           echo ">>> Running OpenCode: npx opencode-ai review --model ${{ steps.prep.outputs.model }} ..."
-
-           # Execute the command
-           "${CMD[@]}"
+         uses: anomalyco/opencode/github@latest
          env:
            # We pass only the relevant key as the generic OPENAI_API_KEY
            # which many OpenRouter/OpenAI compatible models expect.
@@ -187,8 +166,14 @@ jobs:
            GEMINI_API_KEY: ${{ steps.prep.outputs.provider_key }}
            DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
-           # The CLI uses GITHUB_TOKEN to post reviews/comments
+           # The action requires GITHUB_TOKEN for interaction
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           # Conditional spoofing: only spoof if it's NOT a pull_request or issue_comment
+           # to satisfy the action's internal validation for pull_request_target.
+           GITHUB_EVENT_NAME: ${{ (github.event_name == 'pull_request_target') && 'pull_request' || github.event_name }}
+         with:
+           model: ${{ steps.prep.outputs.model }}
+           prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}
 
        - name: Ensure Reviewed Label
          if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
