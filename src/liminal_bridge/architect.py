@@ -27,6 +27,9 @@ class Architect:
                 self.provider = "google"
             elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
                 self.provider = "anthropic"
+            else:
+                # Default to openai if api_key present and no other match
+                self.provider = "openai"
 
         # Initialize based on provider
         if self.provider == "ollama":
@@ -69,7 +72,7 @@ class Architect:
             else:
                 print("Warning: API key missing for Anthropic provider.")
 
-        else:
+        elif self.provider == "openai":
             # OpenAI / Default
             if self.api_key:
                 try:
@@ -235,14 +238,13 @@ class Architect:
     async def _consult_ollama(self, prompt: str) -> str:
         if not self.client:
             return "Architect not configured (missing ollama package)."
-
         try:
             response = await self.client.chat(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a precise technical architect.",
+                        "content": "You are a precise technical architect. Output only valid JSON.",
                     },
                     {"role": "user", "content": prompt},
                 ],
