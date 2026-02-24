@@ -74,12 +74,19 @@ We provide scripts to automate the configuration of Jules and your GitHub secret
 
 2.  **Run Onboarding Scripts**:
     ```bash
-    # Configure Jules MCP and GitHub Permissions (Interactive UI)
+    # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
     npm run setup
 
     # Inject Secrets and Variables (CLI)
     ./inject-secrets.sh
     ```
+
+### Jules Integrations & API Key
+
+The onboarding script (`npm run setup`) will guide you through configuring Jules:
+
+- **Integrations**: If you use Render for deployments, connect it in the `Integrations` tab. This allows Jules to automatically fix preview deployment build errors on PRs it creates.
+- **API Key**: Configure any Jules-specific API keys in the `API Key` tab if required for your setup.
 
 ### Manual Configuration
 
