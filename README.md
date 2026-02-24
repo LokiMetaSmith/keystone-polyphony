@@ -116,6 +116,20 @@ Example `jules_config.json`:
 }
 ```
 
+### Dashboard & Authentication
+
+The Liminal Bridge includes a real-time **Interactive Dashboard** running on port 8000 (default).
+
+1. **Access**: Navigate to `http://localhost:8000`.
+2. **Identity**: The dashboard uses **Identity-Based Authentication**.
+   - On first visit, a unique **Ed25519 key pair** is generated in your browser and stored in `localStorage`.
+   - This replaces traditional usernames/passwords.
+3. **Registration**:
+   - New identities are unauthorized by default.
+   - The server prints an **Admin Invite Code** to stdout on startup (search logs for `ADMIN INVITE CODE`).
+   - Enter this code in the dashboard to cryptographically register your identity with the swarm.
+4. **Usage**: Once authenticated, you can view the mesh status, visualize the network graph, share thoughts, and acquire/release resource locks (Batons).
+
 ## Project Links
 
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
