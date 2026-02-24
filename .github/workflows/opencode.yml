@@ -332,10 +332,6 @@ jobs:
               KEY="${{ secrets.OPENROUTER_API_KEY }}"
               ;;
           esac
-          if [ -z "$KEY" ]; then
-            echo "Missing API key for provider '$KEY_PROVIDER' and model '$MODEL'."
-            exit 1
-          fi
 
           CMD=("$CLI")
           if [ -n "$FLAGS" ]; then
@@ -366,26 +362,31 @@ jobs:
           fi
 
           echo "Running review CLI '$CLI' (selection: ${{ steps.resolve.outputs.selection_source }})"
-          ENV_VARS=("AGENT_API_KEY=$KEY" "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}")
-          case "$KEY_PROVIDER" in
-            anthropic)
-              ENV_VARS+=("ANTHROPIC_API_KEY=$KEY")
-              ;;
-            google)
-              ENV_VARS+=("GEMINI_API_KEY=$KEY")
-              ;;
-            grok)
-              ENV_VARS+=("GROK_API_KEY=$KEY")
-              ;;
-            deepseek)
-              ENV_VARS+=("DEEPSEEK_API_KEY=$KEY")
-              ;;
-            openrouter)
-              ENV_VARS+=("OPENAI_API_KEY=$KEY")
-              ENV_VARS+=("OPENROUTER_API_KEY=$KEY")
-              ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
-              ;;
-          esac
+          ENV_VARS=("GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}")
+          if [ -n "$KEY" ]; then
+            ENV_VARS+=("AGENT_API_KEY=$KEY")
+            case "$KEY_PROVIDER" in
+              anthropic)
+                ENV_VARS+=("ANTHROPIC_API_KEY=$KEY")
+                ;;
+              google)
+                ENV_VARS+=("GEMINI_API_KEY=$KEY")
+                ;;
+              grok)
+                ENV_VARS+=("GROK_API_KEY=$KEY")
+                ;;
+              deepseek)
+                ENV_VARS+=("DEEPSEEK_API_KEY=$KEY")
+                ;;
+              openrouter)
+                ENV_VARS+=("OPENAI_API_KEY=$KEY")
+                ENV_VARS+=("OPENROUTER_API_KEY=$KEY")
+                ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
+                ;;
+            esac
+          else
+            echo "Warning: no provider key configured for '$KEY_PROVIDER'. Running without provider API key overrides."
+          fi
 
           set +e
           env "${ENV_VARS[@]}" "${CMD[@]}" 2>&1 | tee review_output_raw.txt
@@ -438,7 +439,11 @@ jobs:
           EXIT_CODE="${{ steps.run_cli.outputs.exit_code }}"
           MAX_LEN=60000
 
-          CONTENT=$(cat review_output.txt)
+          if [ -f review_output.txt ]; then
+            CONTENT=$(cat review_output.txt)
+          else
+            CONTENT="No review output file was captured. Check workflow logs for details."
+          fi
           if [ "${#CONTENT}" -gt "$MAX_LEN" ]; then
             CONTENT="${CONTENT:0:$MAX_LEN}"$'\n\n[output truncated]'
           fi
