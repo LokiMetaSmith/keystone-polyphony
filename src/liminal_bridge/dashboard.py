@@ -23,7 +23,9 @@ class DashboardServer:
         # API Routes
         self.app.router.add_get("/api/status", self.handle_status)
         self.app.router.add_get("/api/thoughts", self.handle_thoughts)
+        self.app.router.add_post("/api/thoughts", self.handle_post_thought)
         self.app.router.add_get("/api/batons", self.handle_batons)
+        self.app.router.add_post("/api/batons", self.handle_post_baton)
         self.app.router.add_get("/api/kv", self.handle_kv)
         self.app.router.add_get("/api/logs", self.handle_logs)
         self.app.router.add_get("/api/network", self.handle_network)
@@ -65,8 +67,43 @@ class DashboardServer:
     async def handle_thoughts(self, request):
         return web.json_response(self.mesh.thoughts)
 
+    async def handle_post_thought(self, request):
+        try:
+            data = await request.json()
+            thought = data.get("thought")
+            if not thought:
+                return web.json_response({"error": "Missing 'thought'"}, status=400)
+
+            await self.mesh.share_thought(thought)
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_batons(self, request):
         return web.json_response(self.mesh.batons)
+
+    async def handle_post_baton(self, request):
+        try:
+            data = await request.json()
+            resource = data.get("resource")
+            action = data.get("action")
+
+            if not resource or not action:
+                return web.json_response(
+                    {"error": "Missing 'resource' or 'action'"}, status=400
+                )
+
+            if action == "acquire":
+                success = await self.mesh.acquire_baton(resource)
+                return web.json_response({"success": success})
+            elif action == "release":
+                await self.mesh.release_baton(resource)
+                return web.json_response({"status": "released"})
+            else:
+                return web.json_response({"error": "Invalid action"}, status=400)
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     async def handle_kv(self, request):
         return web.json_response(self.mesh.get_all_kv())
