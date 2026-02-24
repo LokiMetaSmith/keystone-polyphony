@@ -18,7 +18,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 ## 4. Observability & Tooling
 - [x] **Swarm Dashboard**: A web-based visualizer (React/Next.js) to see connected nodes, active locks (Batons), and the stream of thoughts in real-time.
 - [x] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
-- [ ] **Interactive Dashboard**: Allow sending thoughts and acquiring batons from the dashboard.
+- [x] **Interactive Dashboard**: Allow sending thoughts and acquiring batons from the dashboard.
 - [ ] **Secure Dashboard**: Add authentication to the dashboard to prevent unauthorized access.
 
 ## 5. Advanced Architect Features
