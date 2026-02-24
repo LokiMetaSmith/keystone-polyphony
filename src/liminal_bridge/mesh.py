@@ -10,12 +10,14 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
 class LiminalMesh:
-    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem"):
+    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem", bootstrap: Optional[str] = None, swarm_seed: Optional[str] = None):
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
         self.db_path = db_path
         self.identity_path = identity_path
+        self.bootstrap = bootstrap
+        self.swarm_seed = swarm_seed
 
         # Identity Management
         self.private_key = self._load_or_create_identity()
@@ -140,8 +142,14 @@ class LiminalMesh:
         sidecar_path = os.path.join(current_dir, "sidecar", "bridge.js")
 
         # Start Node.js process
+        args = ["node", sidecar_path, self.topic]
+        if self.bootstrap:
+            args.extend(["--bootstrap", self.bootstrap])
+        if self.swarm_seed:
+            args.extend(["--seed", self.swarm_seed])
+
         self.process = await asyncio.create_subprocess_exec(
-            "node", sidecar_path, self.topic,
+            *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
@@ -193,7 +201,7 @@ class LiminalMesh:
             line = await self.process.stderr.readline()
             if not line:
                 break
-            # print(f"SIDECAR LOG: {line.decode().strip()}")
+            print(f"SIDECAR LOG: {line.decode().strip()}")
 
     async def _send_to_sidecar(self, msg_type: str, payload: Any):
         """Sends a JSON command to the sidecar."""
@@ -219,6 +227,7 @@ class LiminalMesh:
         msg_type = msg.get("type")
 
         if msg_type == "peer_connected":
+            print(f"DEBUG: Node {self.node_id} connected to peer {msg.get('peer_id')}")
             self.peers.add(msg.get("peer_id"))
             # Re-broadcast my state to new peer
             if self.node_id in self.thoughts:
