@@ -44,6 +44,11 @@ for agent in $AGENTS; do
             cmd="${!cmd_var:-}"
         fi
 
+        # Default for architect
+        if [ -z "$cmd" ] && [ "$agent" == "architect" ]; then
+             cmd="python3 scripts/refine_issue.py"
+        fi
+
         # Check if it is an async agent defined in reviewers.yml
         local config=""
         if [ -z "$cmd" ]; then
