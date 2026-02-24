@@ -1,0 +1,9 @@
+reviewers:
+  - name: Jules
+    handle: "@Jules"
+    label: jules
+    quota_var: JULES_DAILY_TASKS
+  - name: OpenClaw
+    handle: "@OpenClaw"
+    label: openclaw
+    quota_var: OPENCLAW_DAILY_TASKS

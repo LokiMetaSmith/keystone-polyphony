@@ -125,14 +125,18 @@ class Architect:
             return f"Error consulting architect (OpenAI): {str(e)}"
 
     async def _refine_openai(self, prompt: str) -> str:
-        if not self.client: return "Architect not configured (missing API key or openai package)."
+        if not self.client:
+            return "Architect not configured (missing API key or openai package)."
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a precise technical architect."},
-                    {"role": "user", "content": prompt}
-                ]
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -152,7 +156,8 @@ class Architect:
             return f"Error consulting architect (Gemini): {str(e)}"
 
     async def _refine_google(self, prompt: str) -> str:
-        if not self.google_model: return "Architect not configured (missing API key or google-generativeai package)."
+        if not self.google_model:
+            return "Architect not configured (missing API key or google-generativeai package)."
         try:
             response = await self.google_model.generate_content_async(contents=[prompt])
             return response.text
@@ -175,13 +180,14 @@ class Architect:
             return f"Error consulting architect (Anthropic): {str(e)}"
 
     async def _refine_anthropic(self, prompt: str) -> str:
-        if not self.client: return "Architect not configured (missing API key or anthropic package)."
+        if not self.client:
+            return "Architect not configured (missing API key or anthropic package)."
         try:
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=2048,
                 system="You are a precise technical architect.",
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
             )
             return response.content[0].text
         except Exception as e:

@@ -6,5 +6,3 @@ pytest-asyncio
 cryptography
 google-generativeai
 anthropic
-flake8
-black

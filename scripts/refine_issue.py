@@ -14,8 +14,11 @@ except ImportError:
     print("Error: Could not import Architect from src.liminal_bridge.architect")
     sys.exit(1)
 
+
 async def main():
-    parser = argparse.ArgumentParser(description="Refine a GitHub issue file using Architect.")
+    parser = argparse.ArgumentParser(
+        description="Refine a GitHub issue file using Architect."
+    )
     parser.add_argument("filepath", help="Path to the issue markdown file.")
     args = parser.parse_args()
 
@@ -23,14 +26,16 @@ async def main():
         print(f"Error: File {args.filepath} not found.")
         sys.exit(1)
 
-    with open(args.filepath, 'r') as f:
+    with open(args.filepath, "r") as f:
         content = f.read()
 
     architect = Architect()
 
     # Check if Architect is configured
     if not architect.client and not architect.google_model:
-        print("Warning: Architect not configured (missing API key or package). Skipping refinement.")
+        print(
+            "Warning: Architect not configured (missing API key or package). Skipping refinement."
+        )
         sys.exit(0)
 
     print(f"Refining issue: {args.filepath}...")
@@ -41,7 +46,7 @@ async def main():
         if "<!-- triage-refined: architect -->" not in refined_content:
             refined_content += "\n\n<!-- triage-refined: architect -->"
 
-        with open(args.filepath, 'w') as f:
+        with open(args.filepath, "w") as f:
             f.write(refined_content)
 
         print(f"Successfully refined {args.filepath}")
@@ -49,6 +54,7 @@ async def main():
     except Exception as e:
         print(f"Error refining issue: {str(e)}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
