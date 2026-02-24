@@ -7,16 +7,30 @@ on:
     types: [created]
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model to use"
+        required: false
+        default: "opencode/big-pickle"
+      prompt:
+        description: "Custom prompt"
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   opencode:
     if: |
-      (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-      (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-      (github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review'))
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      ((github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+       (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+       (github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')) ||
+       (github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: write
       issues: write
       pull-requests: write
@@ -31,6 +45,7 @@ jobs:
          id: label_prompt
          if: github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
          run: |
+           set -euo pipefail
            LABEL="${{ github.event.label.name }}"
            case "$LABEL" in
              "workflow-review")
@@ -52,7 +67,7 @@ jobs:
            esac
            PROMPT="$COMMAND: $DESC"
            echo "prompt=$PROMPT" >> "$GITHUB_OUTPUT"
-           gh pr comment ${{ github.event.pull_request.number }} --body "$PROMPT"
+           gh pr comment "${{ github.event.pull_request.number }}" --body "$PROMPT"
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -67,7 +82,23 @@ jobs:
            OPENAI_API_BASE: https://openrouter.ai/api/v1
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          with:
-           model: opencode/big-pickle
-           prompt: ${{ steps.label_prompt.outputs.prompt }}
+           model: ${{ github.event.inputs.model || 'opencode/big-pickle' }}
+           prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}
            use_github_token: true
-           # share: true
+
+       - name: Ensure Reviewed Label
+         if: always() && github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         run: |
+           gh api --method POST "/repos/${{ github.repository }}/labels" \
+             -f name="reviewed" \
+             -f color="FBCA04" \
+             -f description="AI review complete, action required by author" || true
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+       - name: Cleanup Review Label
+         if: always() && github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
+         run: |
+           gh pr edit "${{ github.event.pull_request.number }}" --remove-label "${{ github.event.label.name }}" --add-label "reviewed"
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
