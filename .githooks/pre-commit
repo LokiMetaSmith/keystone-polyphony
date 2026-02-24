@@ -90,3 +90,14 @@ if [ -n "$CHECK_OUTPUT" ]; then
   echo "$CHECK_OUTPUT"
   exit 1
 fi
+
+# 3. Comprehensive Linting
+# Runs static analysis on the entire repository (including staged changes if they match working tree).
+# Note: This checks the working tree, so it ensures the repo state is clean.
+echo "Running comprehensive lint checks..."
+if ! ./scripts/lint.sh; then
+  echo "[ERROR] pre-commit: Lint checks failed. Please fix issues before committing."
+  exit 1
+fi
+
+exit 0

@@ -1,11 +1,11 @@
 import time
-import asyncio
-from typing import Any, Dict, Optional, Callable, Awaitable
+from typing import Any
 
 try:
     from .architect import Architect
 except ImportError:
     from architect import Architect
+
 
 class Pulse:
     def __init__(self, mesh: Any, architect: Architect):
@@ -29,7 +29,7 @@ class Pulse:
             "thoughts": self.mesh.thoughts,
             "batons": self.mesh.batons,
             "kv": self.mesh.kv_store,
-            "context": context
+            "context": context,
         }
 
         # Consult
@@ -38,7 +38,7 @@ class Pulse:
         # Broadcast the new plan
         await self.mesh.update_kv("master_plan", new_plan)
         self.last_consultation = now
-        print(f"PULSE: Plan updated.")
+        print("PULSE: Plan updated.")
 
     async def on_baton_release(self, resource: str, agent_id: str):
         """
