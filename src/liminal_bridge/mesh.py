@@ -4,9 +4,13 @@ import hashlib
 import time
 import os
 import sqlite3
+import base64
 from typing import Dict, Optional, Any, Set, Callable, Awaitable
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
 
 class LiminalMesh:
@@ -43,6 +47,16 @@ class LiminalMesh:
 
         # Stable Node ID derived from Public Key
         self.node_id = hashlib.sha256(pub_bytes).hexdigest()[:16]
+
+        # Encryption Setup
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"liminal-mesh-encryption",
+        )
+        enc_key = base64.urlsafe_b64encode(hkdf.derive(self.secret_key.encode()))
+        self.fernet = Fernet(enc_key)
 
         self.peers: Set[str] = set()
         self.thoughts: Dict[str, Any] = {}
@@ -332,6 +346,16 @@ class LiminalMesh:
         self.process.stdin.write(msg.encode())
         await self.process.stdin.drain()
 
+    def _encrypt(self, payload: Any) -> str:
+        """Encrypts a payload dictionary to a base64 string."""
+        data = json.dumps(payload).encode()
+        return self.fernet.encrypt(data).decode()
+
+    def _decrypt(self, encrypted_b64: str) -> Any:
+        """Decrypts a base64 string to a payload dictionary."""
+        data = self.fernet.decrypt(encrypted_b64.encode())
+        return json.loads(data.decode())
+
     async def broadcast(self, payload: Any):
         """Broadcasts a payload to all peers."""
         # Attach origin info
@@ -344,7 +368,9 @@ class LiminalMesh:
         if "vc" not in payload:
             payload["vc"] = self.vector_clock
 
-        await self._send_to_sidecar("broadcast", payload)
+        # Encrypt the payload before sending
+        encrypted_data = self._encrypt(payload)
+        await self._send_to_sidecar("broadcast", {"e": encrypted_data})
 
     def _increment_clock(self):
         """Increments the local logical clock."""
@@ -396,6 +422,15 @@ class LiminalMesh:
 
         elif msg_type == "message":
             payload = msg.get("payload", {})
+
+            # Decrypt if encrypted
+            if "e" in payload:
+                try:
+                    payload = self._decrypt(payload["e"])
+                except Exception as e:
+                    print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
+                    return
+
             await self._handle_payload(payload)
 
     async def _handle_payload(self, payload: Dict[str, Any]):

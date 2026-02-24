@@ -27,6 +27,9 @@ jobs:
       GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
       AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
       AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_OPENCODE_NPM_PACKAGE: ${{ vars.AGENT_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
+      AGENT_OPENCLAW_NPM_PACKAGE: ${{ vars.AGENT_OPENCLAW_NPM_PACKAGE || 'openclaw@2026.2.23' }}
+      AGENT_CLAUDE_NPM_PACKAGE: ${{ vars.AGENT_CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code@2.1.52' }}
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
       AGENT_MODEL: ${{ vars.AGENT_MODEL }}
       REPO: ${{ github.repository }}
@@ -61,8 +64,47 @@ jobs:
           echo "Selected PR #$PR_NUMBER"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
+      - name: Validate Agent Credentials
+        id: creds
+        run: |
+          set -euo pipefail
+          if [ -z "${AGENT_API_KEY:-}" ]; then
+            echo "::notice::AGENT_API_KEY is not configured. Skipping automated agent review dispatch."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.creds.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Agent CLI
+        if: steps.creds.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+
+          case "$AGENT_CLI" in
+            opencode)
+              npm install -g "$AGENT_OPENCODE_NPM_PACKAGE"
+              ;;
+            openclaw)
+              npm install -g "$AGENT_OPENCLAW_NPM_PACKAGE"
+              ;;
+            claude)
+              npm install -g "$AGENT_CLAUDE_NPM_PACKAGE"
+              ;;
+            *)
+              echo "No default install configured for AGENT_CLI='$AGENT_CLI'."
+              echo "Use opencode/openclaw/claude, or extend this workflow for custom CLIs."
+              exit 1
+              ;;
+          esac
+
       - name: Select Reviewer & Check Quota
-        if: steps.identify.outputs.pr_number != ''
+        if: steps.identify.outputs.pr_number != '' && steps.creds.outputs.skip != 'true'
         id: quota
         run: |
           set -euo pipefail
@@ -93,11 +135,15 @@ jobs:
           echo "reviewer_label=$LABEL" >> "$GITHUB_OUTPUT"
 
           # 3. Check Quota
-          LIMIT=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null || echo "0")
+          LIMIT=0
+          if LIMIT_RAW=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null); then
+            LIMIT_RAW=$(echo "$LIMIT_RAW" | tr -d '[:space:]')
+            if [[ "$LIMIT_RAW" =~ ^[0-9]+$ ]]; then
+              LIMIT="$LIMIT_RAW"
+            fi
+          fi
           if [ "$LIMIT" -eq 0 ]; then
-             # If var is missing or 0, treat as unlimited or fallback?
-             # issue-reviewer treats 0 as unlimited if not set, but here we assume safe default.
-             # Let's align with issue-reviewer: "Quota variable ... not set or 0. No quota limit enforced."
+             # Missing or non-numeric quota vars should not block assignment.
              LIMIT=999999
           fi
 
@@ -129,7 +175,7 @@ jobs:
           fi
 
       - name: Compose Prompt
-        if: steps.identify.outputs.pr_number != '' && steps.quota.outputs.skip == 'false'
+        if: steps.identify.outputs.pr_number != '' && steps.creds.outputs.skip != 'true' && steps.quota.outputs.skip == 'false'
         id: prompt
         run: |
           set -euo pipefail
@@ -186,7 +232,7 @@ jobs:
           echo "Prompt prepared."
 
       - name: Run Agent
-        if: steps.identify.outputs.pr_number != '' && steps.quota.outputs.skip == 'false'
+        if: steps.identify.outputs.pr_number != '' && steps.creds.outputs.skip != 'true' && steps.quota.outputs.skip == 'false'
         run: |
           set -euo pipefail
 
@@ -215,7 +261,16 @@ jobs:
           echo "Running agent: ${CMD[0]} ... (redacted prompt)"
 
           set +e
-          "${CMD[@]}"
+          env \
+            AGENT_API_KEY="$AGENT_API_KEY" \
+            OPENAI_API_KEY="$AGENT_API_KEY" \
+            OPENROUTER_API_KEY="$AGENT_API_KEY" \
+            ANTHROPIC_API_KEY="$AGENT_API_KEY" \
+            GROK_API_KEY="$AGENT_API_KEY" \
+            GEMINI_API_KEY="$AGENT_API_KEY" \
+            DEEPSEEK_API_KEY="$AGENT_API_KEY" \
+            OPENAI_API_BASE="https://openrouter.ai/api/v1" \
+            "${CMD[@]}"
           EXIT_CODE=$?
           set -e
 
