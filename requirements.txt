@@ -9,3 +9,4 @@ anthropic
 flake8
 black
 ollama
+aiohttp>=3.9.0
