@@ -4,6 +4,7 @@ import hashlib
 from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
 
+
 @pytest.mark.asyncio
 async def test_rotate_key_logic(tmp_path):
     # Setup
@@ -45,6 +46,7 @@ async def test_rotate_key_logic(tmp_path):
 
     # Verify final state
     assert mesh.secret_key == new_key
+
 
 @pytest.mark.asyncio
 async def test_rotate_key_immediate(tmp_path):

@@ -48,6 +48,7 @@ class LiminalMesh:
         self.thoughts: Dict[str, Any] = {}
         self.batons: Dict[str, str] = {}  # resource -> owner_id
         self.kv_store: Dict[str, Any] = {}
+        self.vector_clock: Dict[str, int] = {self.node_id: 0}
 
         # Persistence
         self._init_db()
@@ -82,6 +83,7 @@ class LiminalMesh:
             "kv_store": self.kv_store,
             "thoughts": self.thoughts,
             "batons": self.batons,
+            "vector_clock": self.vector_clock,
         }
 
         # Ensure directory exists
@@ -140,6 +142,14 @@ class LiminalMesh:
                 content TEXT
             )
         """)
+
+        # Metadata Table (for Vector Clock)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         self.conn.commit()
 
     def _load_state(self):
@@ -159,12 +169,32 @@ class LiminalMesh:
         for node_id, content in cursor.fetchall():
             self.thoughts[node_id] = content
 
+        # Load Vector Clock
+        try:
+            cursor.execute("SELECT value FROM metadata WHERE key = 'vector_clock'")
+            row = cursor.fetchone()
+            if row:
+                self.vector_clock = json.loads(row[0])
+            else:
+                self.vector_clock = {self.node_id: 0}
+        except Exception:
+            self.vector_clock = {self.node_id: 0}
+
     def _save_kv(self, key: str, value: Any):
         """Persists a KV update."""
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
             (key, json.dumps(value)),
+        )
+        self.conn.commit()
+
+    def _save_clock(self):
+        """Persists the vector clock."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            ("vector_clock", json.dumps(self.vector_clock)),
         )
         self.conn.commit()
 
@@ -310,7 +340,43 @@ class LiminalMesh:
         # Include public key for identification (could be optimized to only send once, but simplified here)
         payload["sender_pubkey"] = self.public_key_hex
 
+        # Attach vector clock if not already present (some calls might add it explicitly)
+        if "vc" not in payload:
+            payload["vc"] = self.vector_clock
+
         await self._send_to_sidecar("broadcast", payload)
+
+    def _increment_clock(self):
+        """Increments the local logical clock."""
+        self.vector_clock[self.node_id] = self.vector_clock.get(self.node_id, 0) + 1
+        self._save_clock()
+
+    def _merge_clock(self, remote_clock: Dict[str, int]):
+        """Merges a remote vector clock into the local one."""
+        for node, count in remote_clock.items():
+            self.vector_clock[node] = max(self.vector_clock.get(node, 0), count)
+        self._save_clock()
+
+    def _is_causally_after(self, vc1: Dict[str, int], vc2: Dict[str, int]) -> bool:
+        """Checks if vc1 is causally after vc2 (vc1 > vc2)."""
+        # For vc1 to be after vc2, every counter in vc1 must be >= corresponding in vc2,
+        # and at least one must be strictly greater.
+        # However, keys might be different. Treat missing keys as 0.
+
+        all_ge = True
+        any_gt = False
+
+        all_keys = set(vc1.keys()) | set(vc2.keys())
+        for k in all_keys:
+            v1 = vc1.get(k, 0)
+            v2 = vc2.get(k, 0)
+            if v1 < v2:
+                all_ge = False
+                break
+            if v1 > v2:
+                any_gt = True
+
+        return all_ge and any_gt
 
     async def _handle_message(self, msg: Dict[str, Any]):
         """Dispatches incoming messages."""
@@ -336,6 +402,11 @@ class LiminalMesh:
         """Handles application-level logic."""
         p_type = payload.get("type")
         origin = payload.get("origin")
+        remote_vc = payload.get("vc", {})
+
+        # Merge clocks on receive
+        if remote_vc:
+            self._merge_clock(remote_vc)
 
         # Future: Validate signature using payload.get("sender_pubkey")
 
@@ -346,10 +417,51 @@ class LiminalMesh:
 
         elif p_type == "kv_update":
             key = payload.get("key")
-            value = payload.get("value")
-            # Last Write Wins (using timestamp)
-            self.kv_store[key] = value
-            self._save_kv(key, value)
+            value = payload.get("value")  # This is the raw value
+            remote_ts = payload.get("timestamp", 0)
+
+            # Conflict Resolution
+            current_wrapped = self.kv_store.get(key)
+            should_update = False
+
+            if current_wrapped is None:
+                should_update = True
+            else:
+                # Check if current value is wrapped (it should be if created by new code)
+                # Handle legacy data (raw value)
+                if isinstance(current_wrapped, dict) and "vc" in current_wrapped:
+                    local_vc = current_wrapped["vc"]
+                    local_ts = current_wrapped.get("timestamp", 0)
+
+                    # 1. Causal Check
+                    if self._is_causally_after(remote_vc, local_vc):
+                        should_update = True
+                    elif self._is_causally_after(local_vc, remote_vc):
+                        should_update = False  # Stale
+                    else:
+                        # Concurrent: Tie-break
+                        # LWW fallback
+                        if remote_ts > local_ts:
+                            should_update = True
+                        elif remote_ts < local_ts:
+                            should_update = False
+                        else:
+                            # Use Origin Node ID as tie breaker
+                            local_origin = current_wrapped.get("origin", "")
+                            should_update = origin > local_origin
+                else:
+                    # Legacy value in store (no VC). Assume new update wins (migration).
+                    should_update = True
+
+            if should_update:
+                wrapped = {
+                    "value": value,
+                    "vc": remote_vc,
+                    "timestamp": remote_ts,
+                    "origin": origin,
+                }
+                self.kv_store[key] = wrapped
+                self._save_kv(key, wrapped)
 
         elif p_type == "baton_request":
             resource = payload.get("resource")
@@ -388,15 +500,51 @@ class LiminalMesh:
         await self.broadcast({"type": "thought", "content": content})
 
     async def update_kv(self, key: str, value: Any):
-        self.kv_store[key] = value
-        self._save_kv(key, value)
-        await self.broadcast({"type": "kv_update", "key": key, "value": value})
+        self._increment_clock()
+        timestamp = time.time()
+
+        # Prepare wrapped value for local storage
+        wrapped = {
+            "value": value,
+            "vc": self.vector_clock.copy(),
+            "timestamp": timestamp,
+            "origin": self.node_id,
+        }
+
+        self.kv_store[key] = wrapped
+        self._save_kv(key, wrapped)
+
+        # Broadcast raw value but with metadata
+        await self.broadcast(
+            {
+                "type": "kv_update",
+                "key": key,
+                "value": value,
+                "vc": self.vector_clock.copy(),
+                "timestamp": timestamp,
+            }
+        )
 
     def get_kv(self, key: str):
-        return self.kv_store.get(key)
+        val = self.kv_store.get(key)
+        if val is None:
+            return None
+
+        # Unwrap if it's a wrapped value
+        if isinstance(val, dict) and "vc" in val and "value" in val:
+            return val["value"]
+
+        return val
 
     def get_all_kv(self) -> Dict[str, Any]:
-        return self.kv_store
+        """Returns a copy of the KV store with values unwrapped."""
+        unwrapped = {}
+        for k, v in self.kv_store.items():
+            if isinstance(v, dict) and "vc" in v and "value" in v:
+                unwrapped[k] = v["value"]
+            else:
+                unwrapped[k] = v
+        return unwrapped
 
     async def acquire_baton(self, resource: str, timeout: float = 2.0) -> bool:
         """Tries to acquire a lock on a resource."""

@@ -55,9 +55,12 @@ async def test_kv_store(mesh):
     assert mesh.get_kv("key1") == "value1"
 
     # Verify broadcast call using ANY for the timestamp
-    mesh.broadcast.assert_called_with(
-        {"type": "kv_update", "key": "key1", "value": "value1"}
-    )
+    call_args = mesh.broadcast.call_args[0][0]
+    assert call_args["type"] == "kv_update"
+    assert call_args["key"] == "key1"
+    assert call_args["value"] == "value1"
+    assert "vc" in call_args
+    assert "timestamp" in call_args
 
 
 @pytest.mark.asyncio
@@ -88,7 +91,7 @@ async def test_snapshot_creation(tmp_path):
         data = json.load(f)
 
     assert data["node_id"] == mesh.node_id
-    assert data["kv_store"]["key1"] == "value1"
+    assert data["kv_store"]["key1"]["value"] == "value1"
     assert data["thoughts"][mesh.node_id] == "hello world"
 
 
