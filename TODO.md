@@ -25,4 +25,4 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 6. Testing & CI/CD
 - [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
-- [ ] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
+- [x] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
