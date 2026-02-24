@@ -46,9 +46,9 @@ jobs:
        - name: Checkout repository
          uses: actions/checkout@v4
          with:
+           # Explicitly reference the head repository for forks to ensure checkout succeeds.
+           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
            # For pull_request_target, we want the PR's head code.
-           # For issue_comment on a PR, we use refs/pull/N/head.
-           # Fallback to github.sha for issues and manual dispatch.
            ref: ${{ github.event.pull_request.head.sha || (github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number)) || github.sha }}
            fetch-depth: 1
            persist-credentials: false
@@ -70,9 +70,10 @@ jobs:
            fi
 
            PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+           echo ">>> Resolving review for PR #$PR_NUMBER (Label: $LABEL)"
 
-           # Get changed files in the PR
-           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' || echo "")
+           # Get changed files in the PR, ensuring we target the upstream repo
+           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json files --jq '.files[].path' || echo "")
 
            case "$LABEL" in
              "workflow-review")
@@ -118,7 +119,7 @@ jobs:
            echo "$PROMPT" >> "$GITHUB_OUTPUT"
            echo "EOF" >> "$GITHUB_OUTPUT"
 
-           gh pr comment "$PR_NUMBER" --body "$PROMPT"
+           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$PROMPT"
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -189,7 +190,7 @@ jobs:
              LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
            fi
            if [ -n "$LABEL" ]; then
-             gh pr edit "$PR_NUMBER" --remove-label "$LABEL" --add-label "reviewed"
+             gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --remove-label "$LABEL" --add-label "reviewed"
            fi
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -199,7 +200,7 @@ jobs:
          run: |
            PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
            if [ -n "$PR_NUMBER" ]; then
-             gh pr comment "$PR_NUMBER" --body "## ❌ OpenCode Review Failed
+             gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "## ❌ OpenCode Review Failed
 
              The automated review encountered an error. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
            fi
