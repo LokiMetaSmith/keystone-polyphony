@@ -124,13 +124,6 @@ jobs:
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-       - name: Install OpenCode CLI
-         run: |
-           set -euo pipefail
-           echo ">>> Installing OpenCode CLI..."
-           curl -sL https://opencode.ai/install.sh | sh
-           echo "/home/runner/.opencode/bin" >> "$GITHUB_PATH"
-
        - name: Prepare Environment
          id: prep
          run: |
@@ -157,32 +150,7 @@ jobs:
            echo "provider_key=$KEY" >> "$GITHUB_OUTPUT"
 
        - name: Run OpenCode
-         run: |
-           set -euo pipefail
-
-           # Build command using bash array for safe argument handling
-           CMD=("opencode" "review")
-
-           CMD+=("--non-interactive")
-
-           if [ -n "${{ steps.prep.outputs.model }}" ]; then
-             CMD+=("--model" "${{ steps.prep.outputs.model }}")
-           fi
-
-           # Read prompt from output or input
-           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}"
-
-           # If prompt is still empty, try resolving it from the comment if triggered by comment
-           if [ -z "$PROMPT" ]; then
-             PROMPT="${{ github.event.comment.body }}"
-           fi
-
-           CMD+=("--prompt" "$PROMPT")
-
-           echo ">>> Running OpenCode: opencode review --model ${{ steps.prep.outputs.model }} --prompt ..."
-
-           # Execute the command
-           "${CMD[@]}"
+         uses: anomalyco/opencode/github@latest
          env:
            # We pass only the relevant key as the generic OPENAI_API_KEY
            # which many OpenRouter/OpenAI compatible models expect.
@@ -194,6 +162,11 @@ jobs:
            DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           # Spoofing the event name to work under pull_request_target (fork support)
+           GITHUB_EVENT_NAME: pull_request
+         with:
+           model: ${{ steps.prep.outputs.model }}
+           prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}
 
        - name: Ensure Reviewed Label
          if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
