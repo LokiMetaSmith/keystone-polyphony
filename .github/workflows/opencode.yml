@@ -5,8 +5,6 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
   pull_request_target:
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
@@ -20,7 +18,7 @@ on:
         required: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -29,9 +27,7 @@ jobs:
       github.repository == 'niklas-olsson/keystone-polyphony' &&
       ((github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-       ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
-        ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-         (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
+       (github.event_name == 'pull_request_target' &&
         (endsWith(github.event.label.name, '-review') ||
          contains(github.event.pull_request.labels.*.name, 'workflow-review') ||
          contains(github.event.pull_request.labels.*.name, 'arch-review') ||
@@ -55,7 +51,7 @@ jobs:
 
        - name: Handle Label-Triggered Review
          id: label_prompt
-         if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: github.event_name == 'pull_request_target' && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            set -euo pipefail
            LABEL="${{ github.event.label.name }}"
@@ -149,15 +145,35 @@ jobs:
            echo "provider_key=$KEY" >> "$GITHUB_OUTPUT"
 
        - name: Run OpenCode
-         uses: anomalyco/opencode/github@latest
+         run: |
+           set -euo pipefail
+
+           # Build command using bash array for safe argument handling
+           CMD=("opencode" "review")
+
+           CMD+=("--non-interactive")
+
+           if [ -n "${{ steps.prep.outputs.model }}" ]; then
+             CMD+=("--model" "${{ steps.prep.outputs.model }}")
+           fi
+
+           # Read prompt from output or input
+           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}"
+
+           # If prompt is still empty, try resolving it from the comment if triggered by comment
+           if [ -z "$PROMPT" ]; then
+             PROMPT="${{ github.event.comment.body }}"
+           fi
+
+           CMD+=("--prompt" "$PROMPT")
+
+           echo ">>> Running OpenCode: opencode review --model ${{ steps.prep.outputs.model }} --prompt ..."
+
+           # Execute the command
+           "${CMD[@]}"
          env:
-           # Trick the action into supporting pull_request_target by spoofing the event name.
-           # The payload for pull_request_target is identical to pull_request.
-           GITHUB_EVENT_NAME: pull_request
            # We pass only the relevant key as the generic OPENAI_API_KEY
-           # which many OpenRouter/OpenAI compatible models expect,
-           # or specific ones if needed. For now, we follow the agent's
-           # recommendation to minimize exposure.
+           # which many OpenRouter/OpenAI compatible models expect.
            ANTHROPIC_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENROUTER_API_KEY: ${{ steps.prep.outputs.provider_key }}
@@ -166,13 +182,9 @@ jobs:
            DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-         with:
-           model: ${{ steps.prep.outputs.model }}
-           prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}
-           use_github_token: true
 
        - name: Ensure Reviewed Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: always() && github.event_name == 'pull_request_target' && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            gh api --method POST "/repos/${{ github.repository }}/labels" \
              -f name="reviewed" \
@@ -182,7 +194,7 @@ jobs:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
        - name: Cleanup Review Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: always() && github.event_name == 'pull_request_target' && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
            LABEL="${{ github.event.label.name }}"
