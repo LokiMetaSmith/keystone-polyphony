@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
 class LiminalMesh:
-    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem", bootstrap: Optional[str] = None, swarm_seed: Optional[str] = None):
+    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem", bootstrap: Optional[str] = None, swarm_seed: Optional[str] = None, snapshot_path: str = ".liminal/snapshot.json", snapshot_interval: int = 300):
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
@@ -18,6 +18,9 @@ class LiminalMesh:
         self.identity_path = identity_path
         self.bootstrap = bootstrap
         self.swarm_seed = swarm_seed
+        self.snapshot_path = snapshot_path
+        self.snapshot_interval = snapshot_interval
+        self._snapshot_task: Optional[asyncio.Task] = None
 
         # Identity Management
         self.private_key = self._load_or_create_identity()
@@ -50,6 +53,40 @@ class LiminalMesh:
 
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
+
+    async def _periodic_snapshot(self):
+        """Periodically saves a snapshot of the mesh state."""
+        loop = asyncio.get_running_loop()
+        while self.running:
+            try:
+                await asyncio.sleep(self.snapshot_interval)
+                await loop.run_in_executor(None, self._save_snapshot)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Error saving snapshot: {e}")
+
+    def _save_snapshot(self):
+        """Saves the current state to a JSON file."""
+        data = {
+            "timestamp": time.time(),
+            "node_id": self.node_id,
+            "kv_store": self.kv_store,
+            "thoughts": self.thoughts,
+            "batons": self.batons
+        }
+
+        # Ensure directory exists
+        dirname = os.path.dirname(self.snapshot_path)
+        if dirname and not os.path.exists(dirname):
+            os.makedirs(dirname, exist_ok=True)
+
+        # Write to a temp file then rename for atomicity
+        temp_path = self.snapshot_path + ".tmp"
+        with open(temp_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+        os.replace(temp_path, self.snapshot_path)
 
     def _load_or_create_identity(self) -> ed25519.Ed25519PrivateKey:
         """Loads the identity key pair or creates a new one."""
@@ -159,11 +196,22 @@ class LiminalMesh:
         asyncio.create_task(self._read_stdout())
         asyncio.create_task(self._read_stderr())
 
+        # Start snapshot task
+        self._snapshot_task = asyncio.create_task(self._periodic_snapshot())
+
         print(f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}...")
 
     async def stop(self):
         """Stops the sidecar."""
         self.running = False
+
+        if self._snapshot_task:
+            self._snapshot_task.cancel()
+            try:
+                await self._snapshot_task
+            except asyncio.CancelledError:
+                pass
+
         if self.process:
             try:
                 self.process.terminate()
