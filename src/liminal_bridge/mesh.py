@@ -16,7 +16,11 @@ try:
     from .observability import LogAggregator
 except ImportError:
     from observability import LogAggregator
-from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+
+try:
+    from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+except ImportError:
+    from crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
 
 
 class LiminalMesh:
@@ -163,34 +167,28 @@ class LiminalMesh:
         cursor = self.conn.cursor()
 
         # Key-Value Store Table
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS kv_store (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """
-        )
+        """)
 
         # Thoughts Table
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS thoughts (
                 node_id TEXT PRIMARY KEY,
                 content TEXT
             )
-        """
-        )
+        """)
 
         # Metadata Table (for Vector Clock)
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """
-        )
+        """)
         self.conn.commit()
 
     def _deserialize_crdt(self, data: Any) -> CRDT:
@@ -211,16 +209,11 @@ class LiminalMesh:
                     value=data["value"],
                     timestamp=data.get("timestamp", 0),
                     origin=data.get("origin", "unknown"),
-                    vc=data["vc"]
+                    vc=data["vc"],
                 )
 
         # Raw value -> LWWRegister with empty VC (should ideally not happen in new system)
-        return LWWRegister(
-            value=data,
-            timestamp=0,
-            origin="unknown",
-            vc={}
-        )
+        return LWWRegister(value=data, timestamp=0, origin="unknown", vc={})
 
     def _load_state(self):
         """Loads state from the database."""
@@ -319,9 +312,10 @@ class LiminalMesh:
             try:
                 # check if npm is installed
                 proc = await asyncio.create_subprocess_exec(
-                    "npm", "--version",
+                    "npm",
+                    "--version",
                     stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
                 await proc.wait()
                 if proc.returncode != 0:
@@ -330,17 +324,20 @@ class LiminalMesh:
 
                 # install dependencies
                 install_proc = await asyncio.create_subprocess_exec(
-                    "npm", "install",
+                    "npm",
+                    "install",
                     cwd=sidecar_dir,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 stdout, stderr = await install_proc.communicate()
 
                 if install_proc.returncode == 0:
                     print("Dependencies installed successfully.")
                 else:
-                    print(f"Warning: Failed to install dependencies. Sidecar may fail to start.\nError: {stderr.decode()}")
+                    print(
+                        f"Warning: Failed to install dependencies. Sidecar may fail to start.\nError: {stderr.decode()}"
+                    )
             except Exception as e:
                 print(f"Error during dependency check: {e}")
 
@@ -663,7 +660,9 @@ class LiminalMesh:
             # If it was another CRDT type, we are overwriting it with a Register
             pass
 
-        new_register = LWWRegister(value, timestamp, self.node_id, self.vector_clock.copy())
+        new_register = LWWRegister(
+            value, timestamp, self.node_id, self.vector_clock.copy()
+        )
 
         # If we had a previous LWWRegister, we might want to merge just to be safe (idempotency),
         # but here we are originating a new value, so we just set it.
@@ -674,16 +673,12 @@ class LiminalMesh:
 
         # Broadcast
         await self.broadcast(
-            {
-                "type": "kv_update",
-                "key": key,
-                "crdt": new_register.to_dict()
-            }
+            {"type": "kv_update", "key": key, "crdt": new_register.to_dict()}
         )
 
     async def update_counter(self, key: str, delta: int = 1):
         """Updates a PNCounter."""
-        self._increment_clock() # Counters don't strictly use VC for merge, but good to track causality in mesh
+        self._increment_clock()  # Counters don't strictly use VC for merge, but good to track causality in mesh
 
         current = self.kv_store.get(key)
         if current is None:
@@ -699,11 +694,9 @@ class LiminalMesh:
 
         self._save_kv(key, current)
 
-        await self.broadcast({
-            "type": "kv_update",
-            "key": key,
-            "crdt": current.to_dict()
-        })
+        await self.broadcast(
+            {"type": "kv_update", "key": key, "crdt": current.to_dict()}
+        )
 
     async def update_set(self, key: str, element: Any, remove: bool = False):
         """Updates an ORSet (or GSet if remove=False and fallback)."""
@@ -723,11 +716,9 @@ class LiminalMesh:
 
         self._save_kv(key, current)
 
-        await self.broadcast({
-            "type": "kv_update",
-            "key": key,
-            "crdt": current.to_dict()
-        })
+        await self.broadcast(
+            {"type": "kv_update", "key": key, "crdt": current.to_dict()}
+        )
 
     def get_kv(self, key: str):
         val = self.kv_store.get(key)
