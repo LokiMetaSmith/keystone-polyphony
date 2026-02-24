@@ -44,6 +44,7 @@ jobs:
          contains(github.event.pull_request.labels.*.name, 'security-review'))) ||
        (github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       REPO: ${{ github.repository }}
       DEFAULT_AGENT_CLI: opencode
@@ -78,8 +79,8 @@ jobs:
         if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
         run: |
           set -euo pipefail
-          LABEL="${{ github.event.label.name }}"
-          if [ -z "$LABEL" ] || [ "$LABEL" = "null" ]; then
+          LABEL="${{ github.event.label.name || '' }}"
+          if [ -z "$LABEL" ]; then
             # Try to find a review label in the PR labels array
             LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
           fi
@@ -284,6 +285,7 @@ jobs:
 
       - name: Run Review CLI
         id: run_cli
+        timeout-minutes: 15
         run: |
           set -euo pipefail
           CLI="${{ steps.install.outputs.cli_binary }}"
@@ -454,7 +456,7 @@ jobs:
             TITLE="## ❌ CLI Review Failed ($CLI)"
           fi
 
-          if grep -Eq '^(#{1,6}[[:space:]]|[-*][[:space:]]|[0-9]+\.[[:space:]]|\|[^|].*\|)' review_output.txt; then
+          if printf "%s\n" "$CONTENT" | grep -Eq '^(#{1,6}[[:space:]]|[-*][[:space:]]|[0-9]+\.[[:space:]]|\|[^|].*\|)'; then
             BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"$CONTENT"
           else
             BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"\`\`\`text"$'\n'"$CONTENT"$'\n'"\`\`\`"
@@ -478,8 +480,8 @@ jobs:
         if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
         run: |
           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
-          LABEL="${{ github.event.label.name }}"
-          if [ -z "$LABEL" ] || [ "$LABEL" = "null" ]; then
+          LABEL="${{ github.event.label.name || '' }}"
+          if [ -z "$LABEL" ]; then
             LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
           fi
           if [ -n "$LABEL" ]; then
