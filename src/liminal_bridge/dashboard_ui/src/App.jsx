@@ -1,14 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Status from './components/Status'
 import Thoughts from './components/Thoughts'
 import Batons from './components/Batons'
 import KVStore from './components/KVStore'
 import Logs from './components/Logs'
 import NetworkGraph from './components/NetworkGraph'
+import Login from './components/Login'
 import './App.css'
 
 function App() {
   const [activeTab, setActiveTab] = useState('status')
+  const [isAuthenticated, setIsAuthenticated] = useState(null)
+
+  useEffect(() => {
+    fetch('/api/status')
+      .then(res => {
+        if (res.status === 401) {
+          setIsAuthenticated(false)
+        } else {
+          setIsAuthenticated(true)
+        }
+      })
+      .catch(() => setIsAuthenticated(false))
+  }, [])
+
+  const handleLogout = () => {
+    fetch('/api/logout', { method: 'POST' })
+      .then(() => setIsAuthenticated(false))
+  }
+
+  if (isAuthenticated === null) return <div className="container"><p>Connecting to Liminal...</p></div>
+  if (isAuthenticated === false) return <div className="container"><Login onLoginSuccess={() => setIsAuthenticated(true)} /></div>
 
   return (
     <div className="container">
@@ -22,6 +44,7 @@ function App() {
           <button onClick={() => setActiveTab('kv')} className={activeTab === 'kv' ? 'active' : ''}>KV Store</button>
           <button onClick={() => setActiveTab('logs')} className={activeTab === 'logs' ? 'active' : ''}>Logs</button>
         </nav>
+        <button onClick={handleLogout} style={{ marginLeft: 'auto', padding: '5px 10px', background: '#333' }}>Logout</button>
       </header>
       <main>
         {activeTab === 'status' && <Status />}

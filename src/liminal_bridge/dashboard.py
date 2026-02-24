@@ -14,13 +14,15 @@ class DashboardServer:
         else:
             self.frontend_path = frontend_path
 
-        self.app = web.Application()
+        self.app = web.Application(middlewares=[self.auth_middleware])
         self._setup_routes()
         self.runner = None
         self.site = None
 
     def _setup_routes(self):
         # API Routes
+        self.app.router.add_post("/api/login", self.handle_login)
+        self.app.router.add_post("/api/logout", self.handle_logout)
         self.app.router.add_get("/api/status", self.handle_status)
         self.app.router.add_get("/api/thoughts", self.handle_thoughts)
         self.app.router.add_post("/api/thoughts", self.handle_post_thought)
@@ -48,6 +50,44 @@ class DashboardServer:
 
     async def serve_index(self, request):
         return web.FileResponse(os.path.join(self.frontend_path, "index.html"))
+
+    @web.middleware
+    async def auth_middleware(self, request, handler):
+        # Allow static files and login endpoint
+        if not request.path.startswith("/api/") or request.path in ["/api/login"]:
+            return await handler(request)
+
+        # Check cookie
+        session = request.cookies.get("LIMINAL_SESSION")
+        if not session or session != "authenticated":
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        return await handler(request)
+
+    async def handle_login(self, request):
+        try:
+            data = await request.json()
+            password = data.get("password")
+
+            expected_password = (
+                os.getenv("DASHBOARD_PASSWORD") or os.getenv("SWARM_KEY") or "admin"
+            )
+
+            if password == expected_password:
+                resp = web.json_response({"status": "ok"})
+                resp.set_cookie(
+                    "LIMINAL_SESSION", "authenticated", httponly=True, samesite="Strict"
+                )
+                return resp
+            else:
+                return web.json_response({"error": "Invalid password"}, status=401)
+        except Exception:
+            return web.json_response({"error": "Invalid request"}, status=400)
+
+    async def handle_logout(self, request):
+        resp = web.json_response({"status": "logged_out"})
+        resp.del_cookie("LIMINAL_SESSION")
+        return resp
 
     async def handle_root_fallback(self, request):
         return web.Response(
