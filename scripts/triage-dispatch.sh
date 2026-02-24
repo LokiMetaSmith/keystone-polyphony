@@ -44,6 +44,11 @@ for agent in $AGENTS; do
             cmd="${!cmd_var:-}"
         fi
 
+        # Default for architect
+        if [ -z "$cmd" ] && [ "$agent" == "architect" ]; then
+             cmd="python3 scripts/refine_issue.py"
+        fi
+
         if [ -n "$cmd" ]; then
             echo "Running CLI agent: $agent" >&2
             # CLI agents are expected to update the file and return 0

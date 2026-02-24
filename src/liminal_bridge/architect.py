@@ -62,6 +62,36 @@ class Architect:
         else:
             return await self._consult_openai(prompt)
 
+    async def refine_issue(self, issue_content: str) -> str:
+        """
+        Refines a raw issue description into a structured format.
+        """
+        prompt = f"""
+        You are an expert software architect and product manager.
+        Your task is to refine the following raw issue description into a well-structured, ready-for-work specification.
+
+        Raw Issue Content:
+        ---
+        {issue_content}
+        ---
+
+        Requirements for the Refined Issue:
+        1. **Human Interaction Story**: A clear narrative of how a user interacts with the feature.
+        2. **BDD Feature File**: A complete Cucumber/Gherkin .feature section.
+        3. **Self-Contained**: Explicitly list prerequisites and mark them as blocking if known.
+        4. **Surgical Scope**: Ensure the issue covers one specific concern.
+        5. **Format**: Return ONLY the markdown content for the new issue body. Do not include JSON.
+
+        Refined Output:
+        """
+
+        if self.provider == "google":
+            return await self._refine_google(prompt)
+        elif self.provider == "anthropic":
+            return await self._refine_anthropic(prompt)
+        else:
+            return await self._refine_openai(prompt)
+
     async def _consult_openai(self, prompt: str) -> str:
         if not self.client:
              return "Architect not configured (missing API key or openai package)."
@@ -79,18 +109,25 @@ class Architect:
         except Exception as e:
             return f"Error consulting architect (OpenAI): {str(e)}"
 
+    async def _refine_openai(self, prompt: str) -> str:
+        if not self.client: return "Architect not configured (missing API key or openai package)."
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a precise technical architect."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error refining issue (OpenAI): {str(e)}"
+
     async def _consult_google(self, prompt: str) -> str:
         if not self.google_model:
             return "Architect not configured (missing API key or google-generativeai package)."
 
         try:
-            # Gemini doesn't support system messages exactly the same way in all versions,
-            # but usually we can just prepend it or use the config.
-            # Also, JSON mode needs specific config.
-
-            # Note: synchronous call in async wrapper might block, but acceptable for this scope.
-            # Ideally use async generation if available in SDK, currently it is async in some versions.
-
             response = await self.google_model.generate_content_async(
                 contents=[prompt],
                 generation_config={"response_mime_type": "application/json"}
@@ -99,16 +136,19 @@ class Architect:
         except Exception as e:
             return f"Error consulting architect (Gemini): {str(e)}"
 
+    async def _refine_google(self, prompt: str) -> str:
+        if not self.google_model: return "Architect not configured (missing API key or google-generativeai package)."
+        try:
+            response = await self.google_model.generate_content_async(contents=[prompt])
+            return response.text
+        except Exception as e:
+            return f"Error refining issue (Gemini): {str(e)}"
+
     async def _consult_anthropic(self, prompt: str) -> str:
         if not self.client:
              return "Architect not configured (missing API key or anthropic package)."
 
         try:
-            # Anthropic doesn't support 'response_format={"type": "json_object"}' natively like OpenAI
-            # but usually follows instructions well. We can just ask for JSON.
-            # However, for robustness, we might want to check if the library version supports it or just prompt harder.
-            # The prompt already asks for JSON.
-
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
@@ -120,3 +160,16 @@ class Architect:
             return response.content[0].text
         except Exception as e:
             return f"Error consulting architect (Anthropic): {str(e)}"
+
+    async def _refine_anthropic(self, prompt: str) -> str:
+        if not self.client: return "Architect not configured (missing API key or anthropic package)."
+        try:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system="You are a precise technical architect.",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except Exception as e:
+            return f"Error refining issue (Anthropic): {str(e)}"
