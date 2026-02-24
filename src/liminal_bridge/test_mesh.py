@@ -58,9 +58,10 @@ async def test_kv_store(mesh):
     call_args = mesh.broadcast.call_args[0][0]
     assert call_args["type"] == "kv_update"
     assert call_args["key"] == "key1"
-    assert call_args["value"] == "value1"
-    assert "vc" in call_args
-    assert "timestamp" in call_args
+    assert "crdt" in call_args
+    assert call_args["crdt"]["value"] == "value1"
+    # vc is inside crdt, and also added by broadcast() which is mocked here
+    assert "vc" in call_args["crdt"]
 
 
 @pytest.mark.asyncio

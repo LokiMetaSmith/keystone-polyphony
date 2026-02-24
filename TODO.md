@@ -24,5 +24,5 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
 
 ## 6. Testing & CI/CD
-- [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
+- [x] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
 - [x] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
