@@ -135,11 +135,15 @@ jobs:
           echo "reviewer_label=$LABEL" >> "$GITHUB_OUTPUT"
 
           # 3. Check Quota
-          LIMIT=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null || echo "0")
+          LIMIT=0
+          if LIMIT_RAW=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null); then
+            LIMIT_RAW=$(echo "$LIMIT_RAW" | tr -d '[:space:]')
+            if [[ "$LIMIT_RAW" =~ ^[0-9]+$ ]]; then
+              LIMIT="$LIMIT_RAW"
+            fi
+          fi
           if [ "$LIMIT" -eq 0 ]; then
-             # If var is missing or 0, treat as unlimited or fallback?
-             # issue-reviewer treats 0 as unlimited if not set, but here we assume safe default.
-             # Let's align with issue-reviewer: "Quota variable ... not set or 0. No quota limit enforced."
+             # Missing or non-numeric quota vars should not block assignment.
              LIMIT=999999
           fi
 
