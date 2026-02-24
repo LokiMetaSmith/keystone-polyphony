@@ -141,6 +141,7 @@ jobs:
           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
           MODEL_INPUT="${{ github.event.inputs.model || '' }}"
           PR_NUMBER=""
+          FORMAT_GUIDANCE=$'Response format requirements:\n- Use GitHub-flavored Markdown (no ANSI/control characters).\n- Start with "## Summary".\n- Include "## Findings" with severity and file references when applicable.\n- End with "## Recommendation" and a clear go/no-go.'
 
           if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "Error: No prompt provided for event type: ${{ github.event_name }}"
@@ -160,6 +161,8 @@ jobs:
               PR_NUMBER="${{ github.event.pull_request.number }}"
               ;;
           esac
+
+          PROMPT="$PROMPT"$'\n\n'"$FORMAT_GUIDANCE"
 
           echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
           echo "$PROMPT" >> "$GITHUB_OUTPUT"
@@ -346,9 +349,38 @@ jobs:
           DEEPSEEK_API_KEY="$KEY" \
           OPENAI_API_BASE="https://openrouter.ai/api/v1" \
           GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
-          "${CMD[@]}" 2>&1 | tee review_output.txt
+          "${CMD[@]}" 2>&1 | tee review_output_raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
+
+          # Strip ANSI control sequences and carriage returns from CLI output.
+          perl -pe 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g; s/\r//g' review_output_raw.txt > review_output_clean.txt
+
+          # Prefer the first markdown-like section to avoid noisy bootstrap logs in PR comments.
+          awk '
+            BEGIN { started = 0 }
+            {
+              if (started == 0) {
+                if ($0 ~ /^#{1,6}[[:space:]]/ ||
+                    $0 ~ /^\*\*[^*].*\*\*/ ||
+                    $0 ~ /^\|[^|].*\|/ ||
+                    $0 ~ /^[-*][[:space:]]/ ||
+                    $0 ~ /^[0-9]+\.[[:space:]]/) {
+                  started = 1
+                }
+              }
+              if (started == 1) {
+                print
+              }
+            }
+          ' review_output_clean.txt > review_output.md_candidate
+
+          if [ -s review_output.md_candidate ]; then
+            mv review_output.md_candidate review_output.txt
+          else
+            mv review_output_clean.txt review_output.txt
+            rm -f review_output.md_candidate
+          fi
 
           if [ ! -s review_output.txt ]; then
             echo "No output captured from review CLI." > review_output.txt
@@ -378,7 +410,12 @@ jobs:
             TITLE="## ❌ CLI Review Failed ($CLI)"
           fi
 
-          BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"\`\`\`text"$'\n'"$CONTENT"$'\n'"\`\`\`"
+          if grep -Eq '^(#{1,6}[[:space:]]|[-*][[:space:]]|[0-9]+\.[[:space:]]|\|[^|].*\|)' review_output.txt; then
+            BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"$CONTENT"
+          else
+            BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"\`\`\`text"$'\n'"$CONTENT"$'\n'"\`\`\`"
+          fi
+
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
