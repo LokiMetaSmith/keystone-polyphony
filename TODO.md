@@ -12,7 +12,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 3. Security & Authentication
 - [x] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
-- [ ] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
+- [x] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
 - [ ] **Message Encryption**: Ensure all P2P traffic is encrypted (Hyperswarm does this by default, but application-level encryption for sensitive payloads might be needed).
 
 ## 4. Observability & Tooling

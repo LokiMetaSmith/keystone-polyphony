@@ -168,6 +168,39 @@ class LiminalMesh:
         )
         self.conn.commit()
 
+    async def join_swarms(self, keys: list[str]):
+        """Joins additional swarm topics."""
+        for key in keys:
+            topic_hex = hashlib.sha256(key.encode()).hexdigest()
+            await self._send_to_sidecar("join", {"topic": topic_hex})
+
+    async def leave_swarms(self, keys: list[str]):
+        """Leaves swarm topics."""
+        for key in keys:
+            topic_hex = hashlib.sha256(key.encode()).hexdigest()
+            await self._send_to_sidecar("leave", {"topic": topic_hex})
+
+    async def rotate_key(self, new_key: str, grace_period: float = 0):
+        """Rotates the swarm key."""
+        old_key = self.secret_key
+
+        # Join new swarm immediately
+        await self.join_swarms([new_key])
+
+        # Update current key
+        self.secret_key = new_key
+        self.topic = hashlib.sha256(new_key.encode()).hexdigest()
+
+        # Schedule leave of old swarm
+        if grace_period > 0:
+            asyncio.create_task(self._delayed_leave(old_key, grace_period))
+        else:
+            await self.leave_swarms([old_key])
+
+    async def _delayed_leave(self, key: str, delay: float):
+        await asyncio.sleep(delay)
+        await self.leave_swarms([key])
+
     async def start(self):
         """Starts the Node.js sidecar and begins listening."""
         self.running = True
