@@ -33,7 +33,7 @@ jobs:
        ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
         ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
          (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
-        (endsWith(github.event.label.name, '-review') ||
+        (contains(github.event.label.name, '-review') ||
          contains(github.event.pull_request.labels.*.name, 'workflow-review') ||
          contains(github.event.pull_request.labels.*.name, 'arch-review') ||
          contains(github.event.pull_request.labels.*.name, 'security-review'))) ||
@@ -43,6 +43,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write
     steps:
        - name: Checkout repository
          uses: actions/checkout@v4
@@ -56,7 +57,7 @@ jobs:
 
        - name: Handle Label-Triggered Review
          id: label_prompt
-         if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            set -euo pipefail
            LABEL="${{ github.event.label.name }}"
@@ -129,10 +130,12 @@ jobs:
          run: |
            set -euo pipefail
            MODEL="${{ github.event.inputs.model || 'opencode/big-pickle' }}"
-           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}"
+
+           # Resolve prompt from multiple sources
+           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
 
            if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-             echo "Error: No prompt provided and not a manual dispatch."
+             echo "Error: No prompt provided for event type: ${{ github.event_name }}"
              exit 1
            fi
 
@@ -161,6 +164,7 @@ jobs:
            GEMINI_API_KEY: ${{ steps.prep.outputs.provider_key }}
            DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
+           # We use the implicit GITHUB_TOKEN which works for PR comments and labels
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
            # Spoofing the event name to work under pull_request_target (fork support)
            GITHUB_EVENT_NAME: pull_request
@@ -169,7 +173,7 @@ jobs:
            prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}
 
        - name: Ensure Reviewed Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            gh api --method POST "/repos/${{ github.repository }}/labels" \
              -f name="reviewed" \
@@ -179,7 +183,7 @@ jobs:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
        - name: Cleanup Review Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
          run: |
            PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
            LABEL="${{ github.event.label.name }}"
