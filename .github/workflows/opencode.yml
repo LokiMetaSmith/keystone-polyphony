@@ -150,6 +150,9 @@ jobs:
        - name: Run OpenCode
          uses: anomalyco/opencode/github@latest
          env:
+           # Trick the action into supporting pull_request_target by spoofing the event name.
+           # The payload for pull_request_target is identical to pull_request.
+           GITHUB_EVENT_NAME: pull_request
            # We pass only the relevant key as the generic OPENAI_API_KEY
            # which many OpenRouter/OpenAI compatible models expect,
            # or specific ones if needed. For now, we follow the agent's
