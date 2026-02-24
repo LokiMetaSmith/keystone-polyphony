@@ -22,6 +22,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
       AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_OPENCODE_NPM_PACKAGE: ${{ vars.AGENT_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
       AGENT_DAILY_TASKS: ${{ vars.AGENT_DAILY_TASKS || 5 }}
       AGENT_MODEL: ${{ vars.AGENT_MODEL }}
@@ -32,11 +33,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Agent CLI
+        if: env.AGENT_CLI == 'opencode'
+        run: |
+          npm install -g "$AGENT_OPENCODE_NPM_PACKAGE"
+
       - name: Ensure labels exist
         run: |
           set -euo pipefail
           ensure_label() {
             local NAME="$1" COLOR="$2" DESC="$3"
+            # Idempotent creation: check if exists, if not create
+            if ! gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' | grep -q "^$NAME$"; then
               gh api --method POST "/repos/$REPO/labels" \
                 --repo "$REPO" \
                 -f name="$NAME" \
@@ -194,10 +207,49 @@ jobs:
           PROMPT_CONTENT=$(cat agent_prompt.txt)
           CMD+=("--prompt" "$PROMPT_CONTENT")
 
+          # Inject only provider-relevant API variables to reduce unnecessary key exposure.
+          KEY_PROVIDER="openrouter"
+          case "${AGENT_MODEL:-}" in
+            anthropic/*) KEY_PROVIDER="anthropic" ;;
+            google/*)    KEY_PROVIDER="google" ;;
+            grok/*)      KEY_PROVIDER="grok" ;;
+            deepseek/*)  KEY_PROVIDER="deepseek" ;;
+          esac
+
+          ENV_VARS=()
+          if [ -n "${AGENT_API_KEY:-}" ]; then
+            ENV_VARS+=("AGENT_API_KEY=$AGENT_API_KEY")
+            case "$KEY_PROVIDER" in
+              anthropic)
+                ENV_VARS+=("ANTHROPIC_API_KEY=$AGENT_API_KEY")
+                ;;
+              google)
+                ENV_VARS+=("GEMINI_API_KEY=$AGENT_API_KEY")
+                ;;
+              grok)
+                ENV_VARS+=("GROK_API_KEY=$AGENT_API_KEY")
+                ;;
+              deepseek)
+                ENV_VARS+=("DEEPSEEK_API_KEY=$AGENT_API_KEY")
+                ;;
+              openrouter)
+                ENV_VARS+=("OPENAI_API_KEY=$AGENT_API_KEY")
+                ENV_VARS+=("OPENROUTER_API_KEY=$AGENT_API_KEY")
+                ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
+                ;;
+            esac
+          else
+            echo "Warning: AGENT_API_KEY is not configured. Running without provider API variables."
+          fi
+
           echo "Running agent: ${CMD[0]} ${CMD[1]} ... (redacted prompt)"
 
           set +e
-          "${CMD[@]}"
+          if [ "${#ENV_VARS[@]}" -gt 0 ]; then
+            env "${ENV_VARS[@]}" "${CMD[@]}"
+          else
+            "${CMD[@]}"
+          fi
           EXIT_CODE=$?
           set -e
 

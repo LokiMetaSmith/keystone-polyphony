@@ -2,6 +2,7 @@ import os
 import json
 from typing import Dict, Any, Optional
 
+
 class Architect:
     def __init__(self, api_key: Optional[str] = None, model: str = None):
         self.api_key = api_key or os.getenv("DUCKY_API_KEY")
@@ -10,32 +11,81 @@ class Architect:
         self.client = None
         self.google_model = None
 
-        if self.api_key:
+        # Check for explicit provider override
+        provider_env = os.getenv("DUCKY_PROVIDER")
+        if provider_env:
+            self.provider = provider_env.lower()
+        # Heuristics if provider not explicit
+        elif self.model.startswith("ollama:"):
+            self.provider = "ollama"
+            self.model = self.model.split(":", 1)[1]
+        elif self.api_key:
             # Simple heuristic to detect provider
-            if self.model.startswith("gemini") or (self.api_key.startswith("AIza") and len(self.api_key) > 30):
+            if self.model.startswith("gemini") or (
+                self.api_key.startswith("AIza") and len(self.api_key) > 30
+            ):
                 self.provider = "google"
+            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
+                self.provider = "anthropic"
+            else:
+                # Default to openai if api_key present and no other match
+                self.provider = "openai"
+
+        # Initialize based on provider
+        if self.provider == "ollama":
+            try:
+                import ollama
+
+                self.client = ollama.AsyncClient()
+            except ImportError:
+                print(
+                    "Warning: ollama package not installed. Architect disabled for Ollama."
+                )
+
+        elif self.provider == "google":
+            if self.api_key:
                 try:
                     import google.generativeai as genai
+
                     genai.configure(api_key=self.api_key)
                     self.google_model = genai.GenerativeModel(self.model)
                 except ImportError:
-                    print("Warning: google-generativeai package not installed. Architect disabled for Gemini.")
-            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
-                self.provider = "anthropic"
+                    print(
+                        "Warning: google-generativeai package not installed. Architect disabled for Gemini."
+                    )
+            else:
+                print("Warning: API key missing for Google provider.")
+
+        elif self.provider == "anthropic":
+            if self.api_key:
                 try:
                     from anthropic import AsyncAnthropic
+
                     self.client = AsyncAnthropic(api_key=self.api_key)
                     # If model not explicitly set to a claude model (e.g. still default gpt-4o), switch default
                     if not self.model or "claude" not in self.model:
-                         self.model = "claude-3-5-sonnet-20240620"
+                        self.model = "claude-3-5-sonnet-20240620"
                 except ImportError:
-                    print("Warning: anthropic package not installed. Architect disabled for Anthropic.")
+                    print(
+                        "Warning: anthropic package not installed. Architect disabled for Anthropic."
+                    )
             else:
+                print("Warning: API key missing for Anthropic provider.")
+
+        elif self.provider == "openai":
+            # OpenAI / Default
+            if self.api_key:
                 try:
                     from openai import AsyncOpenAI
+
                     self.client = AsyncOpenAI(api_key=self.api_key)
                 except ImportError:
-                    print("Warning: openai package not installed. Architect disabled for OpenAI.")
+                    print(
+                        "Warning: openai package not installed. Architect disabled for OpenAI."
+                    )
+            else:
+                # No API key, no client for OpenAI
+                pass
 
     async def consult(self, swarm_state: Dict[str, Any]) -> str:
         """
@@ -49,74 +99,178 @@ class Architect:
         {json.dumps(swarm_state, indent=2)}
 
         Task:
-        1. Analyze the current state of thoughts and locks.
-        2. Identify any conflicts or missing tasks.
-        3. Generate a refined Backlog of the next 3-5 critical tasks.
-        4. Output the result as a concise JSON object with a 'backlog' key.
+        1. Analyze the current state of thoughts and locks (batons).
+        2. Identify any conflicts, missing tasks, or potential deadlocks (e.g. locks held for too long).
+        3. Suggest releasing locks if tasks appear complete but the lock is still held.
+        4. Generate a refined Backlog of the next 3-5 critical tasks, prioritized by dependency.
+        5. Output the result as a concise JSON object with a 'backlog' key and an optional 'advisories' key for warnings.
         """
 
         if self.provider == "google":
             return await self._consult_google(prompt)
         elif self.provider == "anthropic":
             return await self._consult_anthropic(prompt)
+        elif self.provider == "ollama":
+            return await self._consult_ollama(prompt)
         else:
             return await self._consult_openai(prompt)
 
+    async def refine_issue(self, issue_content: str) -> str:
+        """
+        Refines a raw issue description into a structured format.
+        """
+        prompt = f"""
+        You are an expert software architect and product manager.
+        Your task is to refine the following raw issue description into a well-structured, ready-for-work specification.
+
+        Raw Issue Content:
+        ---
+        {issue_content}
+        ---
+
+        Requirements for the Refined Issue:
+        1. **Human Interaction Story**: A clear narrative of how a user interacts with the feature.
+        2. **Technical Approach**: High-level architectural decisions, data models, and key components.
+        3. **BDD Feature File**: A complete Cucumber/Gherkin .feature section.
+        4. **Verification Plan**: Step-by-step instructions to manually verify the feature.
+        5. **Self-Contained**: Explicitly list prerequisites and mark them as blocking dependencies if known.
+        6. **Surgical Scope**: Ensure the issue covers one specific concern.
+        7. **Format**: Return ONLY the markdown content for the new issue body. Do not include JSON.
+
+        Refined Output:
+        """
+
+        if self.provider == "google":
+            return await self._refine_google(prompt)
+        elif self.provider == "anthropic":
+            return await self._refine_anthropic(prompt)
+        elif self.provider == "ollama":
+            return await self._refine_ollama(prompt)
+        else:
+            return await self._refine_openai(prompt)
+
     async def _consult_openai(self, prompt: str) -> str:
         if not self.client:
-             return "Architect not configured (missing API key or openai package)."
+            return "Architect not configured (missing API key or openai package)."
 
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a precise technical architect."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
             return response.choices[0].message.content
         except Exception as e:
             return f"Error consulting architect (OpenAI): {str(e)}"
+
+    async def _refine_openai(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing API key or openai package)."
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error refining issue (OpenAI): {str(e)}"
 
     async def _consult_google(self, prompt: str) -> str:
         if not self.google_model:
             return "Architect not configured (missing API key or google-generativeai package)."
 
         try:
-            # Gemini doesn't support system messages exactly the same way in all versions,
-            # but usually we can just prepend it or use the config.
-            # Also, JSON mode needs specific config.
-
-            # Note: synchronous call in async wrapper might block, but acceptable for this scope.
-            # Ideally use async generation if available in SDK, currently it is async in some versions.
-
             response = await self.google_model.generate_content_async(
                 contents=[prompt],
-                generation_config={"response_mime_type": "application/json"}
+                generation_config={"response_mime_type": "application/json"},
             )
             return response.text
         except Exception as e:
             return f"Error consulting architect (Gemini): {str(e)}"
 
+    async def _refine_google(self, prompt: str) -> str:
+        if not self.google_model:
+            return "Architect not configured (missing API key or google-generativeai package)."
+        try:
+            response = await self.google_model.generate_content_async(contents=[prompt])
+            return response.text
+        except Exception as e:
+            return f"Error refining issue (Gemini): {str(e)}"
+
     async def _consult_anthropic(self, prompt: str) -> str:
         if not self.client:
-             return "Architect not configured (missing API key or anthropic package)."
+            return "Architect not configured (missing API key or anthropic package)."
 
         try:
-            # Anthropic doesn't support 'response_format={"type": "json_object"}' natively like OpenAI
-            # but usually follows instructions well. We can just ask for JSON.
-            # However, for robustness, we might want to check if the library version supports it or just prompt harder.
-            # The prompt already asks for JSON.
-
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
                 system="You are a precise technical architect. Output only valid JSON.",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
             return response.content[0].text
         except Exception as e:
             return f"Error consulting architect (Anthropic): {str(e)}"
+
+    async def _refine_anthropic(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing API key or anthropic package)."
+        try:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system="You are a precise technical architect.",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.content[0].text
+        except Exception as e:
+            return f"Error refining issue (Anthropic): {str(e)}"
+
+    async def _consult_ollama(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing ollama package)."
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect. Output only valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                format="json",
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            return f"Error consulting architect (Ollama): {str(e)}"
+
+    async def _refine_ollama(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured (missing ollama package)."
+        try:
+            response = await self.client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a precise technical architect.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            return f"Error refining issue (Ollama): {str(e)}"

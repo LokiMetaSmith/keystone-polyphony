@@ -4,7 +4,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 1. Persistence & Durability
 - [x] **State Persistence**: Currently, the `LiminalMesh` KV store is ephemeral (in-memory). Implement a backing store (SQLite or local JSON file) to persist state across restarts.
-- [ ] **Snapshotting**: Periodic snapshots of the "Liminal Space" to the git repository (e.g., `.liminal/snapshot.json`) to allow recovery.
+- [x] **Snapshotting**: Periodic snapshots of the "Liminal Space" to the git repository (e.g., `.liminal/snapshot.json`) to allow recovery.
 
 ## 2. Conflict Resolution
 - [ ] **CRDTs**: Replace the basic "Last Write Wins" (LWW) strategy with Conflict-free Replicated Data Types (CRDTs) for the KV store and thoughts. This ensures better consistency in distributed environments.
@@ -12,7 +12,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 3. Security & Authentication
 - [x] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
-- [ ] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
+- [x] **Key Rotation**: Mechanism to rotate the `SWARM_KEY` without disrupting the entire mesh.
 - [ ] **Message Encryption**: Ensure all P2P traffic is encrypted (Hyperswarm does this by default, but application-level encryption for sensitive payloads might be needed).
 
 ## 4. Observability & Tooling
@@ -20,8 +20,8 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [ ] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
 
 ## 5. Advanced Architect Features
-- [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini) in addition to OpenAI. Anthropic (Claude) and local LLMs (Ollama) support pending.
-- [ ] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
+- [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini), Anthropic (Claude), and local LLMs (Ollama) in addition to OpenAI.
+- [x] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
 
 ## 6. Testing & CI/CD
 - [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
