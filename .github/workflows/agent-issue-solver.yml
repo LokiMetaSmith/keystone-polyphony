@@ -32,11 +32,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Agent CLI
+        if: env.AGENT_CLI == 'opencode'
+        run: |
+          npm install -g opencode-ai
+
       - name: Ensure labels exist
         run: |
           set -euo pipefail
           ensure_label() {
             local NAME="$1" COLOR="$2" DESC="$3"
+            # Idempotent creation: check if exists, if not create
+            if ! gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' | grep -q "^$NAME$"; then
               gh api --method POST "/repos/$REPO/labels" \
                 --repo "$REPO" \
                 -f name="$NAME" \
@@ -163,6 +175,14 @@ jobs:
 
       - name: Run Agent
         if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
+        env:
+          # Map AGENT_API_KEY to provider keys for broad compatibility
+          ANTHROPIC_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          GROK_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.AGENT_API_KEY }}
         run: |
           set -euo pipefail
 
