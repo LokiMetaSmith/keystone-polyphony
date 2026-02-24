@@ -163,28 +163,34 @@ class LiminalMesh:
         cursor = self.conn.cursor()
 
         # Key-Value Store Table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS kv_store (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """)
+        """
+        )
 
         # Thoughts Table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS thoughts (
                 node_id TEXT PRIMARY KEY,
                 content TEXT
             )
-        """)
+        """
+        )
 
         # Metadata Table (for Vector Clock)
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """)
+        """
+        )
         self.conn.commit()
 
     def _deserialize_crdt(self, data: Any) -> CRDT:
@@ -305,13 +311,50 @@ class LiminalMesh:
         await asyncio.sleep(delay)
         await self.leave_swarms([key])
 
+    async def _ensure_sidecar_deps(self, sidecar_dir: str):
+        """Ensures Node.js dependencies are installed asynchronously."""
+        node_modules = os.path.join(sidecar_dir, "node_modules")
+        if not os.path.exists(node_modules):
+            print(f"Installing sidecar dependencies in {sidecar_dir}...")
+            try:
+                # check if npm is installed
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "--version",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await proc.wait()
+                if proc.returncode != 0:
+                    print("Warning: npm not found. Sidecar may fail to start.")
+                    return
+
+                # install dependencies
+                install_proc = await asyncio.create_subprocess_exec(
+                    "npm", "install",
+                    cwd=sidecar_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await install_proc.communicate()
+
+                if install_proc.returncode == 0:
+                    print("Dependencies installed successfully.")
+                else:
+                    print(f"Warning: Failed to install dependencies. Sidecar may fail to start.\nError: {stderr.decode()}")
+            except Exception as e:
+                print(f"Error during dependency check: {e}")
+
     async def start(self):
         """Starts the Node.js sidecar and begins listening."""
         self.running = True
 
         # Locate the sidecar script
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        sidecar_path = os.path.join(current_dir, "sidecar", "bridge.js")
+        sidecar_dir = os.path.join(current_dir, "sidecar")
+        sidecar_path = os.path.join(sidecar_dir, "bridge.js")
+
+        # Ensure dependencies
+        await self._ensure_sidecar_deps(sidecar_dir)
 
         # Start Node.js process
         args = ["node", sidecar_path, self.topic]

@@ -28,4 +28,4 @@ This document outlines the next steps and planned improvements for the "Liminal 
 ## 6. Testing & CI/CD
 - [x] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
 - [x] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
-- [ ] **Automated Sidecar Setup**: Ensure Node.js dependencies are installed automatically when the python package is installed or run.
+- [x] **Automated Sidecar Setup**: Ensure Node.js dependencies are installed automatically when the python package is installed or run.
