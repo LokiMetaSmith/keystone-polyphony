@@ -124,6 +124,13 @@ jobs:
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+       - name: Install OpenCode CLI
+         run: |
+           set -euo pipefail
+           echo ">>> Installing OpenCode CLI..."
+           curl -sL https://opencode.ai/install.sh | sh
+           echo "/home/runner/.opencode/bin" >> "$GITHUB_PATH"
+
        - name: Prepare Environment
          id: prep
          run: |
