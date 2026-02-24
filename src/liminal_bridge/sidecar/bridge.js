@@ -39,9 +39,11 @@ if (process.argv.includes('--seed')) {
 // Initialize Hyperswarm
 const swarm = new Hyperswarm({ bootstrap, keyPair });
 const peers = new Map();
+const discoveries = new Map(); // Store discovery objects
 
 // Join the swarm
 const discovery = swarm.join(topic, { client: true, server: true });
+discoveries.set(topicHex, discovery);
 discovery.flushed().then(() => {
     process.stderr.write(`[Sidecar] Joined topic ${topicHex}\n`);
 });
@@ -97,6 +99,25 @@ rl.on('line', (line) => {
       for (const [id, conn] of peers) {
         conn.write(msg);
       }
+    } else if (command.type === 'join') {
+        const tHex = command.payload.topic;
+        if (!discoveries.has(tHex)) {
+            const newTopic = b4a.from(tHex, 'hex');
+            const d = swarm.join(newTopic, { client: true, server: true });
+            discoveries.set(tHex, d);
+            d.flushed().then(() => {
+                process.stderr.write(`[Sidecar] Joined additional topic ${tHex}\n`);
+            });
+        }
+    } else if (command.type === 'leave') {
+        const tHex = command.payload.topic;
+        if (discoveries.has(tHex)) {
+            const d = discoveries.get(tHex);
+            d.destroy().then(() => {
+                 process.stderr.write(`[Sidecar] Left topic ${tHex}\n`);
+            });
+            discoveries.delete(tHex);
+        }
     }
   } catch (e) {
     process.stderr.write(JSON.stringify({ type: 'error', message: 'Invalid input from Python', details: e.message }) + '\n');
