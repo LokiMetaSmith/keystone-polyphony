@@ -62,7 +62,8 @@ class Architect:
                     from anthropic import AsyncAnthropic
 
                     self.client = AsyncAnthropic(api_key=self.api_key)
-                    # If model not explicitly set to a claude model (e.g. still default gpt-4o), switch default
+                    # If model not explicitly set to a claude model (e.g. still default gpt-4o),
+                    # switch default
                     if not self.model or "claude" not in self.model:
                         self.model = "claude-3-5-sonnet-20240620"
                 except ImportError:
@@ -103,7 +104,8 @@ class Architect:
         2. Identify any conflicts, missing tasks, or potential deadlocks (e.g. locks held for too long).
         3. Suggest releasing locks if tasks appear complete but the lock is still held.
         4. Generate a refined Backlog of the next 3-5 critical tasks, prioritized by dependency.
-        5. Output the result as a concise JSON object with a 'backlog' key and an optional 'advisories' key for warnings.
+        5. Output the result as a concise JSON object with a 'backlog' key and an optional 'advisories' key
+           for warnings.
         """
 
         if self.provider == "google":

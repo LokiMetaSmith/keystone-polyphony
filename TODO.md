@@ -8,7 +8,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 
 ## 2. Conflict Resolution
 - [ ] **CRDTs**: Replace the basic "Last Write Wins" (LWW) strategy with Conflict-free Replicated Data Types (CRDTs) for the KV store and thoughts. This ensures better consistency in distributed environments.
-- [ ] **Vector Clocks**: Implement vector clocks to order events more accurately than wall-clock timestamps.
+- [x] **Vector Clocks**: Implement vector clocks to order events more accurately than wall-clock timestamps.
 
 ## 3. Security & Authentication
 - [x] **Per-Agent Identity**: Currently, all agents share a single `SWARM_KEY`. Implement per-agent public/private key pairs for signing messages.
