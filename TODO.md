@@ -7,7 +7,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **Snapshotting**: Periodic snapshots of the "Liminal Space" to the git repository (e.g., `.liminal/snapshot.json`) to allow recovery.
 
 ## 2. Conflict Resolution
-- [ ] **CRDTs**: Replace the basic "Last Write Wins" (LWW) strategy with Conflict-free Replicated Data Types (CRDTs) for the KV store and thoughts. This ensures better consistency in distributed environments.
+- [x] **CRDTs**: Replace the basic "Last Write Wins" (LWW) strategy with Conflict-free Replicated Data Types (CRDTs) for the KV store and thoughts. This ensures better consistency in distributed environments.
 - [x] **Vector Clocks**: Implement vector clocks to order events more accurately than wall-clock timestamps.
 
 ## 3. Security & Authentication
@@ -26,6 +26,6 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
 
 ## 6. Testing & CI/CD
-- [ ] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
+- [x] **Network Simulation**: Integration tests that simulate real-world NAT traversal and latency.
 - [x] **Load Testing**: Verify the system behavior with 50+ agents to ensure scalability of the DHT and Gossipsub.
 - [ ] **Automated Sidecar Setup**: Ensure Node.js dependencies are installed automatically when the python package is installed or run.

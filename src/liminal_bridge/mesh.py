@@ -16,6 +16,7 @@ try:
     from .observability import LogAggregator
 except ImportError:
     from observability import LogAggregator
+from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
 
 
 class LiminalMesh:
@@ -66,7 +67,9 @@ class LiminalMesh:
         self.peers: Set[str] = set()
         self.thoughts: Dict[str, Any] = {}
         self.batons: Dict[str, str] = {}  # resource -> owner_id
-        self.kv_store: Dict[str, Any] = {}
+
+        # KV Store now holds CRDT objects
+        self.kv_store: Dict[str, CRDT] = {}
         self.vector_clock: Dict[str, int] = {self.node_id: 0}
 
         # Network Graph
@@ -106,10 +109,13 @@ class LiminalMesh:
 
     def _save_snapshot(self):
         """Saves the current state to a JSON file."""
+        # Convert CRDTs to dicts for snapshot
+        kv_snapshot = {k: v.to_dict() for k, v in self.kv_store.items()}
+
         data = {
             "timestamp": time.time(),
             "node_id": self.node_id,
-            "kv_store": self.kv_store,
+            "kv_store": kv_snapshot,
             "thoughts": self.thoughts,
             "batons": self.batons,
             "vector_clock": self.vector_clock,
@@ -181,6 +187,35 @@ class LiminalMesh:
         """)
         self.conn.commit()
 
+    def _deserialize_crdt(self, data: Any) -> CRDT:
+        """Helper to deserialize JSON data into a CRDT object."""
+        if isinstance(data, dict):
+            crdt_type = data.get("type")
+            if crdt_type == "lww-register":
+                return LWWRegister.from_dict(data)
+            elif crdt_type == "pn-counter":
+                return PNCounter.from_dict(data)
+            elif crdt_type == "g-set":
+                return GSet.from_dict(data)
+            elif crdt_type == "or-set":
+                return ORSet.from_dict(data)
+            elif "vc" in data and "value" in data:
+                # Legacy wrapped format -> LWWRegister
+                return LWWRegister(
+                    value=data["value"],
+                    timestamp=data.get("timestamp", 0),
+                    origin=data.get("origin", "unknown"),
+                    vc=data["vc"]
+                )
+
+        # Raw value -> LWWRegister with empty VC (should ideally not happen in new system)
+        return LWWRegister(
+            value=data,
+            timestamp=0,
+            origin="unknown",
+            vc={}
+        )
+
     def _load_state(self):
         """Loads state from the database."""
         cursor = self.conn.cursor()
@@ -189,7 +224,8 @@ class LiminalMesh:
         cursor.execute("SELECT key, value FROM kv_store")
         for key, value_json in cursor.fetchall():
             try:
-                self.kv_store[key] = json.loads(value_json)
+                data = json.loads(value_json)
+                self.kv_store[key] = self._deserialize_crdt(data)
             except json.JSONDecodeError:
                 pass
 
@@ -209,12 +245,12 @@ class LiminalMesh:
         except Exception:
             self.vector_clock = {self.node_id: 0}
 
-    def _save_kv(self, key: str, value: Any):
+    def _save_kv(self, key: str, value: CRDT):
         """Persists a KV update."""
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
-            (key, json.dumps(value)),
+            (key, json.dumps(value.to_dict())),
         )
         self.conn.commit()
 
@@ -401,27 +437,6 @@ class LiminalMesh:
             self.vector_clock[node] = max(self.vector_clock.get(node, 0), count)
         self._save_clock()
 
-    def _is_causally_after(self, vc1: Dict[str, int], vc2: Dict[str, int]) -> bool:
-        """Checks if vc1 is causally after vc2 (vc1 > vc2)."""
-        # For vc1 to be after vc2, every counter in vc1 must be >= corresponding in vc2,
-        # and at least one must be strictly greater.
-        # However, keys might be different. Treat missing keys as 0.
-
-        all_ge = True
-        any_gt = False
-
-        all_keys = set(vc1.keys()) | set(vc2.keys())
-        for k in all_keys:
-            v1 = vc1.get(k, 0)
-            v2 = vc2.get(k, 0)
-            if v1 < v2:
-                all_ge = False
-                break
-            if v1 > v2:
-                any_gt = True
-
-        return all_ge and any_gt
-
     async def _handle_message(self, msg: Dict[str, Any]):
         """Dispatches incoming messages."""
         msg_type = msg.get("type")
@@ -469,8 +484,6 @@ class LiminalMesh:
         if remote_vc:
             self._merge_clock(remote_vc)
 
-        # Future: Validate signature using payload.get("sender_pubkey")
-
         if p_type == "thought":
             content = payload.get("content")
             self.thoughts[origin] = content
@@ -478,51 +491,48 @@ class LiminalMesh:
 
         elif p_type == "kv_update":
             key = payload.get("key")
-            value = payload.get("value")  # This is the raw value
-            remote_ts = payload.get("timestamp", 0)
+            crdt_data = payload.get("crdt")
 
-            # Conflict Resolution
-            current_wrapped = self.kv_store.get(key)
-            should_update = False
+            if crdt_data:
+                # New CRDT-based update
+                remote_crdt = self._deserialize_crdt(crdt_data)
 
-            if current_wrapped is None:
-                should_update = True
-            else:
-                # Check if current value is wrapped (it should be if created by new code)
-                # Handle legacy data (raw value)
-                if isinstance(current_wrapped, dict) and "vc" in current_wrapped:
-                    local_vc = current_wrapped["vc"]
-                    local_ts = current_wrapped.get("timestamp", 0)
+                # Check if we have a local CRDT for this key
+                current = self.kv_store.get(key)
 
-                    # 1. Causal Check
-                    if self._is_causally_after(remote_vc, local_vc):
-                        should_update = True
-                    elif self._is_causally_after(local_vc, remote_vc):
-                        should_update = False  # Stale
-                    else:
-                        # Concurrent: Tie-break
-                        # LWW fallback
-                        if remote_ts > local_ts:
-                            should_update = True
-                        elif remote_ts < local_ts:
-                            should_update = False
-                        else:
-                            # Use Origin Node ID as tie breaker
-                            local_origin = current_wrapped.get("origin", "")
-                            should_update = origin > local_origin
+                if current and type(current) == type(remote_crdt):
+                    # Merge
+                    current.merge(remote_crdt)
+                    self._save_kv(key, current)
                 else:
-                    # Legacy value in store (no VC). Assume new update wins (migration).
-                    should_update = True
+                    # Overwrite or New
+                    # For LWWRegister, we might want to check causality vs current if types mismatch?
+                    # For simplicity, if types mismatch, we overwrite with the incoming one
+                    # (assuming the network converges to the new type eventually).
+                    self.kv_store[key] = remote_crdt
+                    self._save_kv(key, remote_crdt)
 
-            if should_update:
-                wrapped = {
-                    "value": value,
-                    "vc": remote_vc,
-                    "timestamp": remote_ts,
-                    "origin": origin,
-                }
-                self.kv_store[key] = wrapped
-                self._save_kv(key, wrapped)
+            else:
+                # Legacy update (LWWRegister implicit)
+                value = payload.get("value")
+                remote_ts = payload.get("timestamp", 0)
+
+                remote_lww = LWWRegister(value, remote_ts, origin, remote_vc)
+
+                current = self.kv_store.get(key)
+                if current and isinstance(current, LWWRegister):
+                    current.merge(remote_lww)
+                    self._save_kv(key, current)
+                elif current is None:
+                    self.kv_store[key] = remote_lww
+                    self._save_kv(key, remote_lww)
+                else:
+                    # Type mismatch (Current is Counter/Set, incoming is LWW).
+                    # We keep current? Or overwrite?
+                    # Assuming migration to CRDTs, LWW is the 'default'.
+                    # If we have a Counter, we probably don't want to overwrite with a Register.
+                    # But for now, let's assume strict typing per key.
+                    pass
 
         elif p_type == "baton_request":
             resource = payload.get("resource")
@@ -600,51 +610,91 @@ class LiminalMesh:
         await self.broadcast({"type": "thought", "content": content})
 
     async def update_kv(self, key: str, value: Any):
+        """Updates a Key-Value pair using LWWRegister."""
         self._increment_clock()
         timestamp = time.time()
 
-        # Prepare wrapped value for local storage
-        wrapped = {
-            "value": value,
-            "vc": self.vector_clock.copy(),
-            "timestamp": timestamp,
-            "origin": self.node_id,
-        }
+        current = self.kv_store.get(key)
 
-        self.kv_store[key] = wrapped
-        self._save_kv(key, wrapped)
+        if current and not isinstance(current, LWWRegister):
+            # If it was another CRDT type, we are overwriting it with a Register
+            pass
 
-        # Broadcast raw value but with metadata
+        new_register = LWWRegister(value, timestamp, self.node_id, self.vector_clock.copy())
+
+        # If we had a previous LWWRegister, we might want to merge just to be safe (idempotency),
+        # but here we are originating a new value, so we just set it.
+        # Actually, if we want to preserve history? LWWRegister doesn't preserve history, just latest.
+
+        self.kv_store[key] = new_register
+        self._save_kv(key, new_register)
+
+        # Broadcast
         await self.broadcast(
             {
                 "type": "kv_update",
                 "key": key,
-                "value": value,
-                "vc": self.vector_clock.copy(),
-                "timestamp": timestamp,
+                "crdt": new_register.to_dict()
             }
         )
+
+    async def update_counter(self, key: str, delta: int = 1):
+        """Updates a PNCounter."""
+        self._increment_clock() # Counters don't strictly use VC for merge, but good to track causality in mesh
+
+        current = self.kv_store.get(key)
+        if current is None:
+            current = PNCounter()
+            self.kv_store[key] = current
+        elif not isinstance(current, PNCounter):
+            raise ValueError(f"Key {key} is not a PNCounter")
+
+        if delta > 0:
+            current.inc(self.node_id, delta)
+        elif delta < 0:
+            current.dec(self.node_id, -delta)
+
+        self._save_kv(key, current)
+
+        await self.broadcast({
+            "type": "kv_update",
+            "key": key,
+            "crdt": current.to_dict()
+        })
+
+    async def update_set(self, key: str, element: Any, remove: bool = False):
+        """Updates an ORSet (or GSet if remove=False and fallback)."""
+        self._increment_clock()
+
+        current = self.kv_store.get(key)
+        if current is None:
+            current = ORSet()
+            self.kv_store[key] = current
+        elif not isinstance(current, ORSet):
+            raise ValueError(f"Key {key} is not an ORSet")
+
+        if remove:
+            current.remove(element)
+        else:
+            current.add(element)
+
+        self._save_kv(key, current)
+
+        await self.broadcast({
+            "type": "kv_update",
+            "key": key,
+            "crdt": current.to_dict()
+        })
 
     def get_kv(self, key: str):
         val = self.kv_store.get(key)
         if val is None:
             return None
-
-        # Unwrap if it's a wrapped value
-        if isinstance(val, dict) and "vc" in val and "value" in val:
-            return val["value"]
-
-        return val
+        return val.value()
 
     def get_all_kv(self) -> Dict[str, Any]:
         """Returns a copy of the KV store with values unwrapped."""
-        unwrapped = {}
-        for k, v in self.kv_store.items():
-            if isinstance(v, dict) and "vc" in v and "value" in v:
-                unwrapped[k] = v["value"]
-            else:
-                unwrapped[k] = v
-        return unwrapped
+        return {k: v.value() for k, v in self.kv_store.items()}
 
     async def acquire_baton(self, resource: str, timeout: float = 2.0) -> bool:
         """Tries to acquire a lock on a resource."""

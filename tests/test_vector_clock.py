@@ -35,10 +35,15 @@ async def test_vector_clock_update_kv(mesh_a):
     await mesh_a.update_kv("key1", "value1")
     assert mesh_a.vector_clock[mesh_a.node_id] == initial_clock + 1
 
-    # Verify the broadcast payload contains the vector clock
+    # Verify the broadcast payload contains the vector clock (inside crdt or top level)
     call_args = mesh_a.broadcast.call_args[0][0]
-    assert "vc" in call_args
-    assert call_args["vc"] == mesh_a.vector_clock
+    # In new CRDT implementation, vc is inside crdt dict
+    if "crdt" in call_args:
+        assert "vc" in call_args["crdt"]
+        assert call_args["crdt"]["vc"] == mesh_a.vector_clock
+    else:
+        assert "vc" in call_args
+        assert call_args["vc"] == mesh_a.vector_clock
 
 
 @pytest.mark.asyncio
