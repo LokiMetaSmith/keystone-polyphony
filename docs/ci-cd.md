@@ -154,19 +154,31 @@ graph TD
     E -- Yes --> F[Close issue and add audit comment]
 ```
 
-### 8. Specialized AI PR Reviews (OpenCode)
+### 8. Specialized AI PR Reviews (CLI)
 **Trigger:** `issue_comment`, `pull_request_review_comment`, `pull_request` (labeled), `workflow_dispatch`.
 **File:** `opencode.yml`
 
-This workflow provides targeted AI analysis on Pull Requests. It can be triggered manually via `/oc` commands or automatically by adding labels like `workflow-review`, `arch-review`, or `security-review`. The workflow surgically identifies changed files relevant to the review type, posts a guiding comment, and executes an OpenCode review. Upon completion, it swaps the trigger label for a `reviewed` label to signal to the author that action is required.
+This workflow provides targeted AI analysis on Pull Requests using a pluggable CLI runner. It can be triggered manually via `/oc` commands or automatically by adding labels like `workflow-review`, `arch-review`, or `security-review`. The workflow identifies changed files relevant to the review type, posts a guiding comment, runs the selected CLI directly, and posts the CLI output back to the PR.
+
+CLI selection precedence is:
+1. Default (`opencode`)
+2. Repository variable (`REVIEW_AGENT_CLI`, then fallback `AGENT_CLI`)
+3. PR label tag (`review-cli:<cli>` or `review-agent:<cli>`)
+
+Model override uses the same pattern (`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> review-model:<model>`). For custom tooling, install and argument behavior can be customized with repository variables such as `REVIEW_AGENT_INSTALL_CMD`, `REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`, and `REVIEW_AGENT_PROMPT_MODE`.
+
+Security hardening notes:
+- `/oc` and `/opencode` comment-triggered reviews only run for trusted associations (`OWNER`, `MEMBER`, `COLLABORATOR`).
+- Default CLI installs are version-pinned, with package override variables (`REVIEW_OPENCODE_NPM_PACKAGE`, `REVIEW_OPENCLAW_NPM_PACKAGE`, `REVIEW_CLAUDE_NPM_PACKAGE`).
+- Only the provider-specific API key for the selected model is injected into the CLI environment.
 
 ```mermaid
 graph TD
     A[PR Labeled / Comment / Dispatch] --> B{Is Canonical Repo?}
     B -- No --> End((Skip))
     B -- Yes --> C[Identify Review Type & Target Files]
-    C --> D[Post Guiding Comment on PR]
-    D --> E[Run OpenCode with Specialized Prompt]
+    C --> D[Resolve CLI and model from default, vars, tags]
+    D --> E[Install and run selected CLI with specialized prompt]
     E --> F{Agent Successful?}
     F -- No --> G[Post Failure Comment]
     F -- Yes --> H[Remove Trigger Label & Add 'reviewed']

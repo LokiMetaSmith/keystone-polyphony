@@ -20,188 +20,483 @@ on:
         required: true
 
 concurrency:
+  # Including event_name prevents simultaneous pull_request and pull_request_target from cancelling each other.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  opencode:
+  review:
     if: |
       github.repository == 'niklas-olsson/keystone-polyphony' &&
-      ((github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
-       (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+      ((github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') &&
+        (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
+       (github.event_name == 'pull_request_review_comment' &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') &&
+        (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
        ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
         ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
          (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
-        (endsWith(github.event.label.name, '-review') ||
+        (contains(github.event.label.name, '-review') ||
          contains(github.event.pull_request.labels.*.name, 'workflow-review') ||
          contains(github.event.pull_request.labels.*.name, 'arch-review') ||
          contains(github.event.pull_request.labels.*.name, 'security-review'))) ||
        (github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REPO: ${{ github.repository }}
+      DEFAULT_AGENT_CLI: opencode
+      DEFAULT_AGENT_MODEL: opencode/big-pickle
+      AGENT_CLI_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI || vars.AGENT_CLI || '' }}
+      AGENT_CLI_FLAGS_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI_FLAGS || vars.AGENT_CLI_FLAGS || '' }}
+      AGENT_MODEL_FROM_VAR: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || '' }}
+      AGENT_INSTALL_CMD_FROM_VAR: ${{ vars.REVIEW_AGENT_INSTALL_CMD || '' }}
+      AGENT_MODEL_FLAG_FROM_VAR: ${{ vars.REVIEW_AGENT_MODEL_FLAG || '--model' }}
+      AGENT_PROMPT_FLAG_FROM_VAR: ${{ vars.REVIEW_AGENT_PROMPT_FLAG || '--prompt' }}
+      AGENT_PROMPT_MODE_FROM_VAR: ${{ vars.REVIEW_AGENT_PROMPT_MODE || '' }}
+      OPENCODE_NPM_PACKAGE: ${{ vars.REVIEW_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
+      OPENCLAW_NPM_PACKAGE: ${{ vars.REVIEW_OPENCLAW_NPM_PACKAGE || 'openclaw@2026.2.23' }}
+      CLAUDE_NPM_PACKAGE: ${{ vars.REVIEW_CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code@2.1.52' }}
     permissions:
-      contents: write
+      contents: read
       issues: write
       pull-requests: write
     steps:
-       - name: Checkout repository
-         uses: actions/checkout@v4
-         with:
-           # For pull_request_target, we want the PR's head code.
-           # For issue_comment on a PR, we use refs/pull/N/head.
-           # Fallback to github.sha for issues and manual dispatch.
-           ref: ${{ github.event.pull_request.head.sha || (github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number)) || github.sha }}
-           fetch-depth: 1
-           persist-credentials: false
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Explicitly reference the head repository for forks to ensure checkout succeeds.
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # For pull_request_target, we want the PR's head code.
+          ref: ${{ github.event.pull_request.head.sha || (github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number)) || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
-       - name: Handle Label-Triggered Review
-         id: label_prompt
-         if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
-         run: |
-           set -euo pipefail
-           LABEL="${{ github.event.label.name }}"
-           if [ -z "$LABEL" ] || [ "$LABEL" = "null" ]; then
-             # Try to find a review label in the PR labels array
-             LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
-           fi
+      - name: Handle Label-Triggered Review
+        id: label_prompt
+        if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+        run: |
+          set -euo pipefail
+          LABEL="${{ github.event.label.name || '' }}"
+          if [ -z "$LABEL" ]; then
+            # Try to find a review label in the PR labels array
+            LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
+          fi
 
-           if [ -z "$LABEL" ]; then
-             echo "Error: No review label found in event or PR labels."
-             exit 1
-           fi
+          if [ -z "$LABEL" ]; then
+            echo "Error: No review label found in event or PR labels."
+            exit 1
+          fi
 
-           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          echo ">>> Resolving review for PR #$PR_NUMBER (Label: $LABEL)"
 
-           # Get changed files in the PR
-           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' || echo "")
+          CHANGED_FILES=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json files --jq '.files[].path' || echo "")
 
-           case "$LABEL" in
-             "workflow-review")
-               FILES=$(echo "$CHANGED_FILES" | grep -E "^\.github/workflows/|^docs/ci-cd\.md" || echo "")
-               GUIDE="docs/ci-cd.md"
-               COMMAND="/oc review-workflow"
-               DESC="Deep dive into the changed files listed below. Use $GUIDE as the primary guideline for security, permissions, and best practices."
-               ;;
-             "arch-review")
-               FILES=$(echo "$CHANGED_FILES" | grep -vE "^docs/|^meta/" || echo "")
-               GUIDE="README.md, docs/architecture.md, and AGENTS.md"
-               COMMAND="/oc review-arch"
-               DESC="Analyze how the changed files listed below align with the project architecture defined in $GUIDE."
-               ;;
-             "security-review")
-               FILES=$(echo "$CHANGED_FILES" | grep -E "secret|token|perm|auth|config|scripts/inject-secrets\.sh|\.github/workflows/" || echo "")
-               GUIDE="AGENTS.md and docs/architecture.md"
-               COMMAND="/oc review-security"
-               DESC="Audit the changed files listed below for secret handling, token scopes, and potential vulnerabilities, using $GUIDE as context."
-               ;;
-             *)
-               FILES="$CHANGED_FILES"
-               GUIDE="README.md"
-               COMMAND="/oc review"
-               DESC="Perform a general review of the changed files below based on the $LABEL tag, using $GUIDE as context."
-               ;;
-           esac
+          case "$LABEL" in
+            "workflow-review")
+              FILES=$(echo "$CHANGED_FILES" | grep -E "^\.github/workflows/|^docs/ci-cd\.md" || echo "")
+              GUIDE="docs/ci-cd.md"
+              COMMAND="/oc review-workflow"
+              DESC="Deep dive into the changed files listed below. Use $GUIDE as the primary guideline for security, permissions, and best practices."
+              ;;
+            "arch-review")
+              FILES=$(echo "$CHANGED_FILES" | grep -vE "^docs/|^meta/" || echo "")
+              GUIDE="README.md, docs/architecture.md, and AGENTS.md"
+              COMMAND="/oc review-arch"
+              DESC="Analyze how the changed files listed below align with the project architecture defined in $GUIDE."
+              ;;
+            "security-review")
+              FILES=$(echo "$CHANGED_FILES" | grep -E "secret|token|perm|auth|config|scripts/inject-secrets\.sh|\.github/workflows/" || echo "")
+              GUIDE="AGENTS.md and docs/architecture.md"
+              COMMAND="/oc review-security"
+              DESC="Audit the changed files listed below for secret handling, token scopes, and potential vulnerabilities, using $GUIDE as context."
+              ;;
+            *)
+              FILES="$CHANGED_FILES"
+              GUIDE="README.md"
+              COMMAND="/oc review"
+              DESC="Perform a general review of the changed files below based on the $LABEL tag, using $GUIDE as context."
+              ;;
+          esac
 
-           if [ -z "$FILES" ]; then
-             echo "No relevant files found for $LABEL. Performing general PR review."
-             FILES="$CHANGED_FILES"
-           fi
+          if [ -z "$FILES" ]; then
+            echo "No relevant files found for $LABEL. Performing general PR review."
+            FILES="$CHANGED_FILES"
+          fi
 
-           # Format file list for the prompt
-           FILE_LIST=$(echo "$FILES" | head -n 10 | sed 's/^/- /')
-           if [ $(echo "$FILES" | wc -l) -gt 10 ]; then
-             FILE_LIST="$FILE_LIST"$'\n'"- ... and others"
-           fi
+          FILE_LIST=$(echo "$FILES" | head -n 10 | sed 's/^/- /')
+          if [ "$(echo "$FILES" | wc -l)" -gt 10 ]; then
+            FILE_LIST="$FILE_LIST"$'\n'"- ... and others"
+          fi
 
-           PROMPT="$COMMAND: $DESC"$'\n\n'"**Target Files:**"$'\n'"$FILE_LIST"
+          PROMPT="$COMMAND: $DESC"$'\n\n'"**Target Files:**"$'\n'"$FILE_LIST"
 
-           echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
-           echo "$PROMPT" >> "$GITHUB_OUTPUT"
-           echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
-           gh pr comment "$PR_NUMBER" --body "$PROMPT"
-         env:
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$PROMPT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-       - name: Prepare Environment
-         id: prep
-         run: |
-           set -euo pipefail
-           MODEL="${{ github.event.inputs.model || 'opencode/big-pickle' }}"
-           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}"
+      - name: Prepare Environment
+        id: prep
+        run: |
+          set -euo pipefail
 
-           if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-             echo "Error: No prompt provided and not a manual dispatch."
-             exit 1
-           fi
+          PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
+          MODEL_INPUT="${{ github.event.inputs.model || '' }}"
+          PR_NUMBER=""
+          FORMAT_GUIDANCE=$'Response format requirements:\n- Use GitHub-flavored Markdown (no ANSI/control characters).\n- Start with "## Summary".\n- Include "## Findings" with severity and file references when applicable.\n- End with "## Recommendation" and a clear go/no-go.'
 
-           # Determine which API key to pass based on model
-           # We use a pattern where we map the correct secret to PROVIDER_API_KEY
-           case "$MODEL" in
-             anthropic/*) KEY="${{ secrets.ANTHROPIC_API_KEY }}" ;;
-             google/*)    KEY="${{ secrets.GEMINI_API_KEY }}" ;;
-             grok/*)      KEY="${{ secrets.GROK_API_KEY }}" ;;
-             deepseek/*)  KEY="${{ secrets.DEEPSEEK_API_KEY }}" ;;
-             *)           KEY="${{ secrets.OPENROUTER_API_KEY }}" ;;
-           esac
+          if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Error: No prompt provided for event type: ${{ github.event_name }}"
+            exit 1
+          fi
 
-           echo "model=$MODEL" >> "$GITHUB_OUTPUT"
-           echo "provider_key=$KEY" >> "$GITHUB_OUTPUT"
+          case "${{ github.event_name }}" in
+            pull_request|pull_request_target)
+              PR_NUMBER="${{ github.event.pull_request.number }}"
+              ;;
+            issue_comment)
+              if [ -n "${{ github.event.issue.pull_request.url || '' }}" ]; then
+                PR_NUMBER="${{ github.event.issue.number }}"
+              fi
+              ;;
+            pull_request_review_comment)
+              PR_NUMBER="${{ github.event.pull_request.number }}"
+              ;;
+          esac
 
-       - name: Run OpenCode
-         uses: anomalyco/opencode/github@latest
-         env:
-           # Trick the action into supporting pull_request_target by spoofing the event name.
-           # The payload for pull_request_target is identical to pull_request.
-           GITHUB_EVENT_NAME: pull_request
-           # We pass only the relevant key as the generic OPENAI_API_KEY
-           # which many OpenRouter/OpenAI compatible models expect,
-           # or specific ones if needed. For now, we follow the agent's
-           # recommendation to minimize exposure.
-           ANTHROPIC_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           OPENAI_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           OPENROUTER_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           GROK_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           GEMINI_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
-           OPENAI_API_BASE: https://openrouter.ai/api/v1
-           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-         with:
-           model: ${{ steps.prep.outputs.model }}
-           prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}
-           use_github_token: true
+          PROMPT="$PROMPT"$'\n\n'"$FORMAT_GUIDANCE"
 
-       - name: Ensure Reviewed Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
-         run: |
-           gh api --method POST "/repos/${{ github.repository }}/labels" \
-             -f name="reviewed" \
-             -f color="FBCA04" \
-             -f description="AI review complete, action required by author" || true
-         env:
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "model_input=$MODEL_INPUT" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-       - name: Cleanup Review Label
-         if: always() && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (endsWith(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
-         run: |
-           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
-           LABEL="${{ github.event.label.name }}"
-           if [ -z "$LABEL" ] || [ "$LABEL" = "null" ]; then
-             LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
-           fi
-           if [ -n "$LABEL" ]; then
-             gh pr edit "$PR_NUMBER" --remove-label "$LABEL" --add-label "reviewed"
-           fi
-         env:
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve Review CLI Config
+        id: resolve
+        run: |
+          set -euo pipefail
 
-       - name: Handle Failure
-         if: failure()
-         run: |
-           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
-           if [ -n "$PR_NUMBER" ]; then
-             gh pr comment "$PR_NUMBER" --body "## ❌ OpenCode Review Failed
+          CLI="$DEFAULT_AGENT_CLI"
+          if [ -n "$AGENT_CLI_FROM_VAR" ]; then
+            CLI="$AGENT_CLI_FROM_VAR"
+          fi
 
-             The automated review encountered an error. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-           fi
-         env:
-           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODEL="$DEFAULT_AGENT_MODEL"
+          if [ -n "$AGENT_MODEL_FROM_VAR" ]; then
+            MODEL="$AGENT_MODEL_FROM_VAR"
+          fi
+          if [ -n "${{ steps.prep.outputs.model_input }}" ]; then
+            MODEL="${{ steps.prep.outputs.model_input }}"
+          fi
+
+          PR_NUMBER="${{ steps.prep.outputs.pr_number }}"
+          TAG_CLI=""
+          TAG_MODEL=""
+          if [ -n "$PR_NUMBER" ]; then
+            LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name' || true)
+            TAG_CLI=$(echo "$LABELS" | sed -nE 's/^review-(cli|agent):([A-Za-z0-9._\/-]+)$/\2/p' | head -n 1 || true)
+            TAG_MODEL=$(echo "$LABELS" | sed -nE 's/^review-model:(.+)$/\1/p' | head -n 1 || true)
+          fi
+
+          SOURCE="default"
+          if [ -n "$AGENT_CLI_FROM_VAR" ]; then
+            SOURCE="repo-variable"
+          fi
+          if [ -n "$TAG_CLI" ]; then
+            CLI="$TAG_CLI"
+            SOURCE="label-tag"
+          fi
+          if [ -n "$TAG_MODEL" ]; then
+            MODEL="$TAG_MODEL"
+          fi
+
+          CLI_LOWER=$(echo "$CLI" | tr '[:upper:]' '[:lower:]')
+          if ! echo "$CLI" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "Invalid CLI '$CLI'. Allowed characters: letters, numbers, ., _, /, -"
+            exit 1
+          fi
+
+          echo "Using review CLI '$CLI' (source: $SOURCE), model '$MODEL'"
+
+          echo "agent_cli=$CLI" >> "$GITHUB_OUTPUT"
+          echo "agent_cli_lower=$CLI_LOWER" >> "$GITHUB_OUTPUT"
+          echo "agent_cli_flags=$AGENT_CLI_FLAGS_FROM_VAR" >> "$GITHUB_OUTPUT"
+          echo "agent_model=$MODEL" >> "$GITHUB_OUTPUT"
+          echo "agent_install_cmd=$AGENT_INSTALL_CMD_FROM_VAR" >> "$GITHUB_OUTPUT"
+          echo "agent_model_flag=$AGENT_MODEL_FLAG_FROM_VAR" >> "$GITHUB_OUTPUT"
+          echo "agent_prompt_flag=$AGENT_PROMPT_FLAG_FROM_VAR" >> "$GITHUB_OUTPUT"
+          echo "agent_prompt_mode=$AGENT_PROMPT_MODE_FROM_VAR" >> "$GITHUB_OUTPUT"
+          echo "selection_source=$SOURCE" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Review CLI
+        id: install
+        run: |
+          set -euo pipefail
+          CLI="${{ steps.resolve.outputs.agent_cli }}"
+          CLI_LOWER="${{ steps.resolve.outputs.agent_cli_lower }}"
+          INSTALL_CMD="${{ steps.resolve.outputs.agent_install_cmd }}"
+
+          if [ -n "$INSTALL_CMD" ]; then
+            echo "Using REVIEW_AGENT_INSTALL_CMD from repository variables."
+            bash -lc "$INSTALL_CMD"
+          else
+            case "$CLI_LOWER" in
+              opencode)
+                npm install -g "$OPENCODE_NPM_PACKAGE"
+                ;;
+              openclaw)
+                npm install -g "$OPENCLAW_NPM_PACKAGE"
+                ;;
+              claude)
+                npm install -g "$CLAUDE_NPM_PACKAGE"
+                ;;
+              *)
+                echo "No default install command for '$CLI'. Set REVIEW_AGENT_INSTALL_CMD."
+                exit 1
+                ;;
+            esac
+          fi
+
+          if ! command -v "$CLI" >/dev/null 2>&1; then
+            if [ "$CLI_LOWER" = "claude" ] && command -v claude >/dev/null 2>&1; then
+              CLI="claude"
+            else
+              echo "CLI '$CLI' is not available on PATH after installation."
+              exit 1
+            fi
+          fi
+
+          echo "cli_binary=$CLI" >> "$GITHUB_OUTPUT"
+
+      - name: Run Review CLI
+        id: run_cli
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          CLI="${{ steps.install.outputs.cli_binary }}"
+          CLI_LOWER="${{ steps.resolve.outputs.agent_cli_lower }}"
+          FLAGS="${{ steps.resolve.outputs.agent_cli_flags }}"
+          MODEL="${{ steps.resolve.outputs.agent_model }}"
+          MODEL_FLAG="${{ steps.resolve.outputs.agent_model_flag }}"
+          PROMPT_FLAG="${{ steps.resolve.outputs.agent_prompt_flag }}"
+          PROMPT_MODE="${{ steps.resolve.outputs.agent_prompt_mode }}"
+          PROMPT_FILE="review_prompt.txt"
+
+          if [ -z "$PROMPT_MODE" ]; then
+            case "$CLI_LOWER" in
+              opencode)
+                PROMPT_MODE="positional"
+                ;;
+              *)
+                PROMPT_MODE="flag"
+                ;;
+            esac
+          fi
+
+          printf "%s\n" "${{ steps.prep.outputs.prompt }}" > "$PROMPT_FILE"
+          PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+
+          # Resolve provider key from selected model so provider-specific CLIs can use AGENT_API_KEY.
+          case "$MODEL" in
+            anthropic/*)
+              KEY_PROVIDER="anthropic"
+              KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+              ;;
+            google/*)
+              KEY_PROVIDER="google"
+              KEY="${{ secrets.GEMINI_API_KEY }}"
+              ;;
+            grok/*)
+              KEY_PROVIDER="grok"
+              KEY="${{ secrets.GROK_API_KEY }}"
+              ;;
+            deepseek/*)
+              KEY_PROVIDER="deepseek"
+              KEY="${{ secrets.DEEPSEEK_API_KEY }}"
+              ;;
+            *)
+              KEY_PROVIDER="openrouter"
+              KEY="${{ secrets.OPENROUTER_API_KEY }}"
+              ;;
+          esac
+
+          CMD=("$CLI")
+          if [ -n "$FLAGS" ]; then
+            read -ra EXTRA_FLAGS <<< "$FLAGS"
+            CMD+=("${EXTRA_FLAGS[@]}")
+          fi
+
+          case "$CLI_LOWER" in
+            opencode)
+              CMD+=("run")
+              ;;
+            openclaw)
+              CMD+=("--yolo")
+              ;;
+            claude)
+              CMD+=("--non-interactive")
+              ;;
+          esac
+
+          if [ -n "$MODEL" ] && [ -n "$MODEL_FLAG" ]; then
+            CMD+=("$MODEL_FLAG" "$MODEL")
+          fi
+
+          if [ "$PROMPT_MODE" = "positional" ]; then
+            CMD+=("$PROMPT_CONTENT")
+          else
+            CMD+=("$PROMPT_FLAG" "$PROMPT_CONTENT")
+          fi
+
+          echo "Running review CLI '$CLI' (selection: ${{ steps.resolve.outputs.selection_source }})"
+          ENV_VARS=("GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}")
+          if [ -n "$KEY" ]; then
+            ENV_VARS+=("AGENT_API_KEY=$KEY")
+            case "$KEY_PROVIDER" in
+              anthropic)
+                ENV_VARS+=("ANTHROPIC_API_KEY=$KEY")
+                ;;
+              google)
+                ENV_VARS+=("GEMINI_API_KEY=$KEY")
+                ;;
+              grok)
+                ENV_VARS+=("GROK_API_KEY=$KEY")
+                ;;
+              deepseek)
+                ENV_VARS+=("DEEPSEEK_API_KEY=$KEY")
+                ;;
+              openrouter)
+                ENV_VARS+=("OPENAI_API_KEY=$KEY")
+                ENV_VARS+=("OPENROUTER_API_KEY=$KEY")
+                ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
+                ;;
+            esac
+          else
+            echo "Warning: no provider key configured for '$KEY_PROVIDER'. Running without provider API key overrides."
+          fi
+
+          set +e
+          env "${ENV_VARS[@]}" "${CMD[@]}" 2>&1 | tee review_output_raw.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Strip ANSI control sequences and carriage returns from CLI output.
+          perl -pe 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g; s/\r//g' review_output_raw.txt > review_output_clean.txt
+
+          # Prefer the first markdown-like section to avoid noisy bootstrap logs in PR comments.
+          awk '
+            BEGIN { started = 0 }
+            {
+              if (started == 0) {
+                if ($0 ~ /^#{1,6}[[:space:]]/ ||
+                    $0 ~ /^\*\*[^*].*\*\*/ ||
+                    $0 ~ /^\|[^|].*\|/ ||
+                    $0 ~ /^[-*][[:space:]]/ ||
+                    $0 ~ /^[0-9]+\.[[:space:]]/) {
+                  started = 1
+                }
+              }
+              if (started == 1) {
+                print
+              }
+            }
+          ' review_output_clean.txt > review_output.md_candidate
+
+          if [ -s review_output.md_candidate ]; then
+            mv review_output.md_candidate review_output.txt
+          else
+            mv review_output_clean.txt review_output.txt
+            rm -f review_output.md_candidate
+          fi
+
+          if [ ! -s review_output.txt ]; then
+            echo "No output captured from review CLI." > review_output.txt
+          fi
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Post Review Result
+        if: always() && steps.prep.outputs.pr_number != ''
+        run: |
+          set -euo pipefail
+          PR_NUMBER="${{ steps.prep.outputs.pr_number }}"
+          CLI="${{ steps.resolve.outputs.agent_cli }}"
+          MODEL="${{ steps.resolve.outputs.agent_model }}"
+          SOURCE="${{ steps.resolve.outputs.selection_source }}"
+          EXIT_CODE="${{ steps.run_cli.outputs.exit_code }}"
+          MAX_LEN=60000
+
+          if [ -f review_output.txt ]; then
+            CONTENT=$(cat review_output.txt)
+          else
+            CONTENT="No review output file was captured. Check workflow logs for details."
+          fi
+          if [ "${#CONTENT}" -gt "$MAX_LEN" ]; then
+            CONTENT="${CONTENT:0:$MAX_LEN}"$'\n\n[output truncated]'
+          fi
+
+          if [ "$EXIT_CODE" = "0" ]; then
+            TITLE="## 🤖 CLI Review ($CLI)"
+          else
+            TITLE="## ❌ CLI Review Failed ($CLI)"
+          fi
+
+          if printf "%s\n" "$CONTENT" | grep -Eq '^(#{1,6}[[:space:]]|[-*][[:space:]]|[0-9]+\.[[:space:]]|\|[^|].*\|)'; then
+            BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"$CONTENT"
+          else
+            BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"\`\`\`text"$'\n'"$CONTENT"$'\n'"\`\`\`"
+          fi
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure Reviewed Label
+        if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+        run: |
+          gh api --method POST "/repos/$REPO/labels" \
+            -f name="reviewed" \
+            -f color="FBCA04" \
+            -f description="AI review complete, action required by author" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup Review Label
+        if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+          LABEL="${{ github.event.label.name || '' }}"
+          if [ -z "$LABEL" ]; then
+            LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
+          fi
+          if [ -n "$LABEL" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" --add-label "reviewed"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post Workflow Failure Link
+        if: steps.run_cli.outputs.exit_code != '0' && steps.prep.outputs.pr_number != ''
+        run: |
+          gh pr comment "${{ steps.prep.outputs.pr_number }}" --repo "$REPO" --body "The automated review encountered an error. Check [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fail On Review Error
+        if: steps.run_cli.outputs.exit_code != '0'
+        run: exit 1
