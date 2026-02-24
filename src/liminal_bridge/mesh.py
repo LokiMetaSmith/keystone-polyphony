@@ -163,28 +163,34 @@ class LiminalMesh:
         cursor = self.conn.cursor()
 
         # Key-Value Store Table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS kv_store (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """)
+        """
+        )
 
         # Thoughts Table
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS thoughts (
                 node_id TEXT PRIMARY KEY,
                 content TEXT
             )
-        """)
+        """
+        )
 
         # Metadata Table (for Vector Clock)
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """)
+        """
+        )
         self.conn.commit()
 
     def _deserialize_crdt(self, data: Any) -> CRDT:
