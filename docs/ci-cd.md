@@ -154,6 +154,24 @@ graph TD
     E -- Yes --> F[Close issue and add audit comment]
 ```
 
+### 8. Specialized AI PR Reviews (OpenCode)
+**Trigger:** `issue_comment`, `pull_request_review_comment`, `pull_request` (labeled), `workflow_dispatch`.
+**File:** `opencode.yml`
+
+This workflow provides targeted AI analysis on Pull Requests. It can be triggered manually via `/oc` commands or automatically by adding labels like `workflow-review`, `arch-review`, or `security-review`. The workflow surgically identifies changed files relevant to the review type, posts a guiding comment, and executes an OpenCode review. Upon completion, it swaps the trigger label for a `reviewed` label to signal to the author that action is required.
+
+```mermaid
+graph TD
+    A[PR Labeled / Comment / Dispatch] --> B{Is Canonical Repo?}
+    B -- No --> End((Skip))
+    B -- Yes --> C[Identify Review Type & Target Files]
+    C --> D[Post Guiding Comment on PR]
+    D --> E[Run OpenCode with Specialized Prompt]
+    E --> F{Agent Successful?}
+    F -- No --> G[Post Failure Comment]
+    F -- Yes --> H[Remove Trigger Label & Add 'reviewed']
+```
+
 ---
 
 ## Issue Lifecycle
@@ -173,7 +191,8 @@ stateDiagram-v2
     quota_hold --> agent_working : Periodic sweep retries
     agent_working --> agent_failed : Agent failed
     agent_working --> agent_pr : Agent opened PR
-    agent_pr --> [*] : PR merged
+    agent_pr --> reviewed : Review triggers status update
+    reviewed --> [*] : PR merged
 
     pre_review : 🟡 pre-review
     quota_hold : ⏳ quota-hold
