@@ -2,15 +2,22 @@ import asyncio
 import json
 import hashlib
 import time
-import sys
 import os
 import sqlite3
 from typing import Dict, Optional, Any, Set, Callable, Awaitable
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
 
+
 class LiminalMesh:
-    def __init__(self, secret_key: str, db_path: str = "liminal.db", identity_path: str = "identity.pem", bootstrap: Optional[str] = None, swarm_seed: Optional[str] = None):
+    def __init__(
+        self,
+        secret_key: str,
+        db_path: str = "liminal.db",
+        identity_path: str = "identity.pem",
+        bootstrap: Optional[str] = None,
+        swarm_seed: Optional[str] = None,
+    ):
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
@@ -25,8 +32,7 @@ class LiminalMesh:
 
         # Public Key as Hex String for transmission
         pub_bytes = self.public_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
         )
         self.public_key_hex = pub_bytes.hex()
 
@@ -56,10 +62,7 @@ class LiminalMesh:
         if os.path.exists(self.identity_path):
             try:
                 with open(self.identity_path, "rb") as f:
-                    return serialization.load_pem_private_key(
-                        f.read(),
-                        password=None
-                    )
+                    return serialization.load_pem_private_key(f.read(), password=None)
             except Exception as e:
                 print(f"Error loading identity: {e}. Generating new one.")
 
@@ -68,11 +71,13 @@ class LiminalMesh:
 
         # Save it
         with open(self.identity_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
+            f.write(
+                private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
 
         return private_key
 
@@ -82,20 +87,20 @@ class LiminalMesh:
         cursor = self.conn.cursor()
 
         # Key-Value Store Table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS kv_store (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        ''')
+        """)
 
         # Thoughts Table
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS thoughts (
                 node_id TEXT PRIMARY KEY,
                 content TEXT
             )
-        ''')
+        """)
         self.conn.commit()
 
     def _load_state(self):
@@ -120,7 +125,7 @@ class LiminalMesh:
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
-            (key, json.dumps(value))
+            (key, json.dumps(value)),
         )
         self.conn.commit()
 
@@ -129,7 +134,7 @@ class LiminalMesh:
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO thoughts (node_id, content) VALUES (?, ?)",
-            (node_id, content)
+            (node_id, content),
         )
         self.conn.commit()
 
@@ -152,14 +157,16 @@ class LiminalMesh:
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
 
         # Start reading stdout in background
         asyncio.create_task(self._read_stdout())
         asyncio.create_task(self._read_stderr())
 
-        print(f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}...")
+        print(
+            f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
+        )
 
     async def stop(self):
         """Stops the sidecar."""
@@ -265,12 +272,14 @@ class LiminalMesh:
             resource = payload.get("resource")
             # If I hold the lock, deny
             if self.batons.get(resource) == self.node_id:
-                await self.broadcast({
-                    "type": "baton_deny",
-                    "resource": resource,
-                    "target": origin,
-                    "reason": "I hold the lock"
-                })
+                await self.broadcast(
+                    {
+                        "type": "baton_deny",
+                        "resource": resource,
+                        "target": origin,
+                        "reason": "I hold the lock",
+                    }
+                )
 
         elif p_type == "baton_claim":
             resource = payload.get("resource")
@@ -293,19 +302,12 @@ class LiminalMesh:
     async def share_thought(self, content: str):
         self.thoughts[self.node_id] = content
         self._save_thought(self.node_id, content)
-        await self.broadcast({
-            "type": "thought",
-            "content": content
-        })
+        await self.broadcast({"type": "thought", "content": content})
 
     async def update_kv(self, key: str, value: Any):
         self.kv_store[key] = value
         self._save_kv(key, value)
-        await self.broadcast({
-            "type": "kv_update",
-            "key": key,
-            "value": value
-        })
+        await self.broadcast({"type": "kv_update", "key": key, "value": value})
 
     def get_kv(self, key: str):
         return self.kv_store.get(key)
@@ -323,10 +325,7 @@ class LiminalMesh:
         future = asyncio.get_running_loop().create_future()
         self._lock_requests[resource] = future
 
-        await self.broadcast({
-            "type": "baton_request",
-            "resource": resource
-        })
+        await self.broadcast({"type": "baton_request", "resource": resource})
 
         try:
             await asyncio.wait_for(future, timeout=timeout)
@@ -336,19 +335,13 @@ class LiminalMesh:
         except asyncio.TimeoutError:
             del self._lock_requests[resource]
             self.batons[resource] = self.node_id
-            await self.broadcast({
-                "type": "baton_claim",
-                "resource": resource
-            })
+            await self.broadcast({"type": "baton_claim", "resource": resource})
             return True
 
     async def release_baton(self, resource: str):
         if self.batons.get(resource) == self.node_id:
             del self.batons[resource]
-            await self.broadcast({
-                "type": "baton_release",
-                "resource": resource
-            })
+            await self.broadcast({"type": "baton_release", "resource": resource})
             # Trigger Pulse
             if self.on_baton_release:
                 # Pass resource and my identity

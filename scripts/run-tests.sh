@@ -4,20 +4,32 @@ set -euo pipefail
 # Keystone Polyphony - Basic Repository Health Checks
 # This script is used by both the pre-push hook and CI/CD pipelines.
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
 echo ">>> Running repository health checks..."
 
 FAILED=0
 
-# 1. Check shell scripts syntax (including git hooks)
-echo "Checking shell scripts syntax..."
-while IFS= read -r -d '' file; do
-    if ! bash -n "$file"; then
-        echo "[ERROR] Shell syntax error in $file"
+# 1. Run Linting (Code Quality)
+echo "Running lint checks..."
+if ! ./scripts/lint.sh; then
+    echo "[ERROR] Linting checks failed."
+    FAILED=1
+fi
+
+# 2. Run Tests (Unit Tests)
+if command -v python3 >/dev/null 2>&1 && python3 -c "import pytest" >/dev/null 2>&1; then
+    echo "Running pytest..."
+    if ! python3 -m pytest; then
+        echo "[ERROR] Unit tests failed."
         FAILED=1
     fi
-done < <(find . \( -name "*.sh" -o -path "./.githooks/*" \) -not -path "*/.*" -type f -print0)
+else
+    echo "[WARNING] pytest module not found. Skipping unit tests."
+fi
 
-# 2. Check for broken symbolic links (if any)
+# 3. Check for broken symbolic links (if any)
 echo "Checking for broken symbolic links..."
 while IFS= read -r -d '' link; do
     if [ ! -e "$link" ]; then
@@ -25,8 +37,6 @@ while IFS= read -r -d '' link; do
         FAILED=1
     fi
 done < <(find . -type l -not -path "*/.*" -print0)
-
-# 3. Future tests can be added here (e.g. markdown link checking, etc.)
 
 if [ $FAILED -eq 0 ]; then
     echo ">>> All checks passed!"
