@@ -12,15 +12,15 @@ sys.path.append(current_dir)
 
 # Handle both relative and absolute imports
 try:
-    from .mesh import LiminalMesh
-    from .architect import Architect
-    from .pulse import Pulse
+    from .mesh import LiminalMesh  # noqa: E402
+    from .architect import Architect  # noqa: E402
+    from .pulse import Pulse  # noqa: E402
 except ImportError:
-    from mesh import LiminalMesh
-    from architect import Architect
-    from pulse import Pulse
+    from mesh import LiminalMesh  # noqa: E402
+    from architect import Architect  # noqa: E402
+    from pulse import Pulse  # noqa: E402
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 # Initialize components
 SWARM_KEY = os.getenv("SWARM_KEY", "liminal-default-secret")
@@ -32,17 +32,21 @@ IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
 # For now, default mesh initialization
 mesh = None
 architect = Architect()
-pulse = None # Will be initialized with mesh
+pulse = None  # Will be initialized with mesh
 
 # Create MCP Server
 mcp = FastMCP("Keystone-Polyphony")
 
+
 def ensure_mesh():
     global mesh, pulse
     if mesh is None:
-        mesh = LiminalMesh(secret_key=SWARM_KEY, db_path=DB_PATH, identity_path=IDENTITY_PATH)
+        mesh = LiminalMesh(
+            secret_key=SWARM_KEY, db_path=DB_PATH, identity_path=IDENTITY_PATH
+        )
         pulse = Pulse(mesh, architect)
         mesh.on_baton_release = pulse.on_baton_release
+
 
 # --- MCP Tools ---
 @mcp.tool()
@@ -53,7 +57,9 @@ async def register_to_swarm(github_secret: str = None) -> str:
     if github_secret and (not mesh or mesh.secret_key != github_secret):
         if mesh and mesh.running:
             await mesh.stop()
-        mesh = LiminalMesh(secret_key=github_secret, db_path=DB_PATH, identity_path=IDENTITY_PATH)
+        mesh = LiminalMesh(
+            secret_key=github_secret, db_path=DB_PATH, identity_path=IDENTITY_PATH
+        )
         pulse = Pulse(mesh, architect)
         mesh.on_baton_release = pulse.on_baton_release
 
@@ -63,19 +69,23 @@ async def register_to_swarm(github_secret: str = None) -> str:
         await mesh.start()
     return f"Connected to Liminal Swarm. Node ID: {mesh.node_id}. Topic: {mesh.topic[:8]}..."
 
+
 @mcp.tool()
 async def share_thought(thought: str) -> str:
     """Broadcasts a 'thought'."""
     ensure_mesh()
-    if not mesh.running: await mesh.start()
+    if not mesh.running:
+        await mesh.start()
     await mesh.share_thought(thought)
     return "Thought streamed."
+
 
 @mcp.tool()
 async def acquire_baton(file_path: str) -> str:
     """Acquires an exclusive lock on a file."""
     ensure_mesh()
-    if not mesh.running: await mesh.start()
+    if not mesh.running:
+        await mesh.start()
     success = await mesh.acquire_baton(file_path)
     if success:
         return f"SUCCESS: Baton acquired for {file_path}."
@@ -83,14 +93,17 @@ async def acquire_baton(file_path: str) -> str:
         owner = mesh.batons.get(file_path, "unknown")
         return f"DENIED: {file_path} is currently locked by {owner}."
 
+
 @mcp.tool()
 async def release_baton(file_path: str) -> str:
     """Releases the lock on a file."""
     ensure_mesh()
-    if not mesh.running: await mesh.start()
+    if not mesh.running:
+        await mesh.start()
     await mesh.release_baton(file_path)
     # pulse.on_baton_release is now triggered via callback in mesh
     return f"Baton released for {file_path}."
+
 
 @mcp.tool()
 async def peek_liminal(key: str = None) -> str:
@@ -101,14 +114,17 @@ async def peek_liminal(key: str = None) -> str:
         return str(val) if val else "Key not found."
     return str({"thoughts": mesh.thoughts, "batons": mesh.batons, "kv": mesh.kv_store})
 
+
 @mcp.tool()
 async def consult_architect(context: str) -> str:
     """Manually triggers the Architect."""
     ensure_mesh()
-    if not mesh.running: await mesh.start()
+    if not mesh.running:
+        await mesh.start()
     await pulse.trigger(context=f"manual:{context}")
     plan = mesh.get_kv("master_plan")
     return f"Architect consulted. Plan: {plan}"
+
 
 # --- Seed Mode ---
 async def run_seed_mode(timeout: int = None):
@@ -118,7 +134,12 @@ async def run_seed_mode(timeout: int = None):
     # Derive stable seed from SWARM_KEY
     swarm_seed = hashlib.sha256(SWARM_KEY.encode()).hexdigest()
 
-    mesh = LiminalMesh(secret_key=SWARM_KEY, db_path=DB_PATH, identity_path=IDENTITY_PATH, swarm_seed=swarm_seed)
+    mesh = LiminalMesh(
+        secret_key=SWARM_KEY,
+        db_path=DB_PATH,
+        identity_path=IDENTITY_PATH,
+        swarm_seed=swarm_seed,
+    )
     pulse = Pulse(mesh, architect)
     mesh.on_baton_release = pulse.on_baton_release
 
@@ -145,6 +166,7 @@ async def run_seed_mode(timeout: int = None):
         print("Stopping seed node...")
         await mesh.stop()
 
+
 # --- Verify Mode ---
 async def run_verify_mode():
     """Runs a verification test: starts two nodes and checks if they find each other."""
@@ -164,12 +186,19 @@ async def run_verify_mode():
         # Use a stable key for the seed to test that part too
         swarm_seed = hashlib.sha256(SWARM_KEY.encode()).hexdigest()
 
-        mesh1 = LiminalMesh(secret_key=SWARM_KEY, db_path=seed_db, identity_path=seed_id, swarm_seed=swarm_seed)
+        mesh1 = LiminalMesh(
+            secret_key=SWARM_KEY,
+            db_path=seed_db,
+            identity_path=seed_id,
+            swarm_seed=swarm_seed,
+        )
 
         # Node 2: Client
         client_db = os.path.join(tmp_dir, "client.db")
         client_id = os.path.join(tmp_dir, "client.pem")
-        mesh2 = LiminalMesh(secret_key=SWARM_KEY, db_path=client_db, identity_path=client_id)
+        mesh2 = LiminalMesh(
+            secret_key=SWARM_KEY, db_path=client_db, identity_path=client_id
+        )
 
         print(f"Starting Node 1 (Anchor)... ID: {mesh1.node_id}")
         await mesh1.start()
@@ -180,7 +209,9 @@ async def run_verify_mode():
         print("Waiting for discovery...")
         # Give it up to 10 seconds
         for i in range(10):
-            print(f"Check {i+1}/10... Peers: Node1={len(mesh1.peers)}, Node2={len(mesh2.peers)}")
+            print(
+                f"Check {i+1}/10... Peers: Node1={len(mesh1.peers)}, Node2={len(mesh2.peers)}"
+            )
             if len(mesh1.peers) > 0 and len(mesh2.peers) > 0:
                 print("SUCCESS: Peers discovered each other!")
                 # Optional: Test messaging
@@ -198,15 +229,24 @@ async def run_verify_mode():
         sys.exit(1)
 
     finally:
-        if 'mesh1' in locals() and mesh1.running: await mesh1.stop()
-        if 'mesh2' in locals() and mesh2.running: await mesh2.stop()
+        if "mesh1" in locals() and mesh1.running:
+            await mesh1.stop()
+        if "mesh2" in locals() and mesh2.running:
+            await mesh2.stop()
         shutil.rmtree(tmp_dir)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["mcp", "seed", "verify"], default="mcp", help="Run mode: 'mcp' server, 'seed' node, or 'verify' test")
-    parser.add_argument("--timeout", type=int, default=None, help="Timeout in seconds for seed mode")
+    parser.add_argument(
+        "--mode",
+        choices=["mcp", "seed", "verify"],
+        default="mcp",
+        help="Run mode: 'mcp' server, 'seed' node, or 'verify' test",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=None, help="Timeout in seconds for seed mode"
+    )
 
     # FastMCP uses click/typer which might grab args, so we use parse_known_args
     args, unknown = parser.parse_known_args()

@@ -49,6 +49,12 @@ for agent in $AGENTS; do
              cmd="python3 scripts/refine_issue.py"
         fi
 
+        # Check if it is an async agent defined in reviewers.yml
+        local config=""
+        if [ -z "$cmd" ]; then
+             config=$(get_agent_config "$agent" || echo "")
+        fi
+
         if [ -n "$cmd" ]; then
             echo "Running CLI agent: $agent" >&2
             # CLI agents are expected to update the file and return 0
@@ -61,22 +67,28 @@ for agent in $AGENTS; do
                 echo "Error: CLI agent $agent failed on $FILE" >&2
                 exit 1
             fi
-        elif [ "$agent" == "jules" ]; then
+        elif [ -n "$config" ]; then
+            # Async agent (configured in reviewers.yml)
+
+            NAME=$(echo "$config" | jq -r '.name')
+            LABEL=$(echo "$config" | jq -r '.label')
+            HANDLE=$(echo "$config" | jq -r '.handle')
+
             # Check for existing triage issue for this file
-            # We look for open issues with labels 'jules' and 'triage' that mention the file path
-            EXISTS=$(gh api "/repos/$REPO/issues?labels=jules,triage&state=open" --jq ".[] | select(.body | contains(\"Triaging file: \`$FILE\`\")) | .number" | head -n 1 || echo "")
+            # We look for open issues with labels '$LABEL' and 'triage' that mention the file path
+            EXISTS=$(gh api "/repos/$REPO/issues?labels=$LABEL,triage&state=open" --jq ".[] | select(.body | contains(\"Triaging file: \`$FILE\`\")) | .number" | head -n 1 || echo "")
             if [ -n "$EXISTS" ]; then
                 echo "Triage issue #$EXISTS already exists for $FILE" >&2
                 echo "DISPATCHED_ASYNC"
                 exit 0
             fi
 
-            echo "Dispatching to Jules (async)" >&2
+            echo "Dispatching to $NAME (async)" >&2
             TITLE=$(get_issue_title "$FILE")
             BODY=$(cat "$FILE")
 
             COMMENT_BODY="<!-- triage-instructions -->
-## 🤖 Jules Triage Requested
+## 🤖 $NAME Triage Requested
 
 Please refine this issue according to the following requirements:
 
@@ -87,7 +99,7 @@ Please refine this issue according to the following requirements:
 
 When your review is complete, please:
 - Update the source file \`$FILE\` with the refined content.
-- Include the marker \`<!-- triage-refined: jules -->\` at the end of the file.
+- Include the marker \`<!-- triage-refined: $agent -->\` at the end of the file.
 - Commit and push the changes.
 - Close this issue."
 
@@ -99,7 +111,7 @@ When your review is complete, please:
 
 ---
 $BODY" \
-                --label "jules" \
+                --label "$LABEL" \
                 --label "pre-review" \
                 --label "triage")
 

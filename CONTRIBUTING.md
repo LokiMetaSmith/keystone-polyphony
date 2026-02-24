@@ -51,7 +51,7 @@ Without `UPSTREAM_PR_TOKEN`, upstream PR creation is intentionally skipped. Test
 | Variable | Purpose | Default |
 |---|---|---|
 | `HOURLY_TEST_COMMAND` | The shell command run during periodic staging tests | `npm test` (if `package.json` exists) |
-| `JULES_DAILY_TASKS` | Daily quota for applying the `jules` label (used by Jules automation paths) | No limit (`0` or unset) |
+| `{AGENT}_DAILY_TASKS` | Daily quota for applying a specific agent's label (e.g. `JULES_DAILY_TASKS`). Configured in `.github/reviewers.yml` | No limit (`0` or unset) |
 | `AGENT_CLI` | CLI binary name for the autonomous agent | `opencode` |
 | `AGENT_CLI_FLAGS` | Extra flags passed to the agent CLI | (empty) |
 | `AGENT_DAILY_TASKS` | Max issues attempted by agents per rolling 24h window | `5` |
