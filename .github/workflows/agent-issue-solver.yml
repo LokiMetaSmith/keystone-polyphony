@@ -22,6 +22,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
       AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_OPENCODE_NPM_PACKAGE: ${{ vars.AGENT_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
       AGENT_DAILY_TASKS: ${{ vars.AGENT_DAILY_TASKS || 5 }}
       AGENT_MODEL: ${{ vars.AGENT_MODEL }}
@@ -40,7 +41,7 @@ jobs:
       - name: Install Agent CLI
         if: env.AGENT_CLI == 'opencode'
         run: |
-          npm install -g opencode-ai
+          npm install -g "$AGENT_OPENCODE_NPM_PACKAGE"
 
       - name: Ensure labels exist
         run: |
@@ -175,14 +176,6 @@ jobs:
 
       - name: Run Agent
         if: steps.identify.outputs.issue_number != '' && steps.quota.outputs.skip == 'false'
-        env:
-          # Map AGENT_API_KEY to provider keys for broad compatibility
-          ANTHROPIC_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          GROK_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.AGENT_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.AGENT_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -214,10 +207,49 @@ jobs:
           PROMPT_CONTENT=$(cat agent_prompt.txt)
           CMD+=("--prompt" "$PROMPT_CONTENT")
 
+          # Inject only provider-relevant API variables to reduce unnecessary key exposure.
+          KEY_PROVIDER="openrouter"
+          case "${AGENT_MODEL:-}" in
+            anthropic/*) KEY_PROVIDER="anthropic" ;;
+            google/*)    KEY_PROVIDER="google" ;;
+            grok/*)      KEY_PROVIDER="grok" ;;
+            deepseek/*)  KEY_PROVIDER="deepseek" ;;
+          esac
+
+          ENV_VARS=()
+          if [ -n "${AGENT_API_KEY:-}" ]; then
+            ENV_VARS+=("AGENT_API_KEY=$AGENT_API_KEY")
+            case "$KEY_PROVIDER" in
+              anthropic)
+                ENV_VARS+=("ANTHROPIC_API_KEY=$AGENT_API_KEY")
+                ;;
+              google)
+                ENV_VARS+=("GEMINI_API_KEY=$AGENT_API_KEY")
+                ;;
+              grok)
+                ENV_VARS+=("GROK_API_KEY=$AGENT_API_KEY")
+                ;;
+              deepseek)
+                ENV_VARS+=("DEEPSEEK_API_KEY=$AGENT_API_KEY")
+                ;;
+              openrouter)
+                ENV_VARS+=("OPENAI_API_KEY=$AGENT_API_KEY")
+                ENV_VARS+=("OPENROUTER_API_KEY=$AGENT_API_KEY")
+                ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
+                ;;
+            esac
+          else
+            echo "Warning: AGENT_API_KEY is not configured. Running without provider API variables."
+          fi
+
           echo "Running agent: ${CMD[0]} ${CMD[1]} ... (redacted prompt)"
 
           set +e
-          "${CMD[@]}"
+          if [ "${#ENV_VARS[@]}" -gt 0 ]; then
+            env "${ENV_VARS[@]}" "${CMD[@]}"
+          else
+            "${CMD[@]}"
+          fi
           EXIT_CODE=$?
           set -e
 
