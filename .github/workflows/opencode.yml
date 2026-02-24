@@ -100,7 +100,7 @@ jobs:
               FILES=$(echo "$CHANGED_FILES" | grep -E "^\.github/workflows/|^docs/ci-cd\.md" || echo "")
               GUIDE="docs/ci-cd.md"
               COMMAND="/oc review-workflow"
-              DESC="Deep dive into the changed files listed below. Use $GUIDE as the primary guideline for security, permissions, and best practices."
+              DESC="Deep dive into the changed files listed below. Use $GUIDE as the primary guideline for security, permissions, and best practices. Apply the repository's public-token policy: treat generic repository vars/secrets usage as best-practice guidance unless there is concrete evidence of real sensitive data exposure or privilege escalation."
               ;;
             "arch-review")
               FILES=$(echo "$CHANGED_FILES" | grep -vE "^docs/|^meta/" || echo "")
@@ -112,7 +112,7 @@ jobs:
               FILES=$(echo "$CHANGED_FILES" | grep -E "secret|token|perm|auth|config|scripts/inject-secrets\.sh|\.github/workflows/" || echo "")
               GUIDE="AGENTS.md and docs/architecture.md"
               COMMAND="/oc review-security"
-              DESC="Audit the changed files listed below for secret handling, token scopes, and potential vulnerabilities, using $GUIDE as context."
+              DESC="Audit the changed files listed below for secret handling, token scopes, and potential vulnerabilities, using $GUIDE as context. This repository is public and does not store confidential secrets; classify generic token plumbing as hygiene unless concrete sensitive data exposure is demonstrated."
               ;;
             *)
               FILES="$CHANGED_FILES"
@@ -150,7 +150,7 @@ jobs:
           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
           MODEL_INPUT="${{ github.event.inputs.model || '' }}"
           PR_NUMBER=""
-          FORMAT_GUIDANCE=$'Response format requirements:\n- Use GitHub-flavored Markdown (no ANSI/control characters).\n- Start with "## Summary".\n- Include "## Findings" with severity and file references when applicable.\n- End with "## Recommendation" and a clear go/no-go.'
+          FORMAT_GUIDANCE=$'Response format requirements:\n- Use GitHub-flavored Markdown (no ANSI/control characters).\n- Start with "## Summary".\n- Include "## Findings" with severity and file references when applicable.\n- Apply repository context: this is a public repo and repo vars/secrets are non-sensitive operational tokens by default.\n- Escalate to high severity only with concrete evidence of real sensitive data exposure, privilege escalation, or malicious behavior.\n- End with "## Recommendation" and a clear go/no-go.'
 
           if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "Error: No prompt provided for event type: ${{ github.event_name }}"
