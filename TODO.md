@@ -20,7 +20,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [ ] **Log Aggregation**: Centralized logging for the swarm to debug distributed issues.
 
 ## 5. Advanced Architect Features
-- [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini) in addition to OpenAI. Anthropic (Claude) and local LLMs (Ollama) support pending.
+- [x] **Provider Agnosticism**: Abstract the `Architect` class to support Google (Gemini), Anthropic (Claude), and local LLMs (Ollama) in addition to OpenAI.
 - [ ] **Prompt Engineering**: Refine the system prompts for the Architect to better handle complex project backlogs and dependencies.
 
 ## 6. Testing & CI/CD
