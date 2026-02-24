@@ -11,12 +11,28 @@ class Architect:
         self.client = None
         self.google_model = None
 
-        # Check for explicit provider
-        env_provider = os.getenv("DUCKY_PROVIDER")
-        if env_provider == "ollama" or self.model.startswith("ollama:"):
+        # Check for explicit provider override
+        provider_env = os.getenv("DUCKY_PROVIDER")
+        if provider_env:
+            self.provider = provider_env.lower()
+        # Heuristics if provider not explicit
+        elif self.model.startswith("ollama:"):
             self.provider = "ollama"
-            if self.model.startswith("ollama:"):
-                self.model = self.model.split(":", 1)[1]
+            self.model = self.model.split(":", 1)[1]
+        elif self.api_key:
+            # Simple heuristic to detect provider
+            if self.model.startswith("gemini") or (
+                self.api_key.startswith("AIza") and len(self.api_key) > 30
+            ):
+                self.provider = "google"
+            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
+                self.provider = "anthropic"
+            else:
+                # Default to openai if api_key present and no other match
+                self.provider = "openai"
+
+        # Initialize based on provider
+        if self.provider == "ollama":
             try:
                 import ollama
 
@@ -25,12 +41,9 @@ class Architect:
                 print(
                     "Warning: ollama package not installed. Architect disabled for Ollama."
                 )
-        elif self.api_key:
-            # Simple heuristic to detect provider
-            if self.model.startswith("gemini") or (
-                self.api_key.startswith("AIza") and len(self.api_key) > 30
-            ):
-                self.provider = "google"
+
+        elif self.provider == "google":
+            if self.api_key:
                 try:
                     import google.generativeai as genai
 
@@ -40,8 +53,11 @@ class Architect:
                     print(
                         "Warning: google-generativeai package not installed. Architect disabled for Gemini."
                     )
-            elif self.model.startswith("claude") or self.api_key.startswith("sk-ant"):
-                self.provider = "anthropic"
+            else:
+                print("Warning: API key missing for Google provider.")
+
+        elif self.provider == "anthropic":
+            if self.api_key:
                 try:
                     from anthropic import AsyncAnthropic
 
@@ -54,6 +70,11 @@ class Architect:
                         "Warning: anthropic package not installed. Architect disabled for Anthropic."
                     )
             else:
+                print("Warning: API key missing for Anthropic provider.")
+
+        elif self.provider == "openai":
+            # OpenAI / Default
+            if self.api_key:
                 try:
                     from openai import AsyncOpenAI
 
@@ -62,6 +83,9 @@ class Architect:
                     print(
                         "Warning: openai package not installed. Architect disabled for OpenAI."
                     )
+            else:
+                # No API key, no client for OpenAI
+                pass
 
     async def consult(self, swarm_state: Dict[str, Any]) -> str:
         """
