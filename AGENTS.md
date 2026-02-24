@@ -33,6 +33,6 @@ The workflow automatically applies flags like `--non-interactive` or `--yolo` fo
 ## 4. Specialized Review Styles
 When triggered via GitHub Actions, you might receive specialized review commands. Adjust your analysis focus accordingly:
 
-- `/oc review-workflow`: Deep dive into `.github/workflows/` and `docs/ci-cd.md`. Focus on security, permissions, and best practices.
-- `/oc review-arch`: Analyze codebase alignment with `README.md`, `docs/architecture.md`, and `AGENTS.md`.
-- `/oc review-security`: Focus on secret handling, token scopes, and potential vulnerabilities in scripts or configs.
+- `/oc review-workflow`: Focuses on **changed workflows** in `.github/workflows/`. Guideline: `docs/ci-cd.md`.
+- `/oc review-arch`: Focuses on **changed code files**. Guideline: project architecture in `README.md`, `docs/architecture.md`, and `AGENTS.md`.
+- `/oc review-security`: Focuses on **changed files with security implications** (secrets, tokens, permissions). Guideline: `AGENTS.md` and `docs/architecture.md`.

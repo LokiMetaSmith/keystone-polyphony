@@ -47,42 +47,101 @@ jobs:
          run: |
            set -euo pipefail
            LABEL="${{ github.event.label.name }}"
+           PR_NUMBER="${{ github.event.pull_request.number }}"
+
+           # Get changed files in the PR
+           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path' || echo "")
+
            case "$LABEL" in
              "workflow-review")
+               FILES=$(echo "$CHANGED_FILES" | grep -E "^\.github/workflows/|^docs/ci-cd\.md" || echo "")
+               GUIDE="docs/ci-cd.md"
                COMMAND="/oc review-workflow"
-               DESC="Deep dive into .github/workflows/ and docs/ci-cd.md. Focus on security, permissions, and best practices."
+               DESC="Deep dive into the changed files listed below. Use $GUIDE as the primary guideline for security, permissions, and best practices."
                ;;
              "arch-review")
+               FILES=$(echo "$CHANGED_FILES" | grep -vE "^docs/|^meta/" || echo "")
+               GUIDE="README.md, docs/architecture.md, and AGENTS.md"
                COMMAND="/oc review-arch"
-               DESC="Analyze codebase alignment with README.md, docs/architecture.md, and AGENTS.md."
+               DESC="Analyze how the changed files listed below align with the project architecture defined in $GUIDE."
                ;;
              "security-review")
+               FILES=$(echo "$CHANGED_FILES" | grep -E "secret|token|perm|auth|config|scripts/inject-secrets\.sh|\.github/workflows/" || echo "")
+               GUIDE="AGENTS.md and docs/architecture.md"
                COMMAND="/oc review-security"
-               DESC="Focus on secret handling, token scopes, and potential vulnerabilities in scripts or configs."
+               DESC="Audit the changed files listed below for secret handling, token scopes, and potential vulnerabilities, using $GUIDE as context."
                ;;
              *)
+               FILES="$CHANGED_FILES"
+               GUIDE="README.md"
                COMMAND="/oc review"
-               DESC="Perform a general review based on the $LABEL tag."
+               DESC="Perform a general review of the changed files below based on the $LABEL tag, using $GUIDE as context."
                ;;
            esac
-           PROMPT="$COMMAND: $DESC"
-           echo "prompt=$PROMPT" >> "$GITHUB_OUTPUT"
-           gh pr comment "${{ github.event.pull_request.number }}" --body "$PROMPT"
+
+           if [ -z "$FILES" ]; then
+             echo "No relevant files found for $LABEL. Performing general PR review."
+             FILES="$CHANGED_FILES"
+           fi
+
+           # Format file list for the prompt
+           FILE_LIST=$(echo "$FILES" | head -n 10 | sed 's/^/- /')
+           if [ $(echo "$FILES" | wc -l) -gt 10 ]; then
+             FILE_LIST="$FILE_LIST"$'\n'"- ... and others"
+           fi
+
+           PROMPT="$COMMAND: $DESC"$'\n\n'"**Target Files:**"$'\n'"$FILE_LIST"
+
+           echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
+           echo "$PROMPT" >> "$GITHUB_OUTPUT"
+           echo "EOF" >> "$GITHUB_OUTPUT"
+
+           gh pr comment "$PR_NUMBER" --body "$PROMPT"
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+       - name: Prepare Environment
+         id: prep
+         run: |
+           set -euo pipefail
+           MODEL="${{ github.event.inputs.model || 'opencode/big-pickle' }}"
+           PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}"
+
+           if [ -z "$PROMPT" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+             echo "Error: No prompt provided and not a manual dispatch."
+             exit 1
+           fi
+
+           # Determine which API key to pass based on model
+           # We use a pattern where we map the correct secret to PROVIDER_API_KEY
+           case "$MODEL" in
+             anthropic/*) KEY="${{ secrets.ANTHROPIC_API_KEY }}" ;;
+             google/*)    KEY="${{ secrets.GEMINI_API_KEY }}" ;;
+             grok/*)      KEY="${{ secrets.GROK_API_KEY }}" ;;
+             deepseek/*)  KEY="${{ secrets.DEEPSEEK_API_KEY }}" ;;
+             *)           KEY="${{ secrets.OPENROUTER_API_KEY }}" ;;
+           esac
+
+           echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+           echo "provider_key=$KEY" >> "$GITHUB_OUTPUT"
 
        - name: Run OpenCode
          uses: anomalyco/opencode/github@latest
          env:
-           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+           # We pass only the relevant key as the generic OPENAI_API_KEY
+           # which many OpenRouter/OpenAI compatible models expect,
+           # or specific ones if needed. For now, we follow the agent's
+           # recommendation to minimize exposure.
+           ANTHROPIC_API_KEY: ${{ steps.prep.outputs.provider_key }}
+           OPENAI_API_KEY: ${{ steps.prep.outputs.provider_key }}
+           OPENROUTER_API_KEY: ${{ steps.prep.outputs.provider_key }}
+           GROK_API_KEY: ${{ steps.prep.outputs.provider_key }}
+           GEMINI_API_KEY: ${{ steps.prep.outputs.provider_key }}
+           DEEPSEEK_API_KEY: ${{ steps.prep.outputs.provider_key }}
            OPENAI_API_BASE: https://openrouter.ai/api/v1
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
          with:
-           model: ${{ github.event.inputs.model || 'opencode/big-pickle' }}
+           model: ${{ steps.prep.outputs.model }}
            prompt: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt }}
            use_github_token: true
 
@@ -100,5 +159,17 @@ jobs:
          if: always() && github.event_name == 'pull_request' && endsWith(github.event.label.name, '-review')
          run: |
            gh pr edit "${{ github.event.pull_request.number }}" --remove-label "${{ github.event.label.name }}" --add-label "reviewed"
+         env:
+           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+       - name: Handle Failure
+         if: failure()
+         run: |
+           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
+           if [ -n "$PR_NUMBER" ]; then
+             gh pr comment "$PR_NUMBER" --body "## ❌ OpenCode Review Failed
+
+             The automated review encountered an error. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+           fi
          env:
            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
