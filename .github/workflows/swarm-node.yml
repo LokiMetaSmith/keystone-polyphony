@@ -2,7 +2,11 @@ name: Polyphony Swarm Seed
 
 on:
   push:
-    branches: [ main ]
+    # Trigger on feature branches but not main.
+    # Note: Triggering P2P swarm verification on main is likely not the optimal strategy
+    # and needs further thought. For now, we move it to feature branches to reduce
+    # noise and flakiness on the primary branch.
+    branches-ignore: [ main ]
   schedule:
     - cron: '*/30 * * * *'  # Re-anchor every 30 minutes to keep DHT entries alive
 

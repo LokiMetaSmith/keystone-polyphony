@@ -136,12 +136,13 @@ jobs:
 
           # 3. Check Quota
           LIMIT=0
-          if LIMIT_RAW=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value' 2>/dev/null); then
-            LIMIT_RAW=$(echo "$LIMIT_RAW" | tr -d '[:space:]')
-            if [[ "$LIMIT_RAW" =~ ^[0-9]+$ ]]; then
-              LIMIT="$LIMIT_RAW"
-            fi
+          # Fetch variable value, or "0" if missing/error, then strip whitespace
+          LIMIT_RAW=$(gh api "/repos/$REPO/actions/variables/$QUOTA_VAR" --jq '.value // "0"' 2>/dev/null | tr -d '[:space:]' || echo "0")
+
+          if [[ "$LIMIT_RAW" =~ ^[0-9]+$ ]]; then
+            LIMIT="$LIMIT_RAW"
           fi
+
           if [ "$LIMIT" -eq 0 ]; then
              # Missing or non-numeric quota vars should not block assignment.
              LIMIT=999999
