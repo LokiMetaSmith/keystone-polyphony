@@ -6,31 +6,35 @@ import os
 # Ensure src is in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from src.liminal_bridge.architect import Architect
+from src.liminal_bridge.architect import Architect  # noqa: E402
+
 
 @pytest.mark.asyncio
 async def test_architect_detects_openai():
     # Patch where it is imported FROM, because the import is local
-    with patch("openai.AsyncOpenAI") as MockOpenAI:
+    with patch("openai.AsyncOpenAI"):
         arch = Architect(api_key="sk-proj-12345")
         assert arch.provider == "openai"
         assert arch.model == "gpt-4o"
+
 
 @pytest.mark.asyncio
 async def test_architect_detects_google():
     # For google, the import is `import google.generativeai as genai`
     # We patch the module in sys.modules
-    with patch.dict(sys.modules, {'google.generativeai': MagicMock()}):
+    with patch.dict(sys.modules, {"google.generativeai": MagicMock()}):
         arch = Architect(api_key="AIzaSyD-12345678901234567890123456789012")
         assert arch.provider == "google"
+
 
 @pytest.mark.asyncio
 async def test_architect_detects_anthropic():
     # Patch the class in anthropic module
-    with patch("anthropic.AsyncAnthropic") as MockAnthropic:
+    with patch("anthropic.AsyncAnthropic"):
         arch = Architect(api_key="sk-ant-api03-12345")
         assert arch.provider == "anthropic"
         assert "claude" in arch.model
+
 
 @pytest.mark.asyncio
 async def test_consult_anthropic():
@@ -56,4 +60,7 @@ async def test_consult_anthropic():
         assert result == '{"backlog": ["task1"]}'
         mock_client.messages.create.assert_called_once()
         _, kwargs = mock_client.messages.create.call_args
-        assert kwargs["system"] == "You are a precise technical architect. Output only valid JSON."
+        assert (
+            kwargs["system"]
+            == "You are a precise technical architect. Output only valid JSON."
+        )

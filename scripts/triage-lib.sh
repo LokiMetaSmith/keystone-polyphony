@@ -6,27 +6,65 @@ get_triage_agents() {
     echo "${TRIAGE_AGENTS:-}" | tr ',' ' '
 }
 
+get_agent_config() {
+    local agent_name="$1"
+    if [ ! -f ".github/reviewers.yml" ]; then
+        return 1
+    fi
+
+    # Try to use yq to parse yaml to json (assuming mikefarah/yq syntax as in workflows)
+    local json
+    if ! json=$(yq -o json . .github/reviewers.yml 2>/dev/null); then
+        # If yq is missing or fails, log warning
+        echo "Warning: yq failed or not found. Cannot parse reviewers.yml." >&2
+        return 1
+    fi
+
+    # Find matching reviewer by name or label (case-insensitive)
+    echo "$json" | jq -c ".reviewers[] | select((.name | ascii_downcase) == (\"$agent_name\" | ascii_downcase) or (.label | ascii_downcase) == (\"$agent_name\" | ascii_downcase))" | head -n 1
+}
+
 check_agent_quota() {
     local agent="$1"
     local repo="$2"
 
-    # Handle uppercase for env var lookup
-    local agent_upper=$(echo "$agent" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-
     local limit=0
-    if [ -n "${VARS_JSON:-}" ]; then
-        limit=$(echo "$VARS_JSON" | jq -r ".${agent_upper}_DAILY_TASKS // 0")
-        if [ "$limit" -eq 0 ]; then
-            limit=$(echo "$VARS_JSON" | jq -r ".AGENT_DAILY_TASKS // 0")
+
+    # Helper to get limit from VARS_JSON or env var
+    get_limit_from_var() {
+        local var_name="$1"
+        local lim=0
+        if [ -n "${VARS_JSON:-}" ]; then
+            lim=$(echo "$VARS_JSON" | jq -r ".${var_name} // 0")
+        fi
+        if [ "$lim" -eq 0 ]; then
+            lim="${!var_name:-0}"
+        fi
+        echo "$lim"
+    }
+
+    # Try to get limit from config
+    local config
+    config=$(get_agent_config "$agent" || echo "")
+
+    if [ -n "$config" ]; then
+        local quota_var
+        quota_var=$(echo "$config" | jq -r '.quota_var // empty')
+
+        if [ -n "$quota_var" ]; then
+            limit=$(get_limit_from_var "$quota_var")
         fi
     fi
 
     if [ "$limit" -eq 0 ]; then
-        # Check env vars as fallback
+        # Fallback: Handle uppercase for env var lookup based on agent name
+        local agent_upper=$(echo "$agent" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
         local limit_var="${agent_upper}_DAILY_TASKS"
-        limit="${!limit_var:-0}"
+
+        limit=$(get_limit_from_var "$limit_var")
+
         if [ "$limit" -eq 0 ]; then
-            limit="${AGENT_DAILY_TASKS:-0}"
+            limit=$(get_limit_from_var "AGENT_DAILY_TASKS")
         fi
     fi
 
@@ -37,10 +75,19 @@ check_agent_quota() {
 
     local since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
 
-    # Label to look for: 'jules' if agent is jules, else 'triage-agent:<agent>'
+    # Label to look for: from config if available, else standard fallback
     local label="$agent"
-    if [ "$agent" != "jules" ]; then
-        label="triage-agent:$agent"
+    if [ -n "$config" ]; then
+        label=$(echo "$config" | jq -r '.label // empty')
+    fi
+
+    if [ -z "$label" ] || [ "$label" = "null" ]; then
+        # Fallback label logic
+        if [ "$agent" != "jules" ]; then
+            label="triage-agent:$agent"
+        else
+            label="jules"
+        fi
     fi
 
     # Query issues with the label

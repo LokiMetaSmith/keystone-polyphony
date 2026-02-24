@@ -6,6 +6,7 @@ import time
 from unittest.mock import AsyncMock, ANY
 from src.liminal_bridge.mesh import LiminalMesh
 
+
 @pytest.fixture
 def mesh(tmp_path):
     """Fixture to create a LiminalMesh with temporary DB and Identity."""
@@ -19,6 +20,7 @@ def mesh(tmp_path):
     # but good to close DB connection if needed.
     if mesh.conn:
         mesh.conn.close()
+
 
 @pytest.mark.asyncio
 async def test_mesh_baton_local(mesh):
@@ -36,6 +38,7 @@ async def test_mesh_baton_local(mesh):
     await mesh.release_baton("file.py")
     assert "file.py" not in mesh.batons
 
+
 @pytest.mark.asyncio
 async def test_mesh_baton_denial(mesh):
     """Test baton denial when another peer holds it."""
@@ -45,6 +48,7 @@ async def test_mesh_baton_denial(mesh):
     # Try to acquire
     success = await mesh.acquire_baton("file.py", timeout=0.1)
     assert success is False
+
 
 @pytest.mark.asyncio
 async def test_kv_store(mesh):
