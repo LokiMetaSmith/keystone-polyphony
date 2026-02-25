@@ -11,6 +11,9 @@ REQUIRED_CMDS=("python3" "pip3" "node" "npm" "gh" "ssh-keygen")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "❌ Error: $cmd is not installed."
+        if [ "$cmd" == "gh" ]; then
+            echo "💡 Hint: Install GitHub CLI via: https://cli.github.com/manual/installation"
+        fi
         exit 1
     fi
 done
