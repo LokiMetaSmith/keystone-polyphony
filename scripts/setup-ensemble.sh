@@ -11,7 +11,25 @@ REQUIRED_CMDS=("python3" "pip3" "node" "npm" "gh" "ssh-keygen")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "❌ Error: $cmd is not installed."
-        exit 1
+        if [ "$cmd" == "gh" ]; then
+            echo ">>> �️ Attempting to install GitHub CLI (gh)..."
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update
+                sudo apt-get install -y curl
+                curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+                sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+                sudo apt-get update
+                sudo apt-get install -y gh
+                echo "✅ gh installed successfully."
+            else
+                echo "�💡 Hint: Please install GitHub CLI manually via: https://cli.github.com/manual/installation"
+                exit 1
+            fi
+        else
+            echo "💡 Hint: Please install $cmd using your package manager."
+            exit 1
+        fi
     fi
 done
 echo "✅ System dependencies found."
