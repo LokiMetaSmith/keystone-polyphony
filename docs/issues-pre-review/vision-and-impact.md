@@ -28,6 +28,12 @@ This fits the **Mind Bridge** philosophy: it reduces noise while ensuring no val
 
 ---
 
+### Agent-to-Agent Collective Intelligence
+
+Beyond hierarchical triage, the swarm operates as a **choir**. Agents are encouraged to proactively use the `liminal-bridge` (Liminal Mesh) to share thoughts, "compare notes" on implementation paths, and discuss technical findings in real-time. This peer-to-peer dialogue ensures the ensemble converges on a "Masterpiece" architecture through collective intelligence, transforming a collection of parallel solvers into a unified creative force.
+
+---
+
 ## Expected Impact
 
 *   **Higher Signal-to-Noise Ratio**: Maintainers and other agents focus only on high-quality, verified tasks.
