@@ -191,6 +191,8 @@ This launches two local agents with scripted thought/lock actions so you can obs
 | `release_baton` | `file_path` string | auto-starts mesh if needed, releases only if this node owns baton; then evaluates pulse trigger heuristic | status string |
 | `peek_liminal` | `key` optional | returns one key from `kv_store` or full liminal snapshot | Python stringified dict/value (not strict JSON) |
 | `consult_architect` | `context` string | auto-starts mesh if needed, calls `Pulse.trigger("manual:<context>")`, reads `master_plan` from KV | status string containing plan |
+| `ensemble_chat` | `topic` string, `message` string | auto-starts mesh if needed, posts a persistent message to a topic-based thread | confirmation string |
+| `get_ensemble_chat` | `topic` string | auto-starts mesh if needed, retrieves the persistent history of a discussion topic | JSON array of messages |
 
 `Pulse` has a 5-minute cooldown. Repeated `consult_architect` calls inside the cooldown window may return an unchanged plan. Current MCP tools do not pass the special `force` context.
 
