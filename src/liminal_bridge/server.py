@@ -138,6 +138,45 @@ async def consult_architect(context: str) -> str:
     return f"Architect consulted. Plan: {plan}"
 
 
+@mcp.tool()
+async def ensemble_chat(topic: str, message: str) -> str:
+    """Posts a message to a topic-based collaborative discussion thread."""
+    ensure_mesh()
+    if not mesh.running:
+        await mesh.start()
+
+    payload = {
+        "sender": mesh.node_id,
+        "timestamp": time.time(),
+        "content": message,
+    }
+    # Elements in ORSet must be hashable. JSON string works well.
+    await mesh.update_set(f"chat:{topic}", json.dumps(payload))
+    return f"Message posted to topic '{topic}'."
+
+
+@mcp.tool()
+async def get_ensemble_chat(topic: str) -> str:
+    """Retrieves the history of a collaborative discussion thread, sorted by time."""
+    ensure_mesh()
+    # We don't strictly need to start the mesh to read local state,
+    # but starting ensures we are connected to receive updates.
+    if not mesh.running:
+        await mesh.start()
+
+    messages_raw = mesh.get_kv(f"chat:{topic}") or []
+    messages = []
+    for m_json in messages_raw:
+        try:
+            messages.append(json.loads(m_json))
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    # Sort by timestamp
+    messages.sort(key=lambda x: x.get("timestamp", 0))
+    return json.dumps(messages, indent=2)
+
+
 # --- Seed Mode ---
 async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
     """Runs the mesh in seed mode (no MCP server)."""
