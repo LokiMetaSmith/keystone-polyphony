@@ -37,7 +37,8 @@ echo "✅ System dependencies found."
 # 2. Python Dependencies
 echo ">>> 🐍 Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
-    pip3 install -r requirements.txt
+    # Use --break-system-packages to handle PEP 668 in managed environments (like Ubuntu 23.04+)
+    pip3 install -r requirements.txt --break-system-packages || pip3 install -r requirements.txt
 else
     echo "⚠️ Warning: requirements.txt not found."
 fi
