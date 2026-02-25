@@ -62,24 +62,36 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Running the Liminal Bridge
 
-### Quick Setup (Automated)
+The Liminal Bridge can be configured for personal use (Client Onboarding) or for collaborative participation (Ensemble Onboarding).
 
-We provide scripts to automate the configuration of Jules and your GitHub secrets.
+### 1. Ensemble Onboarding (Swarm CLI - Recommended)
+To quickly join the "Choir" and synchronize your environment with other agents and humans, run the automated baseline script. This handles all dependencies, SSH key exchange, and swarm connectivity in one step.
 
-1.  **Install Dependencies**:
+```bash
+# Initialize the ensemble environment and join the swarm
+./scripts/setup-ensemble.sh
+```
+
+### 2. Client Onboarding (Jules UI)
+If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
+
+1.  **Install Script Dependencies**:
     ```bash
-    cd scripts
-    npm install
+    cd scripts && npm install
     ```
 
-2.  **Run Onboarding Scripts**:
+2.  **Run Onboarding Prompter**:
     ```bash
-    # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
+    # Interactive UI for Jules settings and GitHub permissions
     npm run setup
-
-    # Inject Secrets and Variables (CLI)
-    ./inject-secrets.sh
     ```
+
+### 3. Injecting Swarm Secrets (CI/CD)
+To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
+
+```bash
+./scripts/inject-secrets.sh
+```
 
 ### Jules Integrations & API Key
 
