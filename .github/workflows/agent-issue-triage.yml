@@ -1,10 +1,11 @@
-name: Publish Agent Issues
+name: Agent Issue Triage and Publish
 
 on:
   push:
+    branches:
+      - staging
     paths:
       - '.github/issues/*.md'
-  workflow_call:
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +17,7 @@ permissions:
   issues: write
 
 jobs:
-  publish-issues:
+  triage-and-publish:
     runs-on: ubuntu-latest
     steps:
       - name: Configure Git default branch
@@ -57,7 +58,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Create Issues on Upstream
+      - name: Triage and Publish Issues
         if: steps.auth.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ steps.auth.outputs.token_to_use == 'upstream' && secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
@@ -70,6 +71,23 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/triage-lib.sh
+
+          # Install yq for async triage configuration parsing (if not present)
+          if ! command -v yq &> /dev/null; then
+              echo "Installing yq..."
+              mkdir -p $HOME/.local/bin
+              wget -qO $HOME/.local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+              chmod +x $HOME/.local/bin/yq
+              export PATH=$HOME/.local/bin:$PATH
+          fi
+
+          # Export required variables for deduplicate script
+          export TRIAGE_AGENTS="${TRIAGE_AGENTS}"
+          export DUCKY_API_KEY="${DUCKY_API_KEY}"
+          export DUCKY_MODEL="${DUCKY_MODEL}"
+
+          echo "Running deduplication..."
+          python3 scripts/deduplicate.py
 
           shopt -s nullglob
           for file in .github/issues/*.md; do
