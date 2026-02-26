@@ -117,6 +117,38 @@ class Architect:
         else:
             return await self._consult_openai(prompt)
 
+    async def deduplicate_backlog(self, issues: Dict[str, str]) -> str:
+        """
+        Analyzes a backlog of issues and identifies duplicates.
+        Returns a JSON structure mapping primary issues to their duplicates.
+        """
+        prompt = f"""
+        You are an expert technical product manager.
+        Analyze the following backlog of issues for duplicates or redundant findings.
+
+        Backlog:
+        {json.dumps(issues, indent=2)}
+
+        Task:
+        1. Identify clusters of issues that describe the same underlying problem or feature request.
+        2. For each cluster, select the most comprehensive issue as the 'primary'.
+        3. List the other issues in the cluster as 'duplicates'.
+        4. If an issue is unique, do not include it in the 'duplicates' list.
+        5. Return a JSON object where keys are the filenames of the primary issues, and values are lists of filenames
+           of duplicates to be merged into the primary.
+           Example: {{ "issue1.md": ["issue2.md", "issue3.md"] }}
+           If no duplicates are found, return an empty object {{}}.
+        """
+
+        if self.provider == "google":
+            return await self._consult_google(prompt)
+        elif self.provider == "anthropic":
+            return await self._consult_anthropic(prompt)
+        elif self.provider == "ollama":
+            return await self._consult_ollama(prompt)
+        else:
+            return await self._consult_openai(prompt)
+
     async def refine_issue(self, issue_content: str) -> str:
         """
         Refines a raw issue description into a structured format.
@@ -150,6 +182,10 @@ class Architect:
             return await self._refine_ollama(prompt)
         else:
             return await self._refine_openai(prompt)
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.client or self.google_model)
 
     async def _consult_openai(self, prompt: str) -> str:
         if not self.client:
