@@ -94,6 +94,7 @@ class LiminalMesh:
 
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
+        self.on_tandem_sync: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
         # Observability
         self.log_aggregator = LogAggregator()
@@ -629,6 +630,12 @@ class LiminalMesh:
             if node:
                 self.network_map[node] = peers
 
+        elif p_type == "tandem_sync":
+            target = payload.get("target")
+            state = payload.get("state")
+            if target == self.node_id and self.on_tandem_sync:
+                self.on_tandem_sync(origin, state)
+
     async def broadcast_network_state(self):
         """Broadcasts the current list of connected peers (Node IDs)."""
         # Resolve peers to node IDs
@@ -663,6 +670,50 @@ class LiminalMesh:
         self.thoughts[self.node_id] = content
         self._save_thought(self.node_id, content)
         await self.broadcast({"type": "thought", "content": content}, urgency=urgency)
+
+    async def tandem_sync(self, target_node_id: str, state: Dict[str, Any]):
+        """
+        Sends a high-urgency physical state update for tandem action.
+        Note: In this implementation, it uses broadcast with a target filter.
+        """
+        payload = {"type": "tandem_sync", "target": target_node_id, "state": state}
+        await self.broadcast(payload, urgency="high")
+
+    async def leave_marker(
+        self,
+        marker_id: str,
+        marker_type: str,
+        location: str,
+        payload: Optional[Dict[str, Any]] = None,
+    ):
+        """Leaves a stigmergic marker in the environment (KV store)."""
+        marker = {
+            "id": marker_id,
+            "type": marker_type,
+            "location": location,
+            "payload": payload or {},
+            "origin": self.node_id,
+            "timestamp": time.time(),
+        }
+        await self.update_kv(f"marker:{marker_id}", marker, urgency="high")
+
+    def get_markers(
+        self, marker_type: Optional[str] = None, location: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
+        """Retrieves and filters markers from the KV store."""
+        markers = []
+        for key, crdt in self.kv_store.items():
+            if key.startswith("marker:"):
+                val = crdt.value()
+                if not isinstance(val, dict):
+                    continue
+
+                if marker_type and val.get("type") != marker_type:
+                    continue
+                if location and val.get("location") != location:
+                    continue
+                markers.append(val)
+        return markers
 
     async def advertise_capabilities(self, capabilities: list[str]):
         """Advertises node capabilities to the swarm via KV store."""
