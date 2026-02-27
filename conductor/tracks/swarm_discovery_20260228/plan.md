@@ -9,14 +9,14 @@
     - [x] Document in `docs/swarm-discovery/modality-matrix.md`
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Environmental & Constraints Analysis' (Protocol in workflow.md)
 
-## Phase 2: Core Bootstrapping Hooks
+## Phase 2: Core Bootstrapping Hooks [checkpoint: 523bb17]
 - [x] Task: Implement `install.sh`
     - [x] Write Tests: Verify idempotency and dependency checks
     - [x] Implement: Provisioning logic (OS config, drivers, libs)
 - [x] Task: Implement `keystone-polyphony.sh`
     - [x] Write Tests: Verify daemon startup and swarm attachment
     - [x] Implement: Activation logic (Discovery, Gossip, Task loops)
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Bootstrapping Hooks' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Core Bootstrapping Hooks' (Protocol in workflow.md)
 
 ## Phase 3: Multi-Granular Discovery Implementation
 - [ ] Task: Implement Contextual Attenuation
