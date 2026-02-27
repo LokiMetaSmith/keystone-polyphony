@@ -844,6 +844,24 @@ class LiminalMesh:
         """Returns a copy of the KV store with values unwrapped."""
         return {k: v.value() for k, v in self.kv_store.items()}
 
+    def get_health_status(self) -> Dict[str, Any]:
+        """Returns the current operational health of the node."""
+        if not self.running:
+            return {"status": "offline", "reason": "Mesh daemon not running"}
+
+        if not self.peers:
+            return {
+                "status": "degraded",
+                "reason": "No global peers discovered",
+                "mode": "local_fallback",
+            }
+
+        return {
+            "status": "healthy",
+            "peer_count": len(self.peers),
+            "mode": "global_mesh",
+        }
+
     async def acquire_baton(self, resource: str, timeout: float = 2.0) -> bool:
         """Tries to acquire a lock on a resource."""
         if resource in self.batons:
