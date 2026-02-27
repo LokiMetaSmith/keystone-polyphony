@@ -217,6 +217,14 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
             if int(time.time()) % 60 == 0:
                 await pulse.trigger(context="seed_heartbeat")
 
+            # Autonomous Swarm Behaviors (every 30s)
+            if int(time.time()) % 30 == 0:
+                # In a real deployment, these would be read from node config
+                await mesh.advertise_capabilities(["worker", "compute"])
+                task = await mesh.autonomously_pick_task()
+                if task:
+                    print(f">>> [Autonomy] Node picked task: {task['id']}")
+
     except asyncio.CancelledError:
         pass
     finally:

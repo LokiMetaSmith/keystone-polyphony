@@ -455,6 +455,11 @@ class LiminalMesh:
 
     async def broadcast(self, payload: Any, urgency: str = "low"):
         """Broadcasts a payload to all peers."""
+        # TODO: Implement multi-modal transport switching.
+        # High urgency or Macro-level updates (>5m) should potentially use MQTT/5G.
+        # Micro-level updates (<1m) should prioritize BLE or Visual status.
+        # Current implementation defaults all to Hyperswarm (DHT).
+
         # Attach origin info
         payload["origin"] = self.node_id
         payload["timestamp"] = time.time()
