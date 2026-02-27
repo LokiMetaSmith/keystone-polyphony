@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import pytest
 
 # Ensure we can import local modules
 sys.path.append(os.path.abspath("src"))
@@ -9,6 +10,7 @@ sys.path.append(os.path.abspath("src"))
 from liminal_bridge.mesh import LiminalMesh  # noqa: E402
 
 
+@pytest.mark.asyncio
 async def test_chat():
     print("Testing Ensemble Chat...")
 
