@@ -1,13 +1,13 @@
 # Implementation Plan: Formalize Swarm Discovery & Communication
 
-## Phase 1: Environmental & Constraints Analysis
+## Phase 1: Environmental & Constraints Analysis [checkpoint: f13ffe1]
 - [x] Task: Define physical and digital realities (Visibility, Acoustics, RF, Bandwidth)
     - [x] Research current constraints
     - [x] Document in `docs/swarm-discovery/analysis.md`
 - [x] Task: Create Modality Mapping Matrix (Swarm Action vs. Modality)
     - [x] Define mappings for Passive/Active Discovery, Tandem Action, Stigmergy
     - [x] Document in `docs/swarm-discovery/modality-matrix.md`
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Environmental & Constraints Analysis' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Environmental & Constraints Analysis' (Protocol in workflow.md)
 
 ## Phase 2: Core Bootstrapping Hooks
 - [ ] Task: Implement `install.sh`
