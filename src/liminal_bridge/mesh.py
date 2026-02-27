@@ -69,6 +69,8 @@ class LiminalMesh:
         self.fernet = Fernet(enc_key)
 
         self.peers: Set[str] = set()
+        self.peer_distances: Dict[str, float] = {}  # peer_id -> distance in meters
+        self.capabilities: list[str] = []
         self.thoughts: Dict[str, Any] = {}
         self.batons: Dict[str, str] = {}  # resource -> owner_id
 
@@ -450,11 +452,12 @@ class LiminalMesh:
         data = self.fernet.decrypt(encrypted_b64.encode())
         return json.loads(data.decode())
 
-    async def broadcast(self, payload: Any):
+    async def broadcast(self, payload: Any, urgency: str = "low"):
         """Broadcasts a payload to all peers."""
         # Attach origin info
         payload["origin"] = self.node_id
         payload["timestamp"] = time.time()
+        payload["urgency"] = urgency
         # Include public key for identification (could be optimized to only send once, but simplified here)
         payload["sender_pubkey"] = self.public_key_hex
 
@@ -476,6 +479,10 @@ class LiminalMesh:
         for node, count in remote_clock.items():
             self.vector_clock[node] = max(self.vector_clock.get(node, 0), count)
         self._save_clock()
+
+    def update_peer_distance(self, peer_id: str, distance: float):
+        """Updates the tracked distance to a peer."""
+        self.peer_distances[peer_id] = distance
 
     async def _handle_message(self, msg: Dict[str, Any]):
         """Dispatches incoming messages."""
@@ -519,6 +526,14 @@ class LiminalMesh:
         p_type = payload.get("type")
         origin = payload.get("origin")
         remote_vc = payload.get("vc", {})
+        urgency = payload.get("urgency", "low")
+
+        # Contextual Attenuation Filtering
+        if urgency == "low" and origin in self.peer_distances:
+            distance = self.peer_distances[origin]
+            if distance > 5.0:
+                # Silently drop low-urgency messages from far peers
+                return
 
         # Merge clocks on receive
         if remote_vc:
@@ -644,12 +659,55 @@ class LiminalMesh:
         self.log_aggregator.add_log(entry)
         await self.broadcast(entry)
 
-    async def share_thought(self, content: str):
+    async def share_thought(self, content: str, urgency: str = "low"):
         self.thoughts[self.node_id] = content
         self._save_thought(self.node_id, content)
-        await self.broadcast({"type": "thought", "content": content})
+        await self.broadcast({"type": "thought", "content": content}, urgency=urgency)
 
-    async def update_kv(self, key: str, value: Any):
+    async def advertise_capabilities(self, capabilities: list[str]):
+        """Advertises node capabilities to the swarm via KV store."""
+        self.capabilities = capabilities
+        await self.update_kv(
+            f"capabilities:{self.node_id}", capabilities, urgency="high"
+        )
+
+    async def autonomously_pick_task(self) -> Optional[Dict[str, Any]]:
+        """
+        Reads the 'task_pool' from KV store and picks the highest priority
+        pending task matching this node's capabilities.
+        """
+        pool = self.get_kv("task_pool")
+        if not pool or not isinstance(pool, list):
+            return None
+
+        # Filter: pending AND capabilities match
+        available = []
+        for task in pool:
+            if task.get("status") == "pending":
+                required = task.get("required", [])
+                # If node has all required capabilities (or none required)
+                if all(cap in self.capabilities for cap in required):
+                    available.append(task)
+
+        if not available:
+            return None
+
+        # Sort by priority descending
+        available.sort(key=lambda x: x.get("priority", 0), reverse=True)
+        picked = available[0]
+
+        # Claim the task
+        picked["status"] = "claimed"
+        picked["claimed_by"] = self.node_id
+
+        # Update the pool back to KV
+        # Note: In a real swarm, this might have race conditions if two nodes pick simultaneously.
+        # Here we use the best-effort KV update.
+        await self.update_kv("task_pool", pool, urgency="high")
+
+        return picked
+
+    async def update_kv(self, key: str, value: Any, urgency: str = "low"):
         """Updates a Key-Value pair using LWWRegister."""
         self._increment_clock()
         timestamp = time.time()
@@ -673,10 +731,11 @@ class LiminalMesh:
 
         # Broadcast
         await self.broadcast(
-            {"type": "kv_update", "key": key, "crdt": new_register.to_dict()}
+            {"type": "kv_update", "key": key, "crdt": new_register.to_dict()},
+            urgency=urgency,
         )
 
-    async def update_counter(self, key: str, delta: int = 1):
+    async def update_counter(self, key: str, delta: int = 1, urgency: str = "low"):
         """Updates a PNCounter."""
         self._increment_clock()  # Counters don't strictly use VC for merge, but good to track causality in mesh
 
@@ -695,10 +754,13 @@ class LiminalMesh:
         self._save_kv(key, current)
 
         await self.broadcast(
-            {"type": "kv_update", "key": key, "crdt": current.to_dict()}
+            {"type": "kv_update", "key": key, "crdt": current.to_dict()},
+            urgency=urgency,
         )
 
-    async def update_set(self, key: str, element: Any, remove: bool = False):
+    async def update_set(
+        self, key: str, element: Any, remove: bool = False, urgency: str = "low"
+    ):
         """Updates an ORSet (or GSet if remove=False and fallback)."""
         self._increment_clock()
 
@@ -717,7 +779,8 @@ class LiminalMesh:
         self._save_kv(key, current)
 
         await self.broadcast(
-            {"type": "kv_update", "key": key, "crdt": current.to_dict()}
+            {"type": "kv_update", "key": key, "crdt": current.to_dict()},
+            urgency=urgency,
         )
 
     def get_kv(self, key: str):
