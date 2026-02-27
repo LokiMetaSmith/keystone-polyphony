@@ -1,12 +1,12 @@
 # Implementation Plan: Formalize Swarm Discovery & Communication
 
 ## Phase 1: Environmental & Constraints Analysis
-- [ ] Task: Define physical and digital realities (Visibility, Acoustics, RF, Bandwidth)
-    - [ ] Research current constraints
-    - [ ] Document in `docs/swarm-discovery/analysis.md`
-- [ ] Task: Create Modality Mapping Matrix (Swarm Action vs. Modality)
-    - [ ] Define mappings for Passive/Active Discovery, Tandem Action, Stigmergy
-    - [ ] Document in `docs/swarm-discovery/modality-matrix.md`
+- [x] Task: Define physical and digital realities (Visibility, Acoustics, RF, Bandwidth)
+    - [x] Research current constraints
+    - [x] Document in `docs/swarm-discovery/analysis.md`
+- [x] Task: Create Modality Mapping Matrix (Swarm Action vs. Modality)
+    - [x] Define mappings for Passive/Active Discovery, Tandem Action, Stigmergy
+    - [x] Document in `docs/swarm-discovery/modality-matrix.md`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Environmental & Constraints Analysis' (Protocol in workflow.md)
 
 ## Phase 2: Core Bootstrapping Hooks
