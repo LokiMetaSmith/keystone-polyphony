@@ -4,6 +4,7 @@ import sys
 import argparse
 import time
 import hashlib
+import json
 
 # Get the directory containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))

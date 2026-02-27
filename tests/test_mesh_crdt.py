@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
 from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet

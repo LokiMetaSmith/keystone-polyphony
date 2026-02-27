@@ -540,7 +540,7 @@ class LiminalMesh:
                 # Check if we have a local CRDT for this key
                 current = self.kv_store.get(key)
 
-                if current and type(current) == type(remote_crdt):
+                if current and isinstance(current, type(remote_crdt)):
                     # Merge
                     current.merge(remote_crdt)
                     self._save_kv(key, current)

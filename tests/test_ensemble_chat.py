@@ -6,7 +6,7 @@ import sys
 # Ensure we can import local modules
 sys.path.append(os.path.abspath("src"))
 
-from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.mesh import LiminalMesh  # noqa: E402
 
 
 async def test_chat():

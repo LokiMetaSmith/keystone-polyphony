@@ -1,11 +1,8 @@
 import pytest
 import asyncio
-import json
 import random
-import os
-from typing import Dict, Set, Any, List, Optional
+from typing import Dict, Set, Any
 from src.liminal_bridge.mesh import LiminalMesh
-from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet
 
 
 class NetworkSimulator:
@@ -299,7 +296,6 @@ async def test_packet_loss(simulator, mesh_a, mesh_b):
     await asyncio.sleep(0.1)
 
     # Try sending multiple updates
-    received_count = 0
     total_sent = 10
 
     # We use a counter on B to track received updates
