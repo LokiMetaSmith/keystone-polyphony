@@ -7,15 +7,19 @@ from typing import Dict, Set, Any, List, Optional
 from src.liminal_bridge.mesh import LiminalMesh
 from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet
 
+
 class NetworkSimulator:
     """Simulates network conditions for connected nodes."""
+
     def __init__(self, latency: float = 0.0, drop_rate: float = 0.0):
-        self.nodes: Dict[str, 'MockMesh'] = {}
+        self.nodes: Dict[str, "MockMesh"] = {}
         self.latency = latency
         self.drop_rate = drop_rate
-        self.partitions: Set[frozenset] = set() # Set of frozen sets {node_id_1, node_id_2}
+        self.partitions: Set[frozenset] = (
+            set()
+        )  # Set of frozen sets {node_id_1, node_id_2}
 
-    def register(self, node: 'MockMesh'):
+    def register(self, node: "MockMesh"):
         self.nodes[node.node_id] = node
         # Notify existing nodes of new peer (simulate discovery)
         for peer_id, peer_node in self.nodes.items():
@@ -23,29 +27,23 @@ class NetworkSimulator:
                 asyncio.create_task(self._notify_connection(node, peer_node))
                 asyncio.create_task(self._notify_connection(peer_node, node))
 
-    def unregister(self, node: 'MockMesh'):
+    def unregister(self, node: "MockMesh"):
         if node.node_id in self.nodes:
             del self.nodes[node.node_id]
             # Notify peers of disconnection
             for peer_id, peer_node in self.nodes.items():
                 asyncio.create_task(self._notify_disconnection(peer_node, node.node_id))
 
-    async def _notify_connection(self, node: 'MockMesh', peer: 'MockMesh'):
+    async def _notify_connection(self, node: "MockMesh", peer: "MockMesh"):
         if self._is_partitioned(node.node_id, peer.node_id):
             return
         await asyncio.sleep(self.latency)
-        await node._handle_message({
-            "type": "peer_connected",
-            "peer_id": peer.node_id
-        })
+        await node._handle_message({"type": "peer_connected", "peer_id": peer.node_id})
 
-    async def _notify_disconnection(self, node: 'MockMesh', peer_id: str):
+    async def _notify_disconnection(self, node: "MockMesh", peer_id: str):
         # Disconnection usually happens immediately or after timeout, simulate with latency
         await asyncio.sleep(self.latency)
-        await node._handle_message({
-            "type": "peer_disconnected",
-            "peer_id": peer_id
-        })
+        await node._handle_message({"type": "peer_disconnected", "peer_id": peer_id})
 
     def partition(self, node_id_1: str, node_id_2: str):
         self.partitions.add(frozenset({node_id_1, node_id_2}))
@@ -83,18 +81,16 @@ class NetworkSimulator:
         node = self.nodes.get(target_id)
         if node and node.running:
             # The sidecar wraps the payload in a message structure
-            msg = {
-                "type": "message",
-                "peer_id": sender_id,
-                "payload": payload
-            }
+            msg = {"type": "message", "peer_id": sender_id, "payload": payload}
             try:
                 await node._handle_message(msg)
             except Exception as e:
                 print(f"Error delivering message to {target_id}: {e}")
 
+
 class MockMesh(LiminalMesh):
     """A LiminalMesh subclass that uses NetworkSimulator instead of a real sidecar."""
+
     def __init__(self, simulator: NetworkSimulator, secret_key: str, **kwargs):
         # Use in-memory DB or temp file handled by pytest fixtures
         super().__init__(secret_key, **kwargs)
@@ -130,23 +126,31 @@ class MockMesh(LiminalMesh):
         elif msg_type == "leave":
             pass
 
+
 @pytest.fixture
 def simulator():
     return NetworkSimulator()
+
 
 @pytest.fixture
 def mesh_a(simulator, tmp_path):
     db = tmp_path / "a.db"
     identity = tmp_path / "a.pem"
-    mesh = MockMesh(simulator, "test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = MockMesh(
+        simulator, "test-secret", db_path=str(db), identity_path=str(identity)
+    )
     return mesh
+
 
 @pytest.fixture
 def mesh_b(simulator, tmp_path):
     db = tmp_path / "b.db"
     identity = tmp_path / "b.pem"
-    mesh = MockMesh(simulator, "test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = MockMesh(
+        simulator, "test-secret", db_path=str(db), identity_path=str(identity)
+    )
     return mesh
+
 
 @pytest.mark.asyncio
 async def test_basic_connectivity(mesh_a, mesh_b):
@@ -168,10 +172,11 @@ async def test_basic_connectivity(mesh_a, mesh_b):
     await mesh_a.stop()
     await mesh_b.stop()
 
+
 @pytest.mark.asyncio
 async def test_latency(simulator, mesh_a, mesh_b):
     """Test eventual consistency with simulated latency."""
-    simulator.latency = 0.5 # 500ms latency
+    simulator.latency = 0.5  # 500ms latency
 
     await mesh_a.start()
     await mesh_b.start()
@@ -199,6 +204,7 @@ async def test_latency(simulator, mesh_a, mesh_b):
     await mesh_a.stop()
     await mesh_b.stop()
 
+
 @pytest.mark.asyncio
 async def test_concurrent_updates_with_latency(simulator, mesh_a, mesh_b):
     """Test CRDT convergence with concurrent updates and latency."""
@@ -206,7 +212,7 @@ async def test_concurrent_updates_with_latency(simulator, mesh_a, mesh_b):
 
     await mesh_a.start()
     await mesh_b.start()
-    await asyncio.sleep(0.5) # Wait for connect
+    await asyncio.sleep(0.5)  # Wait for connect
 
     # Concurrent updates to same key
     # A sets to "valA", B sets to "valB"
@@ -227,6 +233,7 @@ async def test_concurrent_updates_with_latency(simulator, mesh_a, mesh_b):
 
     await mesh_a.stop()
     await mesh_b.stop()
+
 
 @pytest.mark.asyncio
 async def test_partition_recovery(simulator, mesh_a, mesh_b):
@@ -281,10 +288,11 @@ async def test_partition_recovery(simulator, mesh_a, mesh_b):
     await mesh_a.stop()
     await mesh_b.stop()
 
+
 @pytest.mark.asyncio
 async def test_packet_loss(simulator, mesh_a, mesh_b):
     """Test behavior with packet loss."""
-    simulator.drop_rate = 0.5 # 50% drop rate
+    simulator.drop_rate = 0.5  # 50% drop rate
 
     await mesh_a.start()
     await mesh_b.start()

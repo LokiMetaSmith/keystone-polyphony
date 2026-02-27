@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
 from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet
 
+
 @pytest.fixture
 def mesh_a(tmp_path):
     db = tmp_path / "a.db"
@@ -12,6 +13,7 @@ def mesh_a(tmp_path):
     mesh.broadcast = AsyncMock()
     return mesh
 
+
 @pytest.fixture
 def mesh_b(tmp_path):
     db = tmp_path / "b.db"
@@ -19,6 +21,7 @@ def mesh_b(tmp_path):
     mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
     mesh.broadcast = AsyncMock()
     return mesh
+
 
 @pytest.mark.asyncio
 async def test_update_kv_lww(mesh_a):
@@ -32,6 +35,7 @@ async def test_update_kv_lww(mesh_a):
     internal = mesh_a.kv_store["key1"]
     assert isinstance(internal, LWWRegister)
     assert internal.value() == "value1"
+
 
 @pytest.mark.asyncio
 async def test_update_counter(mesh_a, mesh_b):
@@ -52,7 +56,7 @@ async def test_update_counter(mesh_a, mesh_b):
         "key": "cnt",
         "crdt": crdt_payload,
         "origin": mesh_a.node_id,
-        "vc": mesh_a.vector_clock
+        "vc": mesh_a.vector_clock,
     }
 
     await mesh_b._handle_payload(msg_from_a)
@@ -69,11 +73,12 @@ async def test_update_counter(mesh_a, mesh_b):
         "key": "cnt",
         "crdt": crdt_payload_b,
         "origin": mesh_b.node_id,
-        "vc": mesh_b.vector_clock
+        "vc": mesh_b.vector_clock,
     }
 
     await mesh_a._handle_payload(msg_from_b)
     assert mesh_a.get_kv("cnt") == 15
+
 
 @pytest.mark.asyncio
 async def test_update_set(mesh_a, mesh_b):
@@ -93,7 +98,7 @@ async def test_update_set(mesh_a, mesh_b):
         "key": "fruits",
         "crdt": crdt_payload,
         "origin": mesh_a.node_id,
-        "vc": mesh_a.vector_clock
+        "vc": mesh_a.vector_clock,
     }
 
     await mesh_b._handle_payload(msg_from_a)
@@ -118,7 +123,7 @@ async def test_update_set(mesh_a, mesh_b):
         "key": "fruits",
         "crdt": crdt_payload_b,
         "origin": mesh_b.node_id,
-        "vc": mesh_b.vector_clock
+        "vc": mesh_b.vector_clock,
     }
 
     await mesh_a._handle_payload(msg_from_b)
@@ -127,6 +132,7 @@ async def test_update_set(mesh_a, mesh_b):
     # A adds 'apple' again (re-add)
     await mesh_a.update_set("fruits", "apple")
     assert mesh_a.get_kv("fruits") == {"banana", "apple"}
+
 
 @pytest.mark.asyncio
 async def test_persistence_crdt(mesh_a):
@@ -137,7 +143,9 @@ async def test_persistence_crdt(mesh_a):
     # Force save (update_counter/update_set calls save)
 
     # Create new mesh instance pointing to same DB
-    mesh_new = LiminalMesh("test-secret", db_path=mesh_a.db_path, identity_path=mesh_a.identity_path)
+    mesh_new = LiminalMesh(
+        "test-secret", db_path=mesh_a.db_path, identity_path=mesh_a.identity_path
+    )
 
     assert mesh_new.get_kv("cnt") == 10
     assert mesh_new.get_kv("set") == {"item"}
