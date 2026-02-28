@@ -42,7 +42,7 @@ async def main():
     mesh = LiminalMesh(
         secret_key=swarm_key,
         db_path="ssh_exchange.db",
-        identity_path="ssh_identity.pem"
+        identity_path="ssh_identity.pem",
     )
     await mesh.start()
 
@@ -66,9 +66,7 @@ async def main():
                 current_auth_keys = set()
                 if auth_keys_path.exists():
                     with open(auth_keys_path, "r") as f:
-                        current_auth_keys = {
-                            line.strip() for line in f if line.strip()
-                        }
+                        current_auth_keys = {line.strip() for line in f if line.strip()}
 
                 added_count = 0
                 for key in peer_keys:

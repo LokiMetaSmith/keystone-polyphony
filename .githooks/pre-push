@@ -6,6 +6,18 @@ set -euo pipefail
 # This hook runs before 'git push'. It prevents direct pushes to 'main'
 # and ensures all tests pass.
 
+# 0. Local Override
+# Source personal local hooks if they exist
+LOCAL_HOOK=".git/hooks/pre-push.local"
+if [ -x "$LOCAL_HOOK" ]; then
+  echo "pre-push: Running local override hook..."
+  if ! "$LOCAL_HOOK"; then
+    echo "[ERROR] pre-push: Local hook failed. Push aborted."
+    exit 1
+  fi
+fi
+
+
 # 1. Branch Protection
 # The hook receives information about what is being pushed on stdin:
 # <local ref> <local sha1> <remote ref> <remote sha1>
