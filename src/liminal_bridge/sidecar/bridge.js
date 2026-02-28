@@ -15,25 +15,25 @@ const topic = b4a.from(topicHex, 'hex');
 // Check for bootstrap nodes
 let bootstrap = undefined;
 if (process.argv.includes('--bootstrap')) {
-    const idx = process.argv.indexOf('--bootstrap');
-    if (idx !== -1 && process.argv[idx + 1]) {
-        const addr = process.argv[idx + 1];
-        const [host, port] = addr.split(':');
-        bootstrap = [{ host, port: parseInt(port) }];
-        process.stderr.write(`[Sidecar] Using bootstrap node: ${host}:${port}\n`);
-    }
+  const idx = process.argv.indexOf('--bootstrap');
+  if (idx !== -1 && process.argv[idx + 1]) {
+    const addr = process.argv[idx + 1];
+    const [host, port] = addr.split(':');
+    bootstrap = [{ host, port: parseInt(port) }];
+    process.stderr.write(`[Sidecar] Using bootstrap node: ${host}:${port}\n`);
+  }
 }
 
 // Check for seed
 let keyPair = undefined;
 if (process.argv.includes('--seed')) {
-    const idx = process.argv.indexOf('--seed');
-    if (idx !== -1 && process.argv[idx + 1]) {
-        const seedHex = process.argv[idx + 1];
-        const seed = b4a.from(seedHex, 'hex');
-        keyPair = crypto.keyPair(seed);
-        process.stderr.write(`[Sidecar] Using stable identity: ${b4a.toString(keyPair.publicKey, 'hex')}\n`);
-    }
+  const idx = process.argv.indexOf('--seed');
+  if (idx !== -1 && process.argv[idx + 1]) {
+    const seedHex = process.argv[idx + 1];
+    const seed = b4a.from(seedHex, 'hex');
+    keyPair = crypto.keyPair(seed);
+    process.stderr.write(`[Sidecar] Using stable identity: ${b4a.toString(keyPair.publicKey, 'hex')}\n`);
+  }
 }
 
 // Initialize Hyperswarm
@@ -45,7 +45,7 @@ const discoveries = new Map(); // Store discovery objects
 const discovery = swarm.join(topic, { client: true, server: true });
 discoveries.set(topicHex, discovery);
 discovery.flushed().then(() => {
-    process.stderr.write(`[Sidecar] Joined topic ${topicHex}\n`);
+  process.stderr.write(`[Sidecar] Joined topic ${topicHex}\n`);
 });
 
 // Handle connections
@@ -60,6 +60,11 @@ swarm.on('connection', (conn, info) => {
   const rl = readline.createInterface({
     input: conn,
     crlfDelay: Infinity
+  });
+
+  // Prevent uncaught stream errors from crashing the sidecar
+  rl.on('error', (err) => {
+    // Silently ignore connection timeouts/resets from short-lived CLI scripts
   });
 
   rl.on('line', (line) => {
@@ -79,7 +84,8 @@ swarm.on('connection', (conn, info) => {
 
   conn.on('error', (err) => {
     peers.delete(peerId);
-    // process.stderr.write(JSON.stringify({ type: 'debug', message: 'Connection error', peer_id: peerId }) + '\n');
+    // Suppress ETIMEDOUT when short-lived wrapper scripts disconnect instantly
+    // process.stderr.write(JSON.stringify({ type: 'debug', message: 'Connection error', peer_id: peerId, err: err.message }) + '\n');
   });
 });
 
@@ -97,27 +103,31 @@ rl.on('line', (line) => {
     if (command.type === 'broadcast') {
       const msg = JSON.stringify(command.payload) + '\n';
       for (const [id, conn] of peers) {
-        conn.write(msg);
+        try {
+          conn.write(msg);
+        } catch (err) {
+          // Ignore write errors to dead connections
+        }
       }
     } else if (command.type === 'join') {
-        const tHex = command.payload.topic;
-        if (!discoveries.has(tHex)) {
-            const newTopic = b4a.from(tHex, 'hex');
-            const d = swarm.join(newTopic, { client: true, server: true });
-            discoveries.set(tHex, d);
-            d.flushed().then(() => {
-                process.stderr.write(`[Sidecar] Joined additional topic ${tHex}\n`);
-            });
-        }
+      const tHex = command.payload.topic;
+      if (!discoveries.has(tHex)) {
+        const newTopic = b4a.from(tHex, 'hex');
+        const d = swarm.join(newTopic, { client: true, server: true });
+        discoveries.set(tHex, d);
+        d.flushed().then(() => {
+          process.stderr.write(`[Sidecar] Joined additional topic ${tHex}\n`);
+        });
+      }
     } else if (command.type === 'leave') {
-        const tHex = command.payload.topic;
-        if (discoveries.has(tHex)) {
-            const d = discoveries.get(tHex);
-            d.destroy().then(() => {
-                 process.stderr.write(`[Sidecar] Left topic ${tHex}\n`);
-            });
-            discoveries.delete(tHex);
-        }
+      const tHex = command.payload.topic;
+      if (discoveries.has(tHex)) {
+        const d = discoveries.get(tHex);
+        d.destroy().then(() => {
+          process.stderr.write(`[Sidecar] Left topic ${tHex}\n`);
+        });
+        discoveries.delete(tHex);
+      }
     }
   } catch (e) {
     process.stderr.write(JSON.stringify({ type: 'error', message: 'Invalid input from Python', details: e.message }) + '\n');
@@ -128,4 +138,10 @@ rl.on('line', (line) => {
 process.on('SIGINT', async () => {
   await swarm.destroy();
   process.exit(0);
+});
+
+// Prevent unhandled errors from internal Hyperswarm dependencies (like ETIMEDOUT on Stream) from crashing the sidecar
+process.on('uncaughtException', (err) => {
+  // We explicitly silently swallow network IO faults here to keep the master bridge alive.
+  // process.stderr.write(`[Sidecar Internal Error] Swallowed: ${err.message}\n`);
 });
