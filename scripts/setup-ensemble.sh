@@ -7,32 +7,27 @@ echo ">>> 🚀 Initializing Polyphony Ensemble Baseline..."
 
 # 1. Dependency Check
 echo ">>> 🔍 Checking system dependencies..."
-REQUIRED_CMDS=("python3" "pip3" "node" "npm" "gh" "ssh-keygen")
+
+# Required commands - script will fail if missing
+REQUIRED_CMDS=("python3" "pip3" "node" "npm" "ssh-keygen")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "❌ Error: $cmd is not installed."
-        if [ "$cmd" == "gh" ]; then
-            echo ">>> �️ Attempting to install GitHub CLI (gh)..."
-            if command -v apt-get &> /dev/null; then
-                sudo apt-get update
-                sudo apt-get install -y curl
-                curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-                sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-                sudo apt-get update
-                sudo apt-get install -y gh
-                echo "✅ gh installed successfully."
-            else
-                echo "�💡 Hint: Please install GitHub CLI manually via: https://cli.github.com/manual/installation"
-                exit 1
-            fi
-        else
-            echo "💡 Hint: Please install $cmd using your package manager."
-            exit 1
-        fi
+        echo "💡 Hint: Please install $cmd using your package manager."
+        exit 1
     fi
 done
-echo "✅ System dependencies found."
+echo "✅ Required system dependencies found."
+
+# Optional: Check for GitHub CLI (gh)
+# Not required for basic mesh functionality; only needed for GitHub API interactions
+if ! command -v "gh" &> /dev/null; then
+    echo "⚠️  Warning: gh (GitHub CLI) is not installed."
+    echo "   This is optional - needed for GitHub issue/PR automation but not required for mesh/swarm."
+    echo "   To install: https://cli.github.com/manual/installation"
+else
+    echo "✅ GitHub CLI (gh) found."
+fi
 
 # 2. Python Dependencies
 echo ">>> 🐍 Installing Python dependencies..."
