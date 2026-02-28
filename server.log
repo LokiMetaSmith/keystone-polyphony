@@ -1,15 +1,2 @@
-Starting Liminal Swarm Seed Node (Key: liminal-...)...
-LiminalMesh started. Node ID: 3b8b207dfb18631f. Topic: 544879d5...
-Dashboard Server started at http://localhost:8000
-SIDECAR LOG: [Sidecar] Using stable identity: 99fffd9ae9b8156cb54d987469a0115d343bb592685d164d2267b8b7b74a0c5f
-SIDECAR LOG: [Sidecar] Joined topic 544879d50a1324e24eeac31dcca31024054e428fcff79ec9fbe8866a04a5c0b0
-127.0.0.1 [24/Feb/2026:17:26:48 +0000] "GET /api/network HTTP/1.1" 200 183 "-" "curl/8.5.0"
-PULSE: Triggering Architect consultation (seed_heartbeat)...
-PULSE: Plan updated.
-127.0.0.1 [24/Feb/2026:17:27:04 +0000] "GET / HTTP/1.1" 200 236 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:04 +0000] "GET /assets/index-DAFHU7Zl.css HTTP/1.1" 200 236 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:04 +0000] "GET /assets/index-uXMS2Fy4.js HTTP/1.1" 200 247 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:05 +0000] "GET /api/status HTTP/1.1" 200 298 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:05 +0000] "GET /api/network HTTP/1.1" 200 183 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:07 +0000] "GET /api/thoughts HTTP/1.1" 200 160 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
-127.0.0.1 [24/Feb/2026:17:27:08 +0000] "GET /api/logs HTTP/1.1" 200 160 "http://localhost:8000/" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.7499.4 Safari/537.36"
+nohup: ignoring input
+[03/01/26 00:41:04] WARNING  Tool already exists: ping        tool_manager.py:66

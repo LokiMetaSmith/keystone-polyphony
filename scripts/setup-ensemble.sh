@@ -63,25 +63,44 @@ else
     echo "ℹ️ SSH key already exists at $SSH_KEY"
 fi
 
-# 5. Swarm Configuration (SWARM_KEY)
 if [ -z "$SWARM_KEY" ]; then
     if [ -f .env ]; then
         echo ">>> 📂 Loading SWARM_KEY from .env..."
+        set -a
         source .env
+        set +a
     fi
 fi
 
 if [ -z "$SWARM_KEY" ]; then
-    echo ">>> ⚠️ SWARM_KEY (Ensemble Secret) not detected."
-    read -p "Enter SWARM_KEY [KEYSTONE-POLYPHONY-UPSTREAM]: " input_key
-    export SWARM_KEY=${input_key:-"KEYSTONE-POLYPHONY-UPSTREAM"}
+    if [ "$HEADLESS" = "1" ] || [ "$CI" = "true" ]; then
+        echo ">>> ⚠️ Non-interactive environment detected. Using default SWARM_KEY."
+        export SWARM_KEY="KEYSTONE-POLYPHONY-UPSTREAM"
+    else
+        echo ">>> ⚠️ SWARM_KEY (Ensemble Secret) not detected."
+        read -p "Enter SWARM_KEY [KEYSTONE-POLYPHONY-UPSTREAM]: " input_key
+        export SWARM_KEY=${input_key:-"KEYSTONE-POLYPHONY-UPSTREAM"}
+    fi
     echo "✅ SWARM_KEY set to $SWARM_KEY"
 fi
 
+# 5b. Create .env file if not exists
+if [ ! -f .env ]; then
+    echo ">>> 📝 Creating .env file with SWARM_KEY..."
+    echo "SWARM_KEY=$SWARM_KEY" > .env
+    echo "✅ Created .env file"
+else
+    echo "ℹ️ .env file already exists"
+fi
+
 # 6. Swarm Initialization & Key Exchange
-echo ">>> 🐝 Starting Swarm & Exchanging SSH Keys..."
-# This script uses LiminalMesh which starts the Node sidecar internally.
-python3 scripts/exchange_ssh_keys.py --duration 30
+if [ "$SKIP_SSH_EXCHANGE" = "1" ]; then
+    echo ">>> 🐝 Skipping Swarm Key Exchange (SKIP_SSH_EXCHANGE=1)..."
+else
+    echo ">>> 🐝 Starting Swarm & Exchanging SSH Keys..."
+    # This script uses LiminalMesh which starts the Node sidecar internally.
+    python3 scripts/exchange_ssh_keys.py --duration 30
+fi
 
 echo ">>> 🎉 Ensemble Setup Complete!"
 echo ">>> You can now multiply this environment, and nodes will automatically discover each other via the swarm."

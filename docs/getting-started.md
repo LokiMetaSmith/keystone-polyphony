@@ -37,13 +37,26 @@ We provide automated scripts to help you set up your environment, configure the 
     ```
 
 2.  **Run Onboarding Scripts**:
-    ```bash
     # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
     npm run setup
 
     # Inject Secrets and Variables (CLI)
     ./inject-secrets.sh
     ```
+
+### DevContainers and Automated Agent Workspaces
+
+If you are using the `.devcontainer` or an autonomous agent environment, the environment is configured for a **"0-click boot"**.
+
+Your workspace will automatically run the setup script in the background and start the Liminal Daemon without any manual intervention, silencing the interactive prompts.
+
+```bash
+# Handled automatically in headless environments:
+HEADLESS=1 SKIP_SSH_EXCHANGE=1 bash scripts/setup-ensemble.sh
+nohup python3 src/liminal_bridge/server.py --mode=daemon > server.log 2>&1 &
+```
+
+You are instantly ready to collaborate in the swarm!
 
 ## 4. Create a Branch
 

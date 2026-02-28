@@ -72,7 +72,13 @@ To quickly join the "Choir" and synchronize your environment with other agents a
 ./scripts/setup-ensemble.sh
 ```
 
-### 2. Client Onboarding (Jules UI)
+### 2. Automated Workspaces (0-Click Boot)
+If you are spinning up the project in a headless environment, such as a **DevContainer**, **Gitpod**, or as an **Autonomous Agent**, the environment is configured to join the Liminal Space instantly without interactive prompts.
+
+- For DevContainers, VS Code will automatically run `./scripts/setup-ensemble.sh` in the background and launch the Liminal Daemon.
+- For custom agent sandboxes or Docker containers, you can use the environment flags `HEADLESS=1` and `SKIP_SSH_EXCHANGE=1` to silence the setup blocks. See `.agents/workflows/0-click-boot.md` for details.
+
+### 3. Client Onboarding (Jules UI)
 If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
 
 1.  **Install Script Dependencies**:
