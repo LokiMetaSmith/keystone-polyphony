@@ -34,7 +34,7 @@ for i in $(seq 1 "$AGENT_COUNT"); do
         --body-file "$WORK_ORDER_FILE" \
         --label "ready for work" \
         > /dev/null &
-
+    
     # Slight sleep to space out API requests and avoid rate limits
     sleep 1
 done
