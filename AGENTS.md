@@ -17,12 +17,28 @@ Instead, document these findings by creating a follow-up issue on the **upstream
 
 An automated GitHub Actions workflow can pick up `.md` files pushed to `.github/issues/`, triage and refine them via AI agents (configured via `TRIAGE_AGENTS`), and then publish the polished results to the upstream repository, already surgical and "ready for work". Every published issue is also logged in `meta/DISCOVERIES.md` to maintain a permanent record of the repository's evolution. This requires `UPSTREAM_PR_TOKEN` to be set in your fork secrets. If the token is missing, publishing is skipped and the file remains for manual follow-up. Please do not use `gh issue create` directly.
 
-## 2. Collaboration Norms
+## 2. Ensemble Setup & Swarm Initialization
+To participate in the choir and collaborate with other agents in the ensemble, you must initialize your environment and connect to the swarm.
+
+**How to setup your ensemble environment:**
+1. Ensure the `SWARM_KEY` environment variable is set (e.g., `SWARM_KEY=KEYSTONE-POLYPHONY-UPSTREAM`).
+2. Run the baseline setup script: `scripts/setup-ensemble.sh`.
+3. This script will install all pre-requisites, generate SSH keys if needed, and exchange them via the swarm to enable passwordless management between nodes.
+
+## 3. Technical Consensus & Peer Review (The Choir)
+To achieve a "Masterpiece" architecture, agents must not work in silos. Use the `ensemble_chat` tools to align on technical decisions and peer-review plans before execution.
+
+**Collaboration Mandates:**
+1. **Significant Changes**: Before implementing architectural changes, database migrations, or security-sensitive logic, you MUST post your proposed plan to the `ensemble_chat` (topic: `architecture` or your feature name).
+2. **Reviewing Peers**: Periodically use `get_ensemble_chat` to check if other agents have posted plans. Provide constructive feedback or "LGTM" to establish consensus.
+3. **Conflict Resolution**: If the Architect (`consult_architect`) identifies a conflict in the `master_plan`, use the chat to discuss the resolution path with other active agents.
+
+## 4. Collaboration Norms
 - **Branch Strategy (Important)**: Always create a feature branch (`feat/topic`, `fix/topic`, `docs/topic`) before starting any work. Please do not commit directly to `main`. If a human drops you onto `main`, check out a new branch right away.
 - **Stay Focused**: Keep your edits and Pull Requests focused on the requested task. Avoid mixing unrelated refactors into a feature task.
 - **Atomic Operations**: If you need to make structural changes, do so in isolated commits or separate PRs rather than coupling them with logic changes.
 
-## 3. Supported CLI Agents
+## 5. Supported CLI Agents
 The `agent-issue-solver` workflow supports multiple CLI-based agents. To use a specific agent, configure the `AGENT_CLI` repository variable:
 
 - **OpenCode** (Default): Uses `opencode`.
@@ -30,14 +46,15 @@ The `agent-issue-solver` workflow supports multiple CLI-based agents. To use a s
 - **Claude Code**: Anthropic's official CLI. Set `AGENT_CLI` to `claude`.
 
 The workflow automatically applies flags like `--non-interactive` or `--yolo` for these agents. For other custom agents, use `AGENT_CLI_FLAGS` to pass necessary arguments.
-## 4. Specialized Review Styles
+
+## 6. Specialized Review Styles
 When triggered via GitHub Actions, you might receive specialized review commands. Adjust your analysis focus accordingly:
 
 - `/oc review-workflow`: Focuses on **changed workflows** in `.github/workflows/`. Guideline: `docs/ci-cd.md`.
 - `/oc review-arch`: Focuses on **changed code files**. Guideline: project architecture in `README.md`, `docs/architecture.md`, and `AGENTS.md`.
 - `/oc review-security`: Focuses on **changed files with security implications** (secrets, tokens, permissions). Guideline: `AGENTS.md` and `docs/architecture.md`.
 
-## 5. Public Repository Secret Posture (Important)
+## 7. Public Repository Secret Posture (Important)
 This repository is intentionally public. Treat it as a transparent collaboration space, not a confidential environment.
 
 - **No sensitive secrets policy**: Do not store real secrets (production credentials, private keys, PII-bearing tokens, customer data) in code, commit history, repository variables, or GitHub Actions secrets.

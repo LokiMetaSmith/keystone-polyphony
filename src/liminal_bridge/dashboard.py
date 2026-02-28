@@ -2,6 +2,7 @@ import os
 import uuid
 import sqlite3
 import time
+import json
 from aiohttp import web
 from typing import Optional
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -61,6 +62,7 @@ class DashboardServer:
         self.app.router.add_get("/api/kv", self.handle_kv)
         self.app.router.add_get("/api/logs", self.handle_logs)
         self.app.router.add_get("/api/network", self.handle_network)
+        self.app.router.add_get("/api/discussions", self.handle_discussions)
 
         # CORS (Simplified for local dev)
         # self.app.on_response_prepare.append(self.add_cors_headers)
@@ -281,6 +283,22 @@ class DashboardServer:
 
     async def handle_network(self, request):
         return web.json_response(self.mesh.network_map)
+
+    async def handle_discussions(self, request):
+        discussions = {}
+        for key in self.mesh.kv_store.keys():
+            if key.startswith("chat:"):
+                topic = key[5:]
+                messages_raw = self.mesh.get_kv(key) or []
+                messages = []
+                for m_json in messages_raw:
+                    try:
+                        messages.append(json.loads(m_json))
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                messages.sort(key=lambda x: x.get("timestamp", 0))
+                discussions[topic] = messages
+        return web.json_response(discussions)
 
     async def start(self):
         self.runner = web.AppRunner(self.app)

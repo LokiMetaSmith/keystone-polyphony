@@ -62,24 +62,45 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Running the Liminal Bridge
 
-### Quick Setup (Automated)
+The Liminal Bridge can be configured for personal use (Client Onboarding) or for collaborative participation (Ensemble Onboarding).
 
-We provide scripts to automate the configuration of Jules and your GitHub secrets.
+### 1. Ensemble Onboarding (Swarm CLI - Recommended)
+To quickly join the "Choir" and synchronize your environment with other agents and humans, run the automated baseline script. This handles all dependencies, SSH key exchange, and swarm connectivity in one step.
 
-1.  **Install Dependencies**:
+```bash
+# Initialize the ensemble environment and join the swarm
+./scripts/setup-ensemble.sh
+```
+
+### 2. Zed Onboarding (First-Class Human Interaction)
+For developers using [Zed](https://zed.dev/), you can integrate the Polyphony swarm directly into Zed's Agent Panel. This allows you and the Zed Agent to collaborate seamlessly, acquiring batons and sharing thoughts natively while coding.
+
+```bash
+# Configure Zed settings and add the 'Polyphony Engineer' agent profile
+./scripts/setup-zed.sh
+```
+Read the full [Zed Integration Guide](docs/zed-integration.md) for more details.
+
+### 3. Client Onboarding (Jules UI)
+If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
+
+1.  **Install Script Dependencies**:
     ```bash
-    cd scripts
-    npm install
+    cd scripts && npm install
     ```
 
-2.  **Run Onboarding Scripts**:
+2.  **Run Onboarding Prompter**:
     ```bash
-    # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
+    # Interactive UI for Jules settings and GitHub permissions
     npm run setup
-
-    # Inject Secrets and Variables (CLI)
-    ./inject-secrets.sh
     ```
+
+### 4. Injecting Swarm Secrets (CI/CD)
+To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
+
+```bash
+./scripts/inject-secrets.sh
+```
 
 ### Jules Integrations & API Key
 
@@ -135,6 +156,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
+- Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)

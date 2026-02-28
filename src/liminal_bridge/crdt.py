@@ -1,13 +1,11 @@
-import time
-import json
 import uuid
-from typing import Dict, Any, Optional, Set, List, Tuple
+from typing import Dict, Any, Set, Tuple
 from abc import ABC, abstractmethod
 
 
 class CRDT(ABC):
     @abstractmethod
-    def merge(self, other: 'CRDT') -> 'CRDT':
+    def merge(self, other: "CRDT") -> "CRDT":
         """Merges another CRDT into this one, returning the updated self."""
         pass
 
@@ -23,7 +21,7 @@ class CRDT(ABC):
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CRDT':
+    def from_dict(cls, data: Dict[str, Any]) -> "CRDT":
         """Deserializes the CRDT state from a dictionary."""
         pass
 
@@ -73,13 +71,14 @@ class LWWRegister(CRDT):
     Uses Vector Clocks for causal ordering, timestamps for concurrency resolution,
     and Origin Node ID as a final tie-breaker.
     """
+
     def __init__(self, value: Any, timestamp: float, origin: str, vc: Dict[str, int]):
         self._value = value
         self.timestamp = timestamp
         self.origin = origin
         self.vc = vc
 
-    def merge(self, other: 'LWWRegister') -> 'LWWRegister':
+    def merge(self, other: "LWWRegister") -> "LWWRegister":
         if not isinstance(other, LWWRegister):
             raise ValueError("Cannot merge with non-LWWRegister")
 
@@ -119,16 +118,16 @@ class LWWRegister(CRDT):
             "value": self._value,
             "timestamp": self.timestamp,
             "origin": self.origin,
-            "vc": self.vc
+            "vc": self.vc,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LWWRegister':
+    def from_dict(cls, data: Dict[str, Any]) -> "LWWRegister":
         return cls(
             value=data["value"],
             timestamp=data["timestamp"],
             origin=data["origin"],
-            vc=data["vc"]
+            vc=data["vc"],
         )
 
 
@@ -140,6 +139,7 @@ class PNCounter(CRDT):
         p: Dict[node_id, count] (positive counts)
         n: Dict[node_id, count] (negative counts)
     """
+
     def __init__(self, p: Dict[str, int] = None, n: Dict[str, int] = None):
         self.p = p or {}
         self.n = n or {}
@@ -154,7 +154,7 @@ class PNCounter(CRDT):
             raise ValueError("Amount must be non-negative")
         self.n[node_id] = self.n.get(node_id, 0) + amount
 
-    def merge(self, other: 'PNCounter') -> 'PNCounter':
+    def merge(self, other: "PNCounter") -> "PNCounter":
         if not isinstance(other, PNCounter):
             raise ValueError("Cannot merge with non-PNCounter")
 
@@ -172,14 +172,10 @@ class PNCounter(CRDT):
         return sum(self.p.values()) - sum(self.n.values())
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "type": "pn-counter",
-            "p": self.p,
-            "n": self.n
-        }
+        return {"type": "pn-counter", "p": self.p, "n": self.n}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PNCounter':
+    def from_dict(cls, data: Dict[str, Any]) -> "PNCounter":
         return cls(p=data.get("p"), n=data.get("n"))
 
 
@@ -188,6 +184,7 @@ class GSet(CRDT):
     Grow-only Set.
     Elements can only be added, never removed.
     """
+
     def __init__(self, elements: Set[Any] = None):
         self.elements = elements or set()
 
@@ -195,7 +192,7 @@ class GSet(CRDT):
         # We need elements to be hashable
         self.elements.add(element)
 
-    def merge(self, other: 'GSet') -> 'GSet':
+    def merge(self, other: "GSet") -> "GSet":
         if not isinstance(other, GSet):
             raise ValueError("Cannot merge with non-GSet")
         self.elements.update(other.elements)
@@ -205,13 +202,10 @@ class GSet(CRDT):
         return self.elements.copy()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "type": "g-set",
-            "elements": list(self.elements)
-        }
+        return {"type": "g-set", "elements": list(self.elements)}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'GSet':
+    def from_dict(cls, data: Dict[str, Any]) -> "GSet":
         return cls(elements=set(data.get("elements", [])))
 
 
@@ -249,7 +243,10 @@ class ORSet(CRDT):
            So if I add 'x' (gets u1), then remove 'x' (adds (x, u1) to R),
            then add 'x' again (gets u2), it is in value because (x, u2) is in A but not R.
     """
-    def __init__(self, added: Set[Tuple[Any, str]] = None, removed: Set[Tuple[Any, str]] = None):
+
+    def __init__(
+        self, added: Set[Tuple[Any, str]] = None, removed: Set[Tuple[Any, str]] = None
+    ):
         self.added = added or set()
         self.removed = removed or set()
 
@@ -257,17 +254,23 @@ class ORSet(CRDT):
         try:
             hash(element)
         except TypeError:
-            raise TypeError(f"Element must be hashable. Got {type(element)}. Consider serializing to JSON string.")
+            raise TypeError(
+                f"Element must be hashable. Got {type(element)}. Consider serializing to JSON string."
+            )
 
         u = str(uuid.uuid4())
         self.added.add((element, u))
 
     def remove(self, element: Any):
         # Find all instances of element in added that are NOT in removed
-        to_remove = [item for item in self.added if item[0] == element and item not in self.removed]
+        to_remove = [
+            item
+            for item in self.added
+            if item[0] == element and item not in self.removed
+        ]
         self.removed.update(to_remove)
 
-    def merge(self, other: 'ORSet') -> 'ORSet':
+    def merge(self, other: "ORSet") -> "ORSet":
         if not isinstance(other, ORSet):
             raise ValueError("Cannot merge with non-ORSet")
         self.added.update(other.added)
@@ -282,11 +285,11 @@ class ORSet(CRDT):
         return {
             "type": "or-set",
             "added": list(self.added),
-            "removed": list(self.removed)
+            "removed": list(self.removed),
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ORSet':
+    def from_dict(cls, data: Dict[str, Any]) -> "ORSet":
         # Tuples are serialized as lists in JSON, so we need to convert back to tuples
         added = {tuple(x) for x in data.get("added", [])}
         removed = {tuple(x) for x in data.get("removed", [])}
