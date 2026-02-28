@@ -67,6 +67,9 @@ swarm.on('connection', (conn, info) => {
     // Silently ignore connection timeouts/resets from short-lived CLI scripts
   });
 
+  // Hyperswarm streams can emit errors unconditionally.
+  conn.on('error', () => { });
+
   rl.on('line', (line) => {
     try {
       if (!line.trim()) return;
@@ -141,7 +144,13 @@ process.on('SIGINT', async () => {
 });
 
 // Prevent unhandled errors from internal Hyperswarm dependencies (like ETIMEDOUT on Stream) from crashing the sidecar
+process.removeAllListeners('uncaughtException');
+process.removeAllListeners('unhandledRejection');
+
 process.on('uncaughtException', (err) => {
   // We explicitly silently swallow network IO faults here to keep the master bridge alive.
-  // process.stderr.write(`[Sidecar Internal Error] Swallowed: ${err.message}\n`);
+});
+
+process.on('unhandledRejection', (err) => {
+  // Catch rogue ETIMEDOUT promises
 });
