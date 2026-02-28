@@ -14,8 +14,9 @@ async def main():
     target_id = sys.argv[1]
     message = " ".join(sys.argv[2:])
     swarm_key = os.environ.get("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
+    identity = os.path.expanduser("~/.liminal_cli_identity.pem")
     
-    mesh = LiminalMesh(secret_key=swarm_key)
+    mesh = LiminalMesh(secret_key=swarm_key, identity_path=identity)
     
     try:
         print(">>> Warming up mesh connection...")
