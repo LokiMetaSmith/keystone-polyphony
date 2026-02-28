@@ -2,6 +2,7 @@ import os
 import uuid
 import sqlite3
 import time
+import json
 from aiohttp import web
 from typing import Optional
 from cryptography.hazmat.primitives.asymmetric import ed25519
