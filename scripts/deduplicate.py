@@ -66,7 +66,9 @@ async def main():
     for primary, dups in duplicates_map.items():
         # Security check: Ensure filename is safe (no path traversal)
         if os.path.basename(primary) != primary:
-            print(f"Warning: Primary filename '{primary}' contains path traversal characters. Skipping.")
+            print(
+                f"Warning: Primary filename '{primary}' contains path traversal characters. Skipping."
+            )
             continue
 
         primary_path = os.path.join(issues_dir, primary)
@@ -84,7 +86,9 @@ async def main():
             for dup in dups:
                 # Security check
                 if os.path.basename(dup) != dup:
-                    print(f"Warning: Duplicate filename '{dup}' contains path traversal characters. Skipping.")
+                    print(
+                        f"Warning: Duplicate filename '{dup}' contains path traversal characters. Skipping."
+                    )
                     continue
 
                 dup_path = os.path.join(issues_dir, dup)
