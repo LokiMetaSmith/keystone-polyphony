@@ -26,7 +26,7 @@ except (ImportError, ValueError):
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 # Initialize components
-SWARM_KEY = os.getenv("SWARM_KEY", "liminal-default-secret")
+SWARM_KEY = os.getenv("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
 # Use environment variables or defaults for persistence
 DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
 IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
@@ -277,7 +277,7 @@ async def run_verify_mode():
         # Give it up to 30 seconds
         for i in range(30):
             print(
-                f"Check {i+1}/30... Peers: Node1={len(mesh1.peers)}, Node2={len(mesh2.peers)}"
+                f"Check {i + 1}/30... Peers: Node1={len(mesh1.peers)}, Node2={len(mesh2.peers)}"
             )
             if len(mesh1.peers) > 0 and len(mesh2.peers) > 0:
                 print("SUCCESS: Peers discovered each other!")
