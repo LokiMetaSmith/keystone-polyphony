@@ -72,7 +72,16 @@ To quickly join the "Choir" and synchronize your environment with other agents a
 ./scripts/setup-ensemble.sh
 ```
 
-### 2. Client Onboarding (Jules UI)
+### 2. Zed Onboarding (First-Class Human Interaction)
+For developers using [Zed](https://zed.dev/), you can integrate the Polyphony swarm directly into Zed's Agent Panel. This allows you and the Zed Agent to collaborate seamlessly, acquiring batons and sharing thoughts natively while coding.
+
+```bash
+# Configure Zed settings and add the 'Polyphony Engineer' agent profile
+./scripts/setup-zed.sh
+```
+Read the full [Zed Integration Guide](docs/zed-integration.md) for more details.
+
+### 3. Client Onboarding (Jules UI)
 If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
 
 1.  **Install Script Dependencies**:
@@ -86,7 +95,7 @@ If you are configuring the Jules MCP client for the first time, use the interact
     npm run setup
     ```
 
-### 3. Injecting Swarm Secrets (CI/CD)
+### 4. Injecting Swarm Secrets (CI/CD)
 To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
 
 ```bash
@@ -147,6 +156,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
+- Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)
