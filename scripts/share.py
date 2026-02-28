@@ -15,11 +15,12 @@ async def main():
     swarm_key = os.environ.get("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
     
     mesh = LiminalMesh(secret_key=swarm_key)
-    await mesh.start()
     
     try:
-        # Give the mesh a moment to initialize the sidecar and connect to DHT
-        await asyncio.sleep(2)
+        # Wait for the mesh to initialize and connect to DHT peers
+        print(">>> Warming up mesh connection...")
+        await mesh.warm_up()
+        
         await mesh.share_thought(thought)
         print(f"✅ Shared thought: '{thought}'")
         # Give a moment for the thought to broadcast over the DHT

@@ -16,10 +16,11 @@ async def main():
     swarm_key = os.environ.get("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
     
     mesh = LiminalMesh(secret_key=swarm_key)
-    await mesh.start()
     
     try:
-        await asyncio.sleep(2)
+        print(">>> Warming up mesh connection...")
+        await mesh.warm_up()
+        
         await mesh.ping(target_id, message)
         print(f"✅ Pinged node {target_id} with message: '{message}'")
         await asyncio.sleep(2)
