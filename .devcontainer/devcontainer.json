@@ -1,0 +1,21 @@
+{
+  "name": "Keystone Polyphony",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python3"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+  "remoteUser": "root",
+  "postCreateCommand": "HEADLESS=1 bash scripts/setup-ensemble.sh",
+  "postStartCommand": "nohup python3 src/liminal_bridge/server.py --mode=seed > server.log 2>&1 &"
+}
