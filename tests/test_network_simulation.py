@@ -164,7 +164,7 @@ async def test_basic_connectivity(mesh_a, mesh_b):
     await mesh_a.share_thought("Hello from A")
     await asyncio.sleep(0.1)
 
-    assert mesh_b.thoughts[mesh_a.node_id] == "Hello from A"
+    assert mesh_b.thoughts[mesh_a.node_id]["content"] == "Hello from A"
 
     await mesh_a.stop()
     await mesh_b.stop()
@@ -271,7 +271,7 @@ async def test_partition_recovery(simulator, mesh_a, mesh_b):
 
     await mesh_a.share_thought("Thought after heal")
     await asyncio.sleep(0.1)
-    assert mesh_b.thoughts[mesh_a.node_id] == "Thought after heal"
+    assert mesh_b.thoughts[mesh_a.node_id]["content"] == "Thought after heal"
 
     # NOTE: KV Sync is NOT implemented on reconnect in LiminalMesh yet.
     # So we don't assert mesh_b.get_kv("part_key") == "value_during_partition"

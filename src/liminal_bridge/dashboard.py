@@ -60,6 +60,8 @@ class DashboardServer:
         self.app.router.add_get("/api/batons", self.handle_batons)
         self.app.router.add_post("/api/batons", self.handle_post_baton)
         self.app.router.add_get("/api/kv", self.handle_kv)
+        self.app.router.add_get("/api/backlog", self.handle_backlog)
+        self.app.router.add_post("/api/backlog", self.handle_post_backlog)
         self.app.router.add_get("/api/logs", self.handle_logs)
         self.app.router.add_get("/api/network", self.handle_network)
         self.app.router.add_get("/api/discussions", self.handle_discussions)
@@ -277,6 +279,89 @@ class DashboardServer:
 
     async def handle_kv(self, request):
         return web.json_response(self.mesh.get_all_kv())
+
+    async def handle_backlog(self, request):
+        backlog = self.mesh.get_kv("swarm_backlog") or []
+        tasks = []
+        for item in backlog:
+            try:
+                tasks.append(json.loads(item))
+            except BaseException:
+                continue
+        return web.json_response(tasks)
+
+    async def handle_post_backlog(self, request):
+        try:
+            data = await request.json()
+            action = data.get("action")
+            task_id = data.get("task_id")
+
+            if action == "add":
+                title = data.get("title")
+                description = data.get("description", "")
+                priority = data.get("priority", "medium")
+                if not title:
+                    return web.json_response({"error": "Missing title"}, status=400)
+
+                task = {
+                    "id": str(uuid.uuid4()),
+                    "title": title,
+                    "description": description,
+                    "owner": None,
+                    "status": "todo",
+                    "priority": priority,
+                }
+                await self.mesh.update_set("swarm_backlog", json.dumps(task))
+                return web.json_response({"status": "added", "task_id": task["id"]})
+
+            elif action == "claim":
+                if not task_id:
+                    return web.json_response({"error": "Missing task_id"}, status=400)
+
+                success = await self.mesh.acquire_baton(f"task:{task_id}")
+                if success:
+                    backlog = self.mesh.get_kv("swarm_backlog") or []
+                    for item in backlog:
+                        try:
+                            t = json.loads(item)
+                            if t.get("id") == task_id:
+                                t["owner"] = self.mesh.node_id
+                                t["status"] = "in_progress"
+                                await self.mesh.update_set(
+                                    "swarm_backlog", json.dumps(t)
+                                )
+                                break
+                        except BaseException:
+                            continue
+                    return web.json_response({"status": "claimed"})
+                else:
+                    return web.json_response(
+                        {"error": "Failed to claim task - baton denied"}, status=403
+                    )
+
+            elif action == "complete":
+                if not task_id:
+                    return web.json_response({"error": "Missing task_id"}, status=400)
+
+                await self.mesh.release_baton(f"task:{task_id}")
+                backlog = self.mesh.get_kv("swarm_backlog") or []
+                for item in backlog:
+                    try:
+                        t = json.loads(item)
+                        if t.get("id") == task_id:
+                            t["status"] = "done"
+                            t["owner"] = self.mesh.node_id
+                            await self.mesh.update_set("swarm_backlog", json.dumps(t))
+                            break
+                    except BaseException:
+                        continue
+                return web.json_response({"status": "completed"})
+
+            else:
+                return web.json_response({"error": "Invalid action"}, status=400)
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     async def handle_logs(self, request):
         return web.json_response(self.mesh.log_aggregator.get_logs())
