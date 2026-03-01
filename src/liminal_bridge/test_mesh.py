@@ -93,7 +93,7 @@ async def test_snapshot_creation(tmp_path):
 
     assert data["node_id"] == mesh.node_id
     assert data["kv_store"]["key1"]["value"] == "value1"
-    assert data["thoughts"][mesh.node_id] == "hello world"
+    assert data["thoughts"][mesh.node_id]["content"] == "hello world"
 
 
 @pytest.mark.asyncio
