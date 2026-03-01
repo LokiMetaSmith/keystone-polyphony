@@ -6,11 +6,11 @@ RUN apt-get update && apt-get install -y nodejs npm git curl sudo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user 'phoenix' with UID 1000
-RUN groupadd --gid 1000 phoenix && \
-    useradd --uid 1000 --gid 1000 -m phoenix && \
-    echo "phoenix ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/phoenix && \
-    chmod 0440 /etc/sudoers.d/phoenix
+# Create a non-root user 'developer' with UID 1000
+RUN groupadd --gid 1000 developer && \
+    useradd --uid 1000 --gid 1000 -m developer && \
+    echo "developer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/developer && \
+    chmod 0440 /etc/sudoers.d/developer
 
 # Install GitHub CLI (gh) from official release
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
