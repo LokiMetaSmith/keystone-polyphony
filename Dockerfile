@@ -1,10 +1,16 @@
 # Use a lightweight Python base image
 FROM python:3.12-slim
 
-# Install Node.js, GitHub CLI (gh), and other dependencies
-RUN apt-get update && apt-get install -y nodejs npm git curl && \
+# Install Node.js, GitHub CLI (gh), sudo, and other dependencies
+RUN apt-get update && apt-get install -y nodejs npm git curl sudo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user 'phoenix' with UID 1000
+RUN groupadd --gid 1000 phoenix && \
+    useradd --uid 1000 --gid 1000 -m phoenix && \
+    echo "phoenix ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/phoenix && \
+    chmod 0440 /etc/sudoers.d/phoenix
 
 # Install GitHub CLI (gh) from official release
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \

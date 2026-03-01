@@ -15,7 +15,7 @@
       ]
     }
   },
-  "remoteUser": "root",
+  "remoteUser": "phoenix",
   "postCreateCommand": "HEADLESS=1 SKIP_SSH_EXCHANGE=1 bash scripts/setup-ensemble.sh",
   "postStartCommand": "nohup ./polyphony worker > server.log 2>&1 &"
-  }
+}
