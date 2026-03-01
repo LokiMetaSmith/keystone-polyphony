@@ -94,13 +94,22 @@ Use the `polyphony` command at the root of the repository to interact with the m
 ./polyphony broadcast "Run the integration tests" "" "tester" "idle"
 ```
 
-### 3. Automated Workspaces (0-Click Boot)
+### 3. Zed Onboarding (First-Class Human Interaction)
+For developers using [Zed](https://zed.dev/), you can integrate the Polyphony swarm directly into Zed's Agent Panel. This allows you and the Zed Agent to collaborate seamlessly, acquiring batons and sharing thoughts natively while coding.
+
+```bash
+# Configure Zed settings and add the 'Polyphony Engineer' agent profile
+./scripts/setup-zed.sh
+```
+Read the full [Zed Integration Guide](docs/zed-integration.md) for more details.
+
+### 4. Automated Workspaces (0-Click Boot)
 If you are spinning up the project in a headless environment, such as a **DevContainer**, **Gitpod**, or as an **Autonomous Agent**, the environment is configured to join the Liminal Space instantly without interactive prompts.
 
 - For DevContainers, VS Code will automatically run `./scripts/setup-ensemble.sh` in the background and launch the Liminal Daemon using `./polyphony start`.
 - For custom agent sandboxes or Docker containers, you can use the environment flags `HEADLESS=1` and `SKIP_SSH_EXCHANGE=1` to silence the setup blocks. See `.agents/workflows/0-click-boot.md` for details.
 
-### 3. Client Onboarding (Jules UI)
+### 5. Client Onboarding (Jules UI)
 If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
 
 1.  **Install Script Dependencies**:
@@ -114,7 +123,7 @@ If you are configuring the Jules MCP client for the first time, use the interact
     npm run setup
     ```
 
-### 3. Injecting Polyphony Secrets (CI/CD)
+### 6. Injecting Swarm Secrets (CI/CD)
 To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
 
 ```bash
@@ -175,6 +184,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
+- Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)
