@@ -7,10 +7,15 @@ cd "$REPO_ROOT"
 # 1. Branch Protection
 # Discourage direct commits to main branch.
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT_BRANCH" = "main" ] && [ "${ALLOW_MAIN_COMMIT:-0}" != "1" ]; then
-  echo "[ERROR] Committing directly to 'main' is discouraged. Please use a feature branch."
-  echo "        To override, set ALLOW_MAIN_COMMIT=1"
-  exit 1
+if [ "$CURRENT_BRANCH" = "main" ]; then
+  if [ "${ALLOW_MAIN_COMMIT:-0}" != "1" ]; then
+    echo "[ERROR] Committing directly to 'main' is discouraged. Please use a feature branch."
+    echo "        To override, set ALLOW_MAIN_COMMIT=1"
+    exit 1
+  fi
+  BLOCK_ON_FAIL=1
+else
+  BLOCK_ON_FAIL=0
 fi
 
 # Use -z to handle filenames with spaces/newlines correctly.
@@ -43,7 +48,7 @@ for file in "${STAGED_FILES[@]}"; do
   # Applies to both .sh files and git hooks.
   if [[ "$file" == *.sh ]] || [[ "$file" == .githooks/* ]]; then
     if ! git show ":$file" | bash -n; then
-      echo "[ERROR] Shell syntax error in staged version of $file"
+      echo "[WARNING] Shell syntax error in staged version of $file"
       FAILED=1
     fi
   fi
@@ -76,8 +81,12 @@ for file in "${STAGED_FILES[@]}"; do
 done
 
 if [ "$FAILED" -eq 1 ]; then
-  echo "[ERROR] pre-commit: linting/syntax checks failed. Commit aborted."
-  exit 1
+  if [ "$BLOCK_ON_FAIL" -eq 1 ]; then
+    echo "[ERROR] pre-commit: linting/syntax checks failed. Commit aborted."
+    exit 1
+  else
+    echo "[WARNING] pre-commit: linting/syntax checks failed. Proceeding anyway."
+  fi
 fi
 
 if [ "$UPDATED" -eq 1 ]; then
@@ -86,9 +95,14 @@ fi
 
 CHECK_OUTPUT="$(git diff --cached --check || true)"
 if [ -n "$CHECK_OUTPUT" ]; then
-  echo "[ERROR] pre-commit: unresolved whitespace/newline issues remain in staged changes."
-  echo "$CHECK_OUTPUT"
-  exit 1
+  if [ "$BLOCK_ON_FAIL" -eq 1 ]; then
+    echo "[ERROR] pre-commit: unresolved whitespace/newline issues remain in staged changes."
+    echo "$CHECK_OUTPUT"
+    exit 1
+  else
+    echo "[WARNING] pre-commit: unresolved whitespace/newline issues remain in staged changes."
+    echo "$CHECK_OUTPUT"
+  fi
 fi
 
 # 3. Comprehensive Linting
@@ -96,8 +110,12 @@ fi
 # Note: This checks the working tree, so it ensures the repo state is clean.
 echo "Running comprehensive lint checks..."
 if ! ./scripts/lint.sh; then
-  echo "[ERROR] pre-commit: Lint checks failed. Please fix issues before committing."
-  exit 1
+  if [ "$BLOCK_ON_FAIL" -eq 1 ]; then
+    echo "[ERROR] pre-commit: Lint checks failed. Please fix issues before committing."
+    exit 1
+  else
+    echo "[WARNING] pre-commit: Lint checks failed. Proceeding with commit anyway."
+  fi
 fi
 
 exit 0

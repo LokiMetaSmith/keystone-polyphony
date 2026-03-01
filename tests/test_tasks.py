@@ -22,14 +22,28 @@ async def test_capability_advertising(mesh):
 
 @pytest.mark.asyncio
 async def test_task_picking(mesh):
+    import json
+
     # Setup task pool in KV
     tasks = [
-        {"id": "task1", "priority": 10, "status": "pending", "required": ["LiDAR"]},
-        {"id": "task2", "priority": 5, "status": "pending", "required": ["Camera"]},
-        {"id": "task3", "priority": 20, "status": "claimed", "required": ["LiDAR"]},
+        json.dumps(
+            {"id": "task1", "priority": "high", "status": "todo", "required": ["LiDAR"]}
+        ),
+        json.dumps(
+            {"id": "task2", "priority": "low", "status": "todo", "required": ["Camera"]}
+        ),
+        json.dumps(
+            {
+                "id": "task3",
+                "priority": "high",
+                "status": "claimed",
+                "required": ["LiDAR"],
+            }
+        ),
     ]
-    # We use update_kv which uses LWWRegister internally
-    await mesh.update_kv("task_pool", tasks)
+    # We use update_set which uses ORSet internally
+    for task in tasks:
+        await mesh.update_set("swarm_backlog", task)
 
     # Mesh has LiDAR capability
     mesh.capabilities = ["LiDAR"]
@@ -39,8 +53,8 @@ async def test_task_picking(mesh):
     task = await mesh.autonomously_pick_task()
     assert task["id"] == "task1"
 
-    # Status should be updated to 'claimed' by this node
-    pool = mesh.get_kv("task_pool")
-    t1 = next(t for t in pool if t["id"] == "task1")
-    assert t1["status"] == "claimed"
-    assert t1["claimed_by"] == mesh.node_id
+    # Status should be updated to 'in_progress' by this node
+    pool = mesh.get_kv("swarm_backlog")
+    t1 = next(json.loads(t) for t in pool if json.loads(t)["id"] == "task1")
+    assert t1["status"] == "in_progress"
+    assert t1["owner"] == mesh.node_id

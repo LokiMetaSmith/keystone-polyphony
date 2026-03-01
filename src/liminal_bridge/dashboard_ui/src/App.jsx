@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Status from './components/Status'
 import Thoughts from './components/Thoughts'
 import Batons from './components/Batons'
+import Backlog from './components/Backlog'
 import KVStore from './components/KVStore'
 import Logs from './components/Logs'
 import Discussions from './components/Discussions'
@@ -42,6 +43,7 @@ function App() {
           <button onClick={() => setActiveTab('network')} className={activeTab === 'network' ? 'active' : ''}>Network</button>
           <button onClick={() => setActiveTab('thoughts')} className={activeTab === 'thoughts' ? 'active' : ''}>Thoughts</button>
           <button onClick={() => setActiveTab('discussions')} className={activeTab === 'discussions' ? 'active' : ''}>Discussions</button>
+          <button onClick={() => setActiveTab('backlog')} className={activeTab === 'backlog' ? 'active' : ''}>Backlog</button>
           <button onClick={() => setActiveTab('batons')} className={activeTab === 'batons' ? 'active' : ''}>Batons</button>
           <button onClick={() => setActiveTab('kv')} className={activeTab === 'kv' ? 'active' : ''}>KV Store</button>
           <button onClick={() => setActiveTab('logs')} className={activeTab === 'logs' ? 'active' : ''}>Logs</button>
@@ -53,6 +55,7 @@ function App() {
         {activeTab === 'network' && <NetworkGraph />}
         {activeTab === 'thoughts' && <Thoughts />}
         {activeTab === 'discussions' && <Discussions />}
+        {activeTab === 'backlog' && <Backlog />}
         {activeTab === 'batons' && <Batons />}
         {activeTab === 'kv' && <KVStore />}
         {activeTab === 'logs' && <Logs />}
