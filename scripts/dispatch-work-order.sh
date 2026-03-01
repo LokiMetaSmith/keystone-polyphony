@@ -20,7 +20,7 @@ if [ ! -f "$WORK_ORDER_FILE" ]; then
 fi
 
 # Extract the title from the first heading of the work order
-TITLE=$(head -n 1 "$WORK_ORDER_FILE" | sed 's/^# //')
+TITLE=$(grep -m 1 '^#' "$WORK_ORDER_FILE" | sed 's/^#\+ *//' || true)
 if [ -z "$TITLE" ]; then
     TITLE="Automated Work Order"
 fi
@@ -28,16 +28,26 @@ fi
 echo "Dispatching '$TITLE' to $AGENT_COUNT agents..."
 
 # Create the issues in the background to ensure they trigger in parallel
+pids=()
 for i in $(seq 1 "$AGENT_COUNT"); do
     gh issue create \
         --title "$TITLE (Agent $i)" \
         --body-file "$WORK_ORDER_FILE" \
-        --label "ready for work" \
-        > /dev/null &
-    
+        --label "ready for work" &
+    pids+=($!)
+
     # Slight sleep to space out API requests and avoid rate limits
     sleep 1
 done
 
-wait
+failed=0
+for pid in "${pids[@]}"; do
+    wait "$pid" || failed=1
+done
+
+if [ "$failed" -ne 0 ]; then
+    echo "❌ Error: One or more work orders failed to dispatch."
+    exit 1
+fi
+
 echo "✅ All $AGENT_COUNT work orders dispatched to the agents!"

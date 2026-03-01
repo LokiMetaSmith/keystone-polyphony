@@ -88,7 +88,9 @@ class LiminalMesh:
         self.warmup_complete: bool = False
         self._idle_threshold_seconds: float = 300  # 5 min = idle
         self._warmup_silent_timeout: float = 120  # max 120s if no conversation
-        self._conversation_inactive_timeout: float = 30  # no messages = conversation ended
+        self._conversation_inactive_timeout: float = (
+            30  # no messages = conversation ended
+        )
         self._gossip_interval_seconds: float = 30  # gossip heartbeat
 
         # Persistence
@@ -110,7 +112,9 @@ class LiminalMesh:
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
         self.on_tandem_sync: Optional[Callable[[str, Dict[str, Any]], None]] = None
-        self.on_command_request: Optional[Callable[[str, Dict[str, Any]], Awaitable[None]]] = None
+        self.on_command_request: Optional[
+            Callable[[str, Dict[str, Any]], Awaitable[None]]
+        ] = None
 
         # Observability
         self.log_aggregator = LogAggregator()
@@ -136,11 +140,14 @@ class LiminalMesh:
             try:
                 await asyncio.sleep(self._gossip_interval_seconds)
                 if self.peers:
-                    await self.broadcast({
-                        "type": "gossip_request",
-                        "origin": self.node_id,
-                        "vc": self.vector_clock,
-                    }, urgency="low")
+                    await self.broadcast(
+                        {
+                            "type": "gossip_request",
+                            "origin": self.node_id,
+                            "vc": self.vector_clock,
+                        },
+                        urgency="low",
+                    )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -150,29 +157,33 @@ class LiminalMesh:
         """Check if node is still in warmup period."""
         if self.warmup_complete:
             return False
-        
+
         elapsed = time.time() - self.join_time
-        has_conversation = (time.time() - self.last_activity_time) < self._conversation_inactive_timeout
-        
+        has_conversation = (
+            time.time() - self.last_activity_time
+        ) < self._conversation_inactive_timeout
+
         # Timeout after _warmup_silent_timeout if no conversation
         if elapsed > self._warmup_silent_timeout and not has_conversation:
             self.warmup_complete = True
             print(f"[Warmup] Complete (timeout). Node: {self.node_id}")
             return False
-        
+
         return True
 
     def get_warmup_status(self) -> Dict[str, Any]:
         """Get current warmup status info."""
         # First check/update warmup state
         self.is_warming_up()
-        
+
         elapsed = time.time() - self.join_time
-        has_conversation = (time.time() - self.last_activity_time) < self._conversation_inactive_timeout
-        
+        has_conversation = (
+            time.time() - self.last_activity_time
+        ) < self._conversation_inactive_timeout
+
         if self.warmup_complete:
             return {"warming_up": False, "reason": "complete"}
-        
+
         remaining = max(0, int(self._warmup_silent_timeout - elapsed))
         return {
             "warming_up": True,
@@ -189,8 +200,14 @@ class LiminalMesh:
                 current_time = time.time()
                 # If we were busy and now exceed idle threshold
                 if getattr(self, "status", "unknown") == "busy":
-                    if (current_time - self.last_activity_time) > self._idle_threshold_seconds:
-                        print(f"[Idle] Node {self.node_id} idle for >{self._idle_threshold_seconds}s. Auto-setting status to idle.")
+                    if (
+                        current_time - self.last_activity_time
+                    ) > self._idle_threshold_seconds:
+                        print(
+                            f"[Idle] Node {
+                                self.node_id} idle for >{
+                                self._idle_threshold_seconds}s. Auto-setting status to idle."
+                        )
                         await self.set_status("idle")
             except asyncio.CancelledError:
                 break
@@ -324,7 +341,11 @@ class LiminalMesh:
             try:
                 self.thoughts[node_id] = json.loads(content)
             except json.JSONDecodeError:
-                self.thoughts[node_id] = {"content": content, "status": "unknown", "capabilities": []}
+                self.thoughts[node_id] = {
+                    "content": content,
+                    "status": "unknown",
+                    "capabilities": [],
+                }
 
         # Load Vector Clock
         try:
@@ -442,12 +463,18 @@ class LiminalMesh:
         # Check for idle wakeup and trigger warmup if needed
         current_time = time.time()
         # last_activity_time is 0 on fresh boot
-        was_idle = self.join_time > 0 and self.last_activity_time > 0 and (current_time - self.last_activity_time) > self._idle_threshold_seconds
-        
+        was_idle = (
+            self.join_time > 0
+            and self.last_activity_time > 0
+            and (current_time - self.last_activity_time) > self._idle_threshold_seconds
+        )
+
         if was_idle or self.join_time == 0:
             self.join_time = current_time
             self.warmup_complete = False
-            print(f"[Warmup] Warming up after {'idle wake' if was_idle else 'fresh join'}... Node: {self.node_id}")
+            print(
+                f"[Warmup] Warming up after {'idle wake' if was_idle else 'fresh join'}... Node: {self.node_id}"
+            )
 
         # Now initialize activity time for the current session
         self.last_activity_time = current_time
@@ -542,12 +569,17 @@ class LiminalMesh:
 
             if self._sidecar_dead:
                 if self._sidecar_restart_count < self._sidecar_max_restarts:
-                    print(f"Auto-restart: Sidecar dead (count: {self._sidecar_restart_count + 1}/{self._sidecar_max_restarts}). Restarting in {self._sidecar_restart_delay}s...")
+                    print(f"Auto-restart: Sidecar dead (count: {
+                            self._sidecar_restart_count + 1}/{
+                            self._sidecar_max_restarts}). Restarting in {
+                            self._sidecar_restart_delay}s...")
                     await asyncio.sleep(self._sidecar_restart_delay)
                     await self.restart_sidecar()
                     self._sidecar_restart_count += 1
                 else:
-                    print(f"Auto-restart: Max restarts ({self._sidecar_max_restarts}) reached. Giving up.")
+                    print(
+                        f"Auto-restart: Max restarts ({self._sidecar_max_restarts}) reached. Giving up."
+                    )
 
     async def stop(self):
         """Stops the sidecar."""
@@ -577,7 +609,7 @@ class LiminalMesh:
             try:
                 self.process.terminate()
                 await self.process.wait()
-            except:
+            except BaseException:
                 pass
             self.process = None
 
@@ -684,7 +716,7 @@ class LiminalMesh:
         for k, v in self.kv_store.items():
             try:
                 kv_serialized[k] = v.to_dict()
-            except:
+            except BaseException:
                 kv_serialized[k] = str(v)
 
         payload = {
@@ -704,19 +736,21 @@ class LiminalMesh:
 
         if msg_type == "peer_connected":
             print(f"DEBUG: Node {self.node_id} connected to peer {msg.get('peer_id')}")
-            peer_id = msg.get('peer_id')
+            peer_id = msg.get("peer_id")
             self.peers.add(peer_id)
             # Re-broadcast my current thought to new peer (as a raw broadcast)
             if self.node_id in self.thoughts:
                 thought = self.thoughts[self.node_id]
-                await self.broadcast({
-                    "type": "thought",
-                    "origin": self.node_id,
-                    "content": thought.get("content"),
-                    "status": thought.get("status"),
-                    "capabilities": thought.get("capabilities"),
-                    "timestamp": thought.get("timestamp", time.time())
-                })
+                await self.broadcast(
+                    {
+                        "type": "thought",
+                        "origin": self.node_id,
+                        "content": thought.get("content"),
+                        "status": thought.get("status"),
+                        "capabilities": thought.get("capabilities"),
+                        "timestamp": thought.get("timestamp", time.time()),
+                    }
+                )
             # Push full state welcome packet to new peer
             await self._push_welcome_to_peer(peer_id)
             await self.broadcast_network_state()
@@ -771,14 +805,14 @@ class LiminalMesh:
             content = payload.get("content")
             status = payload.get("status")
             capabilities = payload.get("capabilities")
-            
+
             thought_data = {
                 "content": content,
                 "status": status,
                 "capabilities": capabilities,
-                "timestamp": payload.get("timestamp")
+                "timestamp": payload.get("timestamp"),
             }
-            
+
             self.thoughts[origin] = thought_data
             self._save_thought(origin, json.dumps(thought_data))
 
@@ -878,13 +912,13 @@ class LiminalMesh:
             capabilities = payload.get("capabilities", [])
             status_filter = payload.get("status_filter")
             command = payload.get("command")
-            
+
             # Check if we are the target
             is_target = target == self.node_id
             if not is_target and capabilities:
                 # Check if we have the required capabilities
                 is_target = all(cap in self.capabilities for cap in capabilities)
-            
+
             # If no target/capabilities, it might be a general broadcast
             if target is None and not capabilities:
                 is_target = True
@@ -903,9 +937,13 @@ class LiminalMesh:
                 message = payload.get("message", "Ping!")
                 print(f">>> [Ping] from {origin}: {message}")
                 # Log it
-                asyncio.create_task(self.log("info", f"Received ping from {origin}: {message}"))
+                asyncio.create_task(
+                    self.log("info", f"Received ping from {origin}: {message}")
+                )
                 # Respond with a thought
-                asyncio.create_task(self.share_thought(f"Responding to ping from {origin}"))
+                asyncio.create_task(
+                    self.share_thought(f"Responding to ping from {origin}")
+                )
 
         elif p_type == "welcome":
             # Handle welcome message from peer (state sync)
@@ -942,20 +980,28 @@ class LiminalMesh:
                 # Merge vector clock
                 self._merge_clock(welcome_vc)
 
-                print(f"[Warmup] Received welcome state from {origin}. KV keys: {list(welcome_kv.keys())}")
+                print(
+                    f"[Warmup] Received welcome state from {origin}. KV keys: {list(welcome_kv.keys())}"
+                )
 
         elif p_type == "gossip_request":
             # Respond to gossip request with our state
-            request_vc = payload.get("vc", {})
+            # The gossip_request comes with the sender's VC and origin
             # Send back our state (peers will merge)
-            await self.broadcast({
-                "type": "welcome",
-                "thoughts": self.thoughts,
-                "batons": self.batons,
-                "kv": {k: v.to_dict() if hasattr(v, 'to_dict') else str(v) for k, v in self.kv_store.items()},
-                "vector_clock": self.vector_clock,
-                "origin": self.node_id,
-            }, urgency="low")
+            await self.broadcast(
+                {
+                    "type": "welcome",
+                    "thoughts": self.thoughts,
+                    "batons": self.batons,
+                    "kv": {
+                        k: v.to_dict() if hasattr(v, "to_dict") else str(v)
+                        for k, v in self.kv_store.items()
+                    },
+                    "vector_clock": self.vector_clock,
+                    "origin": self.node_id,
+                },
+                urgency="low",
+            )
 
     async def broadcast_network_state(self):
         """Broadcasts the current list of connected peers (Node IDs)."""
@@ -996,7 +1042,15 @@ class LiminalMesh:
         }
         self.thoughts[self.node_id] = full_thought
         self._save_thought(self.node_id, json.dumps(full_thought))
-        await self.broadcast({"type": "thought", "content": content, "status": full_thought["status"], "capabilities": self.capabilities}, urgency=urgency)
+        await self.broadcast(
+            {
+                "type": "thought",
+                "content": content,
+                "status": full_thought["status"],
+                "capabilities": self.capabilities,
+            },
+            urgency=urgency,
+        )
 
     async def set_status(self, status: str):
         """Sets the node status (e.g., 'idle', 'busy') and broadcasts a thought."""
@@ -1005,7 +1059,13 @@ class LiminalMesh:
         await self.update_kv(f"status:{self.node_id}", status, urgency="high")
         await self.share_thought(f"Status update: {status}")
 
-    async def broadcast_command(self, command: Dict[str, Any], target: str = None, capabilities: list[str] = None, status_filter: str = None):
+    async def broadcast_command(
+        self,
+        command: Dict[str, Any],
+        target: str = None,
+        capabilities: list[str] = None,
+        status_filter: str = None,
+    ):
         """Broadcasts a command execution request to the swarm."""
         payload = {
             "type": "command_request",
@@ -1019,7 +1079,10 @@ class LiminalMesh:
 
     async def ping(self, target_node_id: str, message: str = "Ping!"):
         """Sends a direct ping message to a specific node."""
-        await self.broadcast({"type": "ping", "target": target_node_id, "message": message}, urgency="high")
+        await self.broadcast(
+            {"type": "ping", "target": target_node_id, "message": message},
+            urgency="high",
+        )
 
     async def tandem_sync(self, target_node_id: str, state: Dict[str, Any]):
         """
@@ -1103,7 +1166,9 @@ class LiminalMesh:
 
         # Sort by priority: high > medium > low
         priority_map = {"high": 3, "medium": 2, "low": 1}
-        available.sort(key=lambda x: priority_map.get(x.get("priority", "medium"), 0), reverse=True)
+        available.sort(
+            key=lambda x: priority_map.get(x.get("priority", "medium"), 0), reverse=True
+        )
         picked = available[0]
 
         # Claim the task
@@ -1125,12 +1190,12 @@ class LiminalMesh:
                 if json.loads(item).get("id") == task_id:
                     old_task_str = item
                     break
-            except:
+            except BaseException:
                 continue
-        
+
         if old_task_str:
             await self.update_set("swarm_backlog", old_task_str, remove=True)
-        
+
         picked["status"] = "in_progress"
         picked["owner"] = self.node_id
         await self.update_set("swarm_backlog", json.dumps(picked), urgency="high")

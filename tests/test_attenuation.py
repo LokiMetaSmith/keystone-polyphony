@@ -24,7 +24,7 @@ async def test_contextual_attenuation_filtering(mesh):
         "urgency": "low",
     }
     await mesh._handle_payload(payload)
-    assert mesh.thoughts[peer_id] == "Close thought"
+    assert mesh.thoughts[peer_id]["content"] == "Close thought"
 
     # 2. Far peer, low urgency -> Should NOT process
     mesh.peer_distances[peer_id] = 10.0
@@ -35,7 +35,7 @@ async def test_contextual_attenuation_filtering(mesh):
         "urgency": "low",
     }
     await mesh._handle_payload(payload)
-    assert mesh.thoughts[peer_id] == "Close thought"  # Unchanged
+    assert mesh.thoughts[peer_id]["content"] == "Close thought"  # Unchanged
 
     # 3. Far peer, high urgency -> Should process
     payload = {
@@ -45,7 +45,7 @@ async def test_contextual_attenuation_filtering(mesh):
         "urgency": "high",
     }
     await mesh._handle_payload(payload)
-    assert mesh.thoughts[peer_id] == "Urgent thought"
+    assert mesh.thoughts[peer_id]["content"] == "Urgent thought"
 
 
 @pytest.mark.asyncio

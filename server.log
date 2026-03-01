@@ -1,2 +1,124 @@
 nohup: ignoring input
 [03/01/26 00:41:04] WARNING  Tool already exists: ping        tool_manager.py:66
+Starting Liminal Swarm Daemon Node (Key: KEYSTONE...)
+[Warmup] Warming up after fresh join... Node: 13a4e9d1863fb080
+LiminalMesh started. Node ID: 13a4e9d1863fb080. Topic: 38b73bc5...
+SIDECAR LOG: [Sidecar] Joined topic 38b73bc58921d21970c5992c23db62b61567cbfb6c6e9dd493bc1fc51428c22e
+DEBUG: Node 13a4e9d1863fb080 connected to peer 0ed1028841a73cc02f32138f73c9fe296e23e8ce0def16c5cbdedfa23465be13
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e']
+DEBUG: Node 13a4e9d1863fb080 connected to peer 81d8833f197d863d412406eb96207cdd74a4ea0a566fbe488abb2a620219fa4d
+SIDECAR LOG: <anonymous_script>:0
+SIDECAR LOG: 
+SIDECAR LOG: 
+SIDECAR LOG: Error: connection timed out
+SIDECAR LOG: Emitted 'error' event on Interface instance at:
+SIDECAR LOG: at NoiseSecretStream.onerror (node:internal/readline/interface:246:10)
+SIDECAR LOG: at NoiseSecretStream.emit (node:events:530:35)
+SIDECAR LOG: at WritableState.afterDestroy (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:514:19)
+SIDECAR LOG: at NoiseSecretStream._destroy (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/@hyperswarm/secret-stream/index.js:538:5)
+SIDECAR LOG: at WritableState.updateNonPrimary (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:213:16)
+SIDECAR LOG: at WritableState.update (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:195:72)
+SIDECAR LOG: at WritableState.updateWriteNT (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:564:10)
+SIDECAR LOG: at node:internal/process/task_queues:151:7
+SIDECAR LOG: at AsyncResource.runInAsyncScope (node:async_hooks:214:14)
+SIDECAR LOG: at AsyncResource.runMicrotask (node:internal/process/task_queues:148:8) {
+SIDECAR LOG: code: 'ETIMEDOUT'
+SIDECAR LOG: }
+SIDECAR LOG: 
+SIDECAR LOG: Node.js v22.17.0
+Warning: Sidecar disconnected (Connection lost). Marking peer count as 0.
+Auto-restart: Sidecar dead (count: 1/100). Restarting in 5s...
+Attempting to restart sidecar...
+Sidecar restarted. Node ID: 13a4e9d1863fb080
+SIDECAR LOG: [Sidecar] Joined topic 38b73bc58921d21970c5992c23db62b61567cbfb6c6e9dd493bc1fc51428c22e
+DEBUG: Node 13a4e9d1863fb080 connected to peer 0ed1028841a73cc02f32138f73c9fe296e23e8ce0def16c5cbdedfa23465be13
+DEBUG: Node 13a4e9d1863fb080 connected to peer 81d8833f197d863d412406eb96207cdd74a4ea0a566fbe488abb2a620219fa4d
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'master_plan', 'chat:general', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e']
+[Warmup] Received welcome state from 2c77dc51400178fc. KV keys: []
+SIDECAR LOG: <anonymous_script>:0
+SIDECAR LOG: 
+SIDECAR LOG: 
+SIDECAR LOG: Error: connection timed out
+SIDECAR LOG: Emitted 'error' event on Interface instance at:
+SIDECAR LOG: at NoiseSecretStream.onerror (node:internal/readline/interface:246:10)
+SIDECAR LOG: at NoiseSecretStream.emit (node:events:530:35)
+SIDECAR LOG: at WritableState.afterDestroy (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:514:19)
+SIDECAR LOG: at NoiseSecretStream._destroy (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/@hyperswarm/secret-stream/index.js:538:5)
+SIDECAR LOG: at WritableState.updateNonPrimary (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:213:16)
+SIDECAR LOG: at WritableState.update (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:195:72)
+SIDECAR LOG: at WritableState.updateWriteNT (/home/phoenix/git/keystone-polyphony/src/liminal_bridge/sidecar/node_modules/streamx/index.js:564:10)
+SIDECAR LOG: at node:internal/process/task_queues:151:7
+SIDECAR LOG: at AsyncResource.runInAsyncScope (node:async_hooks:214:14)
+SIDECAR LOG: at AsyncResource.runMicrotask (node:internal/process/task_queues:148:8) {
+SIDECAR LOG: code: 'ETIMEDOUT'
+SIDECAR LOG: }
+SIDECAR LOG: 
+SIDECAR LOG: Node.js v22.17.0
+Warning: Sidecar disconnected (Connection lost). Marking peer count as 0.
+Auto-restart: Sidecar dead (count: 2/100). Restarting in 5s...
+Attempting to restart sidecar...
+Sidecar restarted. Node ID: 13a4e9d1863fb080
+SIDECAR LOG: [Sidecar] Joined topic 38b73bc58921d21970c5992c23db62b61567cbfb6c6e9dd493bc1fc51428c22e
+DEBUG: Node 13a4e9d1863fb080 connected to peer 0ed1028841a73cc02f32138f73c9fe296e23e8ce0def16c5cbdedfa23465be13
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer 1b9241e1e1f71708b177c7e05c336b4c4c32202b409b63d2e2a4e86d8669d264
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer c818f869e53ef998c7c66aada9b16d462946d030953628ae6c92bae3696687a0
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer f9749bf6c2d3d1804b4fd5dd78f858c9f360f8db214558806a580e6354d4fb6f
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer e6b4b47c00d7dbb0acb116148b3daa70b38719176b7a16ce9214becc7bc65aa8
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 0d336ccad037aa84. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'capabilities:13a4e9d1863fb080', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e']
+DEBUG: Node 13a4e9d1863fb080 connected to peer efdbd21c0ef0f080b798081bda6c1574b72cb533473805b817fbb4e16394a171
+DEBUG: Node 13a4e9d1863fb080 connected to peer 123d684ce8b4e6afa6e82cab865557e02a3bbf9e495ae1f7b4498bb82df0d7db
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer 879f54cbca6e64c94a24aa92c811c49150b1039bc58a3021d9a7f93f02918652
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+DEBUG: Node 13a4e9d1863fb080 connected to peer a204a29fd8225bfc65e176cec2375c5b19f9fb93ca00385dad74cbe09d678000
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']
+[Warmup] Received welcome state from 13a4e9d1863fb080. KV keys: ['chat:tasks', 'chat:work_queue', 'capabilities:da69599518366bc9', 'chat:architecture', 'chat:test', 'capabilities:55f960efc442455b', 'swarm_backlog', 'chat:general', 'master_plan', 'status:13a4e9d1863fb080', 'capabilities:a71a1012ea06304e', 'capabilities:13a4e9d1863fb080']

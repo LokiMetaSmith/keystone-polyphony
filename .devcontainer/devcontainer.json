@@ -17,5 +17,5 @@
   },
   "remoteUser": "root",
   "postCreateCommand": "HEADLESS=1 SKIP_SSH_EXCHANGE=1 bash scripts/setup-ensemble.sh",
-  "postStartCommand": "nohup python3 src/liminal_bridge/server.py --mode=daemon > server.log 2>&1 &"
-}
+  "postStartCommand": "nohup ./polyphony worker > server.log 2>&1 &"
+  }

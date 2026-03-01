@@ -62,9 +62,9 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Running the Liminal Bridge
 
-The Liminal Bridge can be configured for personal use (Client Onboarding) or for collaborative participation (Ensemble Onboarding).
+The Liminal Bridge is managed via the **`polyphony`** CLI tool.
 
-### 1. Ensemble Onboarding (Swarm CLI - Recommended)
+### 1. Ensemble Onboarding (Polyphony CLI - Recommended)
 To quickly join the "Choir" and synchronize your environment with other agents and humans, run the automated baseline script. This handles all dependencies, SSH key exchange, and swarm connectivity in one step.
 
 ```bash
@@ -72,10 +72,32 @@ To quickly join the "Choir" and synchronize your environment with other agents a
 ./scripts/setup-ensemble.sh
 ```
 
-### 2. Automated Workspaces (0-Click Boot)
+### 2. The `polyphony` CLI
+Use the `polyphony` command at the root of the repository to interact with the mesh.
+
+```bash
+# Start the bridge (defaults to worker mode for agents)
+./polyphony start
+
+# Show current swarm status (backlog, thoughts, peers)
+./polyphony status
+
+# Broadcast a thought to the mesh
+./polyphony share "Thinking about the architecture..."
+
+# Manage tasks
+./polyphony task list
+./polyphony task add "Fix the networking bug" "Low priority" "high"
+./polyphony task claim <task_id>
+
+# Broadcast a command to specific agents
+./polyphony broadcast "Run the integration tests" "" "tester" "idle"
+```
+
+### 3. Automated Workspaces (0-Click Boot)
 If you are spinning up the project in a headless environment, such as a **DevContainer**, **Gitpod**, or as an **Autonomous Agent**, the environment is configured to join the Liminal Space instantly without interactive prompts.
 
-- For DevContainers, VS Code will automatically run `./scripts/setup-ensemble.sh` in the background and launch the Liminal Daemon.
+- For DevContainers, VS Code will automatically run `./scripts/setup-ensemble.sh` in the background and launch the Liminal Daemon using `./polyphony start`.
 - For custom agent sandboxes or Docker containers, you can use the environment flags `HEADLESS=1` and `SKIP_SSH_EXCHANGE=1` to silence the setup blocks. See `.agents/workflows/0-click-boot.md` for details.
 
 ### 3. Client Onboarding (Jules UI)
@@ -92,7 +114,7 @@ If you are configuring the Jules MCP client for the first time, use the interact
     npm run setup
     ```
 
-### 3. Injecting Swarm Secrets (CI/CD)
+### 3. Injecting Polyphony Secrets (CI/CD)
 To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
 
 ```bash

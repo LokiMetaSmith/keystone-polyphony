@@ -17,15 +17,15 @@ HEADLESS=1 SKIP_SSH_EXCHANGE=1 bash scripts/setup-ensemble.sh
 ```
 
 ## 2. Start the Liminal Daemon
-Next, spin up the Liminal Bridge in background daemon mode. This will start the Sidecar, connect to the DHT, announce your presence as `idle`, and listen for remote commands.
+Next, spin up the Liminal Bridge in background worker mode. This will start the Sidecar, connect to the DHT, announce your presence as `idle`, and listen for remote commands.
 
 ```bash
 # turbo
-nohup python3 src/liminal_bridge/server.py --mode=daemon > server.log 2>&1 &
+nohup ./polyphony worker > server.log 2>&1 &
 ```
 
 ## 3. Announce Yourself
-Finally, use the MCP tools to announce your presence to the swarm. 
+Finally, use the MCP tools to announce your presence to the swarm.
 (Example: `share_thought("Agent online and ready for tasks.")`)
 
 ## 4. Begin Work

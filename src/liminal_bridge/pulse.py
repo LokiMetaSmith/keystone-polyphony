@@ -48,7 +48,7 @@ class Pulse:
 
         # Consult
         new_plan_raw = await self.architect.consult(swarm_state)
-        
+
         try:
             new_plan = json.loads(new_plan_raw)
         except json.JSONDecodeError:
@@ -57,7 +57,7 @@ class Pulse:
 
         # Broadcast the new plan to KV
         await self.mesh.update_kv("master_plan", new_plan)
-        
+
         # Execute commands if any
         if isinstance(new_plan, dict) and "commands" in new_plan:
             for cmd_req in new_plan["commands"]:
@@ -65,11 +65,13 @@ class Pulse:
                 command = cmd_req.get("command")
                 caps = cmd_req.get("capabilities", [])
                 if command:
-                    print(f"PULSE: Issuing command to {target or 'capable agents'}: {command}")
+                    print(
+                        f"PULSE: Issuing command to {target or 'capable agents'}: {command}"
+                    )
                     await self.mesh.broadcast_command(
                         {"type": "architect_execute", "payload": command},
                         target=target,
-                        capabilities=caps
+                        capabilities=caps,
                     )
 
         self.last_consultation = now

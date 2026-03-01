@@ -50,24 +50,27 @@ mcp = FastMCP("Keystone-Polyphony")
 
 async def handle_command_request(origin: str, command: dict):
     """Callback for when this node receives a command request."""
-    global pending_commands
     print(f">>> [Command Request] Received from {origin}: {command}")
-    
+
     # Store in queue
-    pending_commands.append({
-        "origin": origin,
-        "command": command,
-        "timestamp": time.time(),
-        "id": hashlib.sha256(f"{origin}:{time.time()}".encode()).hexdigest()[:8]
-    })
-    
+    pending_commands.append(
+        {
+            "origin": origin,
+            "command": command,
+            "timestamp": time.time(),
+            "id": hashlib.sha256(f"{origin}:{time.time()}".encode()).hexdigest()[:8],
+        }
+    )
+
     # Limit queue size
     if len(pending_commands) > 50:
         pending_commands.pop(0)
 
     # In MCP mode, we mainly log this so the human/agent can see it in logs/stderr.
     if mesh:
-        await mesh.log("info", f"Received command request from {origin}: {command.get('type')}")
+        await mesh.log(
+            "info", f"Received command request from {origin}: {command.get('type')}"
+        )
 
 
 def ensure_mesh():
@@ -85,23 +88,22 @@ def check_warmup(action_type: str) -> str | None:
     """Check if node is still warming up. Returns error message if blocked, None if OK."""
     if mesh is None:
         return None
-    
+
     if mesh.warmup_complete:
         return None
-    
+
     status = mesh.get_warmup_status()
     if not status.get("warming_up", False):
         return None
-    
+
     # Block work actions during warmup
     work_actions = {"claim_task", "complete_task", "acquire_baton", "release_baton"}
     if action_type not in work_actions:
         return None
-    
+
     remaining = status.get("remaining_silent_timeout", 0)
-    has_convo = status.get("has_conversation", False)
     elapsed = status.get("elapsed_seconds", 0)
-    
+
     if status.get("has_conversation"):
         return f"Warming up... Conversation active. Elapsed: {elapsed}s. (Work blocked until conversation ends or 120s timeout)"
     else:
@@ -120,14 +122,21 @@ async def set_status(status: str) -> str:
 
 
 @mcp.tool()
-async def broadcast_command(command: str, target: str = None, capabilities: list[str] = None, status_filter: str = None) -> str:
+async def broadcast_command(
+    command: str,
+    target: str = None,
+    capabilities: list[str] = None,
+    status_filter: str = None,
+) -> str:
     """Sends a command execution request to the swarm. command should be a JSON string or description."""
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     cmd_obj = {"type": "execute", "payload": command}
-    await mesh.broadcast_command(cmd_obj, target=target, capabilities=capabilities, status_filter=status_filter)
+    await mesh.broadcast_command(
+        cmd_obj, target=target, capabilities=capabilities, status_filter=status_filter
+    )
     return f"Command broadcasted: {command}"
 
 
@@ -147,22 +156,29 @@ async def list_idle_agents() -> str:
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     idle = []
     for node_id, thought in mesh.thoughts.items():
         # mesh.thoughts might be enriched dict or raw string
         if isinstance(thought, dict) and thought.get("status") == "idle":
-            idle.append({"node_id": node_id, "capabilities": thought.get("capabilities", [])})
+            idle.append(
+                {"node_id": node_id, "capabilities": thought.get("capabilities", [])}
+            )
         elif isinstance(thought, str):
             try:
                 # Try parsing as JSON first
                 data = json.loads(thought)
                 if data.get("status") == "idle":
-                    idle.append({"node_id": node_id, "capabilities": data.get("capabilities", [])})
-            except:
+                    idle.append(
+                        {
+                            "node_id": node_id,
+                            "capabilities": data.get("capabilities", []),
+                        }
+                    )
+            except BaseException:
                 if "status: idle" in thought.lower():
                     idle.append({"node_id": node_id})
-            
+
     return json.dumps(idle, indent=2)
 
 
@@ -209,11 +225,11 @@ async def acquire_baton(file_path: str) -> str:
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     err = check_warmup("acquire_baton")
     if err:
         return err
-    
+
     success = await mesh.acquire_baton(file_path)
     if success:
         return f"SUCCESS: Baton acquired for {file_path}."
@@ -228,11 +244,11 @@ async def release_baton(file_path: str) -> str:
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     err = check_warmup("release_baton")
     if err:
         return err
-    
+
     await mesh.release_baton(file_path)
     # pulse.on_baton_release is now triggered via callback in mesh
     return f"Baton released for {file_path}."
@@ -299,6 +315,78 @@ async def get_ensemble_chat(topic: str) -> str:
 
 
 @mcp.tool()
+async def list_ensemble_chats() -> str:
+    """Lists all active collaborative discussion topics (channels)."""
+    ensure_mesh()
+    if not mesh.running:
+        await mesh.start()
+
+    topics = []
+    for key in mesh.kv_store.keys():
+        if key.startswith("chat:"):
+            topics.append(key[5:])
+    return json.dumps(topics)
+
+
+@mcp.tool()
+async def mark_chat_read(topic: str) -> str:
+    """Marks a collaborative discussion topic as read (local to this node)."""
+    ensure_mesh()
+    # Store local read timestamp in a special local-only KV or just a file
+    # For simplicity, use the mesh metadata or a separate sqlite table
+    last_msg = 0
+    messages_raw = mesh.get_kv(f"chat:{topic}") or []
+    for m_json in messages_raw:
+        try:
+            ts = json.loads(m_json).get("timestamp", 0)
+            last_msg = max(last_msg, ts)
+        except:
+            continue
+
+    # Save to local metadata
+    cursor = mesh.conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        (f"read_ts:{topic}", str(last_msg)),
+    )
+    mesh.conn.commit()
+    return f"Topic '{topic}' marked as read at {last_msg}."
+
+
+@mcp.tool()
+async def get_unread_chats() -> str:
+    """Returns a list of topics with messages that haven't been read locally."""
+    ensure_mesh()
+    unread = []
+    for key in mesh.kv_store.keys():
+        if key.startswith("chat:"):
+            topic = key[5:]
+            # Get last read TS
+            cursor = mesh.conn.cursor()
+            cursor.execute(
+                "SELECT value FROM metadata WHERE key = ?", (f"read_ts:{topic}",)
+            )
+            row = cursor.fetchone()
+            read_ts = float(row[0]) if row else 0
+
+            # Check for newer messages
+            has_new = False
+            messages_raw = mesh.get_kv(key) or []
+            for m_json in messages_raw:
+                try:
+                    if json.loads(m_json).get("timestamp", 0) > read_ts:
+                        has_new = True
+                        break
+                except:
+                    continue
+
+            if has_new:
+                unread.append(topic)
+
+    return json.dumps(unread)
+
+
+@mcp.tool()
 async def list_peers() -> str:
     """Lists connected peers in the mesh."""
     ensure_mesh()
@@ -327,7 +415,7 @@ async def get_backlog() -> str:
     for item in backlog:
         try:
             tasks.append(json.loads(item))
-        except:
+        except BaseException:
             continue
     return json.dumps(tasks, indent=2)
 
@@ -339,6 +427,7 @@ async def add_task(title: str, description: str = "", priority: str = "medium") 
     if not mesh.running:
         await mesh.start()
     import uuid
+
     task = {
         "id": str(uuid.uuid4()),
         "title": title,
@@ -357,11 +446,11 @@ async def claim_task(task_id: str) -> str:
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     err = check_warmup("claim_task")
     if err:
         return err
-    
+
     success = await mesh.acquire_baton(f"task:{task_id}")
     if success:
         backlog = mesh.get_kv("swarm_backlog") or []
@@ -373,7 +462,7 @@ async def claim_task(task_id: str) -> str:
                     t["status"] = "in_progress"
                     await mesh.update_set("swarm_backlog", json.dumps(t))
                     break
-            except:
+            except BaseException:
                 continue
         return f"Task {task_id} claimed."
     else:
@@ -386,11 +475,11 @@ async def complete_task(task_id: str) -> str:
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     err = check_warmup("complete_task")
     if err:
         return err
-    
+
     await mesh.release_baton(f"task:{task_id}")
     backlog = mesh.get_kv("swarm_backlog") or []
     for item in backlog:
@@ -401,7 +490,7 @@ async def complete_task(task_id: str) -> str:
                 t["owner"] = mesh.node_id
                 await mesh.update_set("swarm_backlog", json.dumps(t))
                 break
-        except:
+        except BaseException:
             continue
     return f"Task {task_id} completed."
 
@@ -446,12 +535,12 @@ async def broadcast_message(message: str, urgency: str = "low") -> str:
 
 
 @mcp.tool()
-async def ping(target_node_id: str, message: str = "ping") -> str:
+async def notify_agent(target_node_id: str, message: str = "ping") -> str:
     """Sends a high-urgency notification to a specific agent."""
     ensure_mesh()
     if not mesh.running:
         await mesh.start()
-    
+
     cmd_obj = {"type": "ping", "payload": message}
     await mesh.broadcast_command(cmd_obj, target=target_node_id)
     return f"Ping sent to {target_node_id}."
@@ -477,7 +566,9 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
     if args and args.seed:
         swarm_seed = args.seed
     elif args and args.node_name:
-        swarm_seed = hashlib.sha256(f"{SWARM_KEY}:{args.node_name}".encode()).hexdigest()
+        swarm_seed = hashlib.sha256(
+            f"{SWARM_KEY}:{args.node_name}".encode()
+        ).hexdigest()
     else:
         swarm_seed = None  # Random identity for AI nodes
 
@@ -491,9 +582,13 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
     mesh.on_baton_release = pulse.on_baton_release
 
     if swarm_seed:
-        print(f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}..., Node Seed: {swarm_seed[:8]}...)")
+        print(
+            f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}..., Node Seed: {swarm_seed[:8]}...)"
+        )
     else:
-        print(f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}..., Random Identity)")
+        print(
+            f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}..., Random Identity)"
+        )
     await mesh.start()
 
     dashboard = None
@@ -503,7 +598,7 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
 
     start_time = time.time()
     last_thought_content = {}
-    
+
     try:
         while True:
             await asyncio.sleep(1)
@@ -520,10 +615,12 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
                     if content and content != last_thought_content.get(node_id):
                         status = thought.get("status", "unknown")
                         content_str = str(content)
-                        short_content = content_str.replace('\n', ' ')
+                        short_content = content_str.replace("\n", " ")
                         if len(short_content) > 120:
                             short_content = short_content[:120] + "..."
-                        print(f"~~~ [Polyphony] Node {node_id[:8]} ({status}): {short_content}")
+                        print(
+                            f"~~~ [Polyphony] Node {node_id[:8]} ({status}): {short_content}"
+                        )
                         last_thought_content[node_id] = content
 
             # Periodically pulse (every 60s check, but trigger respects cooldown)
@@ -625,7 +722,9 @@ async def run_daemon_mode():
     if args and args.seed:
         swarm_seed = args.seed
     elif args and args.node_name:
-        swarm_seed = hashlib.sha256(f"{SWARM_KEY}:{args.node_name}".encode()).hexdigest()
+        swarm_seed = hashlib.sha256(
+            f"{SWARM_KEY}:{args.node_name}".encode()
+        ).hexdigest()
     else:
         swarm_seed = None  # Random identity
 
@@ -653,7 +752,7 @@ async def run_daemon_mode():
             # In a full agent setup, the local agent process would poll
             # get_pending_commands() via MCP. Here we just keep the mesh
             # alive so the MCP server or agent process can query it.
-            
+
             # Periodically ensure we broadcast our status if idle too long
             pass
     except asyncio.CancelledError:
@@ -661,6 +760,8 @@ async def run_daemon_mode():
     finally:
         print("Stopping daemon node...")
         await mesh.stop()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(

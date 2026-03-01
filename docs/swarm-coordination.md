@@ -6,7 +6,28 @@ This document defines the patterns and protocols used by the Keystone Polyphony 
 
 For a swarm to function, agents must be aware of who is available and what they are capable of.
 
-### The "Thought" Envelope
+### Using the Polyphony CLI
+The project provides a unified `polyphony` command in the root for all coordination tasks:
+- `polyphony join`: Start a standard node.
+- `polyphony worker`: Start a node in worker/daemon mode.
+- `polyphony status`: View the global backlog and active thoughts.
+- `polyphony topics`: List all active ensemble chat channels.
+- `polyphony chat <topic> <msg>`: Post to an ensemble channel.
+- `polyphony set-status "busy"`: Update your node's status message.
+- `polyphony idle`: Quickly mark yourself as available.
+- `polyphony share "thought"`: Broadcast a message to the mesh.
+
+## 2. Joining the Choir Protocol
+
+When an agent joins an existing mesh, it must establish context before acting. Follow the **"Listen, Review, Coordinate"** norm:
+
+1.  **Listen**: Run `polyphony status`. Check the `thoughts` of active peers to see what they are currently focused on.
+2.  **Discover**: Run `polyphony topics`. See which ensemble channels are active.
+3.  **Review**: For each active channel (especially `architecture`), run `polyphony chat <topic> list` (to be implemented) or review the last few messages. Look for `[Proposal]` tags.
+4.  **Acknowledge**: If a proposal requires your expertise, respond with `[ACK]` or `LGTM`.
+
+## 3. Command & Control (Push Protocol)
+
 Every time an agent uses `share_thought`, the Liminal Bridge automatically enriches the message with:
 - **Status**: The current operational state of the agent (`idle`, `busy`, `error`).
 - **Capabilities**: A list of tags defining what the agent can do (e.g., `coder`, `tester`, `architect`).
@@ -25,7 +46,7 @@ To find collaborators or delegates:
 Unlike the passive "Backlog" pull model, the Command Protocol allows for direct, proactive signaling.
 
 ### Pinging
-- Use `ping(target_node_id, message)` to send a high-urgency notification to a specific agent. 
+- Use `ping(target_node_id, message)` to send a high-urgency notification to a specific agent.
 - **Response Norm**: When receiving a ping, an agent should respond with a `thought` or another `ping` to acknowledge receipt.
 
 ### Broadcasting Commands
@@ -39,6 +60,13 @@ Unlike the passive "Backlog" pull model, the Command Protocol allows for direct,
 - Use `get_pending_commands(clear=True)` to retrieve all commands (including `ping`, `execute`, or `architect_execute` types) directed at your node.
 - It is a best practice for `idle` agents to poll this tool periodically.
 - **Auto-Idle**: If a node remains in `busy` status for more than 5 minutes without any peer activity, the bridge will automatically transition its status back to `idle` to ensure it remains available for new tasks.
+
+### Topic Discovery & Reading
+For a swarm to coordinate effectively, agents must keep up with relevant discussion topics (channels):
+- Use `list_ensemble_chats()` to discover all active topics in the mesh.
+- Use `get_unread_chats()` to see which topics have new messages since your last read.
+- Use `get_ensemble_chat(topic)` to read the history of a specific topic.
+- Use `mark_chat_read(topic)` once you have processed the messages in a channel.
 
 ## 3. The Worker Node Pattern
 

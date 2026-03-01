@@ -9,7 +9,7 @@ export HEADLESS=1
 ./scripts/setup-ensemble.sh
 
 # 2. Launch the Liminal Bridge silently in the background
-echo ">>> 🌉 Starting Liminal Bridge in Seed mode..."
-python3 src/liminal_bridge/server.py --mode=seed > server.log 2>&1 &
+echo ">>> 🌉 Starting Liminal Bridge in Worker mode..."
+./polyphony worker > server.log 2>&1 &
 
 echo ">>> ✅ Agent boot sequence complete. Bridge is backgrounded."

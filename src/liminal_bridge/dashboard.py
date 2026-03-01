@@ -286,7 +286,7 @@ class DashboardServer:
         for item in backlog:
             try:
                 tasks.append(json.loads(item))
-            except:
+            except BaseException:
                 continue
         return web.json_response(tasks)
 
@@ -302,7 +302,7 @@ class DashboardServer:
                 priority = data.get("priority", "medium")
                 if not title:
                     return web.json_response({"error": "Missing title"}, status=400)
-                
+
                 task = {
                     "id": str(uuid.uuid4()),
                     "title": title,
@@ -317,7 +317,7 @@ class DashboardServer:
             elif action == "claim":
                 if not task_id:
                     return web.json_response({"error": "Missing task_id"}, status=400)
-                
+
                 success = await self.mesh.acquire_baton(f"task:{task_id}")
                 if success:
                     backlog = self.mesh.get_kv("swarm_backlog") or []
@@ -327,18 +327,22 @@ class DashboardServer:
                             if t.get("id") == task_id:
                                 t["owner"] = self.mesh.node_id
                                 t["status"] = "in_progress"
-                                await self.mesh.update_set("swarm_backlog", json.dumps(t))
+                                await self.mesh.update_set(
+                                    "swarm_backlog", json.dumps(t)
+                                )
                                 break
-                        except:
+                        except BaseException:
                             continue
                     return web.json_response({"status": "claimed"})
                 else:
-                    return web.json_response({"error": "Failed to claim task - baton denied"}, status=403)
+                    return web.json_response(
+                        {"error": "Failed to claim task - baton denied"}, status=403
+                    )
 
             elif action == "complete":
                 if not task_id:
                     return web.json_response({"error": "Missing task_id"}, status=400)
-                
+
                 await self.mesh.release_baton(f"task:{task_id}")
                 backlog = self.mesh.get_kv("swarm_backlog") or []
                 for item in backlog:
@@ -349,10 +353,10 @@ class DashboardServer:
                             t["owner"] = self.mesh.node_id
                             await self.mesh.update_set("swarm_backlog", json.dumps(t))
                             break
-                    except:
+                    except BaseException:
                         continue
                 return web.json_response({"status": "completed"})
-            
+
             else:
                 return web.json_response({"error": "Invalid action"}, status=400)
 
