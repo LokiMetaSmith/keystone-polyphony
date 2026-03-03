@@ -81,7 +81,16 @@ For developers using [Zed](https://zed.dev/), you can integrate the Polyphony sw
 ```
 Read the full [Zed Integration Guide](docs/zed-integration.md) for more details.
 
-### 3. Client Onboarding (Jules UI)
+### 3. VSCode Onboarding
+For developers using [VSCode](https://code.visualstudio.com/), you can integrate the swarm via popular AI extensions like Cline, Roo Code, and Continue.dev.
+
+```bash
+# Detect and configure installed VSCode AI extensions
+./scripts/setup-vscode.sh
+```
+Read the full [VSCode Integration Guide](docs/vscode-integration.md) for manual configuration steps.
+
+### 4. Client Onboarding (Jules UI)
 If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
 
 1.  **Install Script Dependencies**:
@@ -95,7 +104,7 @@ If you are configuring the Jules MCP client for the first time, use the interact
     npm run setup
     ```
 
-### 4. Injecting Swarm Secrets (CI/CD)
+### 5. Injecting Swarm Secrets (CI/CD)
 To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
 
 ```bash
@@ -157,6 +166,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
+- VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)
