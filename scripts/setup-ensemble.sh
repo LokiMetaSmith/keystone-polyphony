@@ -31,24 +31,9 @@ fi
 
 # 2. Python Dependencies
 echo ">>> 🐍 Installing Python dependencies..."
-
-if [ ! -d ".venv" ]; then
-    echo ">>> 📦 Creating Python virtual environment..."
-    python3 -m venv .venv
-fi
-
-echo ">>> 🔄 Activating virtual environment..."
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-elif [ -f ".venv/Scripts/activate" ]; then
-    source .venv/Scripts/activate
-else
-    echo "❌ Error: Virtual environment activation script not found."
-    exit 1
-fi
-
 if [ -f "requirements.txt" ]; then
-    pip3 install -r requirements.txt
+    # Use --break-system-packages to handle PEP 668 in managed environments (like Ubuntu 23.04+)
+    pip3 install -r requirements.txt --break-system-packages || pip3 install -r requirements.txt
 else
     echo "⚠️ Warning: requirements.txt not found."
 fi
