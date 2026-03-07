@@ -62,9 +62,15 @@ You do not need to be a programmer, or even a human, to contribute. This project
 
 ## Running the Liminal Bridge
 
+<<<<<<< HEAD
 The Liminal Bridge can be configured for personal use (Client Onboarding) or for collaborative participation (Ensemble Onboarding).
 
 ### 1. Ensemble Onboarding (Swarm CLI - Recommended)
+=======
+The Liminal Bridge is managed via the **`polyphony`** CLI tool.
+
+### 1. Ensemble Onboarding (Polyphony CLI - Recommended)
+>>>>>>> pr-39
 To quickly join the "Choir" and synchronize your environment with other agents and humans, run the automated baseline script. This handles all dependencies, SSH key exchange, and swarm connectivity in one step.
 
 ```bash
@@ -72,7 +78,33 @@ To quickly join the "Choir" and synchronize your environment with other agents a
 ./scripts/setup-ensemble.sh
 ```
 
+<<<<<<< HEAD
 ### 2. Zed Onboarding (First-Class Human Interaction)
+=======
+### 2. The `polyphony` CLI
+Use the `polyphony` command at the root of the repository to interact with the mesh.
+
+```bash
+# Start the bridge (defaults to worker mode for agents)
+./polyphony start
+
+# Show current swarm status (backlog, thoughts, peers)
+./polyphony status
+
+# Broadcast a thought to the mesh
+./polyphony share "Thinking about the architecture..."
+
+# Manage tasks
+./polyphony task list
+./polyphony task add "Fix the networking bug" "Low priority" "high"
+./polyphony task claim <task_id>
+
+# Broadcast a command to specific agents
+./polyphony broadcast "Run the integration tests" "" "tester" "idle"
+```
+
+### 3. Zed Onboarding (First-Class Human Interaction)
+>>>>>>> pr-39
 For developers using [Zed](https://zed.dev/), you can integrate the Polyphony swarm directly into Zed's Agent Panel. This allows you and the Zed Agent to collaborate seamlessly, acquiring batons and sharing thoughts natively while coding.
 
 ```bash
@@ -81,6 +113,7 @@ For developers using [Zed](https://zed.dev/), you can integrate the Polyphony sw
 ```
 Read the full [Zed Integration Guide](docs/zed-integration.md) for more details.
 
+<<<<<<< HEAD
 ### 3. VSCode Onboarding
 For developers using [VSCode](https://code.visualstudio.com/), you can integrate the swarm via popular AI extensions like Cline, Roo Code, and Continue.dev.
 
@@ -91,6 +124,15 @@ For developers using [VSCode](https://code.visualstudio.com/), you can integrate
 Read the full [VSCode Integration Guide](docs/vscode-integration.md) for manual configuration steps.
 
 ### 4. Client Onboarding (Jules UI)
+=======
+### 4. Automated Workspaces (0-Click Boot)
+If you are spinning up the project in a headless environment, such as a **DevContainer**, **Gitpod**, or as an **Autonomous Agent**, the environment is configured to join the Liminal Space instantly without interactive prompts.
+
+- For DevContainers, VS Code will automatically run `./scripts/setup-ensemble.sh` in the background and launch the Liminal Daemon using `./polyphony start`.
+- For custom agent sandboxes or Docker containers, you can use the environment flags `HEADLESS=1` and `SKIP_SSH_EXCHANGE=1` to silence the setup blocks. See `.agents/workflows/0-click-boot.md` for details.
+
+### 5. Client Onboarding (Jules UI)
+>>>>>>> pr-39
 If you are configuring the Jules MCP client for the first time, use the interactive onboarding tool to set up your UI settings, integrations, and permissions.
 
 1.  **Install Script Dependencies**:
@@ -104,7 +146,11 @@ If you are configuring the Jules MCP client for the first time, use the interact
     npm run setup
     ```
 
+<<<<<<< HEAD
 ### 5. Injecting Swarm Secrets (CI/CD)
+=======
+### 6. Injecting Swarm Secrets (CI/CD)
+>>>>>>> pr-39
 To prepare a fork for autonomous agent workflows, inject the necessary secrets and variables into your repository:
 
 ```bash
@@ -166,7 +212,10 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
+<<<<<<< HEAD
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
+=======
+>>>>>>> pr-39
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - Agent norms: [`AGENTS.md`](AGENTS.md)

@@ -67,6 +67,8 @@ Application payload message types:
 | `baton_deny` | current owner | requester resolves acquisition attempt as denied |
 | `baton_claim` | requester after timeout | receivers set `batons[resource] = origin` |
 | `baton_release` | current owner | receivers remove baton if owner matches origin |
+| `command_request` | any node | triggers `on_command_request` callback on target node |
+| `log` | any node | adds log entry to local `LogAggregator` |
 
 ## Operational Flows
 
@@ -131,7 +133,26 @@ sequenceDiagram
     end
 ```
 
-### 4) Seed Mode Background Pulse
+### 4) Command Issuance and Execution
+
+```mermaid
+sequenceDiagram
+    participant A as Requester (or Pulse)
+    participant M as Mesh
+    participant T as Target Agent
+    participant S as Target server.py
+
+    A->>M: broadcast_command(target, command)
+    M->>T: command_request payload
+    T->>S: handle_command_request(origin, command)
+    S-->>S: append to pending_commands queue
+    Note over T,S: Agent is now 'aware'
+    T->>S: get_pending_commands(clear=True)
+    S-->>T: command list
+    T-->>T: execute command...
+```
+
+### 5) Seed Mode Background Pulse
 
 ```mermaid
 flowchart TD
@@ -168,10 +189,18 @@ python src/liminal_bridge/server.py --mode mcp
 
 ```bash
 export SWARM_KEY="replace-with-shared-secret"
+
+# AI node (random identity - default)
 python src/liminal_bridge/server.py --mode seed --timeout 600
+
+# Human node (stable identity)
+python src/liminal_bridge/server.py --mode seed --node-name "jules-laptop"
+
+# Explicit stable seed
+python src/liminal_bridge/server.py --mode seed --seed "my-stable-seed"
 ```
 
-Seed mode keeps one node online to aid peer discovery and periodically attempts pulse checks.
+Seed mode keeps one node online to aid peer discovery and periodically attempts pulse checks. Use `--node-name` for stable identities across restarts.
 
 ### Run the Local Smoke Simulation
 
@@ -187,12 +216,21 @@ This launches two local agents with scripted thought/lock actions so you can obs
 |---|---|---|---|
 | `register_to_swarm` | `github_secret` optional | starts mesh; if secret differs, recreates mesh with new topic | status string with node id and topic prefix |
 | `share_thought` | `thought` string | auto-starts mesh if needed, writes local thought, broadcasts thought | fixed string `Thought streamed.` |
+| `set_status` | `status` string | sets node status (e.g. `idle`, `busy`) and broadcasts it | status confirmation |
 | `acquire_baton` | `file_path` string | auto-starts mesh if needed, runs deny-or-timeout lock attempt | `SUCCESS: ...` or `DENIED: ...` string |
 | `release_baton` | `file_path` string | auto-starts mesh if needed, releases only if this node owns baton; then evaluates pulse trigger heuristic | status string |
 | `peek_liminal` | `key` optional | returns one key from `kv_store` or full liminal snapshot | Python stringified dict/value (not strict JSON) |
 | `consult_architect` | `context` string | auto-starts mesh if needed, calls `Pulse.trigger("manual:<context>")`, reads `master_plan` from KV | status string containing plan |
+| `broadcast_command` | `command` string, `target` optional, `capabilities` optional | sends a command execution request to the swarm | confirmation string |
+| `get_pending_commands` | `clear` optional | retrieves all commands sent to this node | JSON array of commands |
+| `list_idle_agents` | - | returns list of nodes currently in `idle` status | JSON array of nodes |
 | `ensemble_chat` | `topic` string, `message` string | auto-starts mesh if needed, posts a persistent message to a topic-based thread | confirmation string |
 | `get_ensemble_chat` | `topic` string | auto-starts mesh if needed, retrieves the persistent history of a discussion topic | JSON array of messages |
+| `list_peers` | - | returns list of connected peer IDs | JSON with `peers` array and `count` |
+| `get_health_status` | - | returns mesh operational health | JSON with `status`, `reason`, `mode` |
+| `get_my_node_id` | - | returns this node's unique identifier | node ID string |
+| `broadcast_message` | `message` string, `urgency` optional | broadcasts raw message to all peers | confirmation string |
+| `restart_sidecar` | - | restarts the Node.js sidecar if crashed | confirmation string |
 
 `Pulse` has a 5-minute cooldown. Repeated `consult_architect` calls inside the cooldown window may return an unchanged plan. Current MCP tools do not pass the special `force` context.
 
@@ -201,12 +239,14 @@ This launches two local agents with scripted thought/lock actions so you can obs
 What the current system guarantees:
 
 - Nodes sharing the same `SWARM_KEY` topic can exchange JSON messages.
+- Unique identities per node (random for AI, stable with `--node-name` for humans).
+- Graceful sidecar crash handling with auto-restart (up to 100 retries).
 - Local callers get immediate lock decisions when resource state is already known.
 - `master_plan` updates are broadcast through the same mesh path as other updates.
 
 What it does not guarantee yet:
 
-- Durable state across process restart.
+- Durable state across process restart (partially implemented via SQLite).
 - Strongly consistent lock ownership under partitions or simultaneous timeout claims.
 - Authenticated per-agent identities.
 - Deterministic conflict resolution beyond last-write-wins style overwrites.
@@ -225,3 +265,4 @@ The implementation intentionally leaves several distributed-system concerns open
 - No peers discovered: verify all nodes use the same `SWARM_KEY` and can run Node sidecar.
 - `Architect not configured`: set `DUCKY_API_KEY` and ensure `openai` package is installed.
 - Baton behavior appears inconsistent: this can happen during concurrent timeout-based claims; treat current locking as cooperative best-effort.
+- Sidecar crashes: Node will auto-restart the sidecar up to 100 times. Use `get_health_status` to check if sidecar is dead.

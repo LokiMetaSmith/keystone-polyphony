@@ -104,8 +104,11 @@ class Architect:
         2. Identify any conflicts, missing tasks, or potential deadlocks (e.g. locks held for too long).
         3. Suggest releasing locks if tasks appear complete but the lock is still held.
         4. Generate a refined Backlog of the next 3-5 critical tasks, prioritized by dependency.
-        5. Output the result as a concise JSON object with a 'backlog' key and an optional 'advisories' key
-           for warnings.
+        5. If a high-priority task is pending and an agent is 'idle' with matching capabilities, you MAY issue a direct command to that agent.
+        6. Output the result as a JSON object with:
+           - 'backlog': List of tasks.
+           - 'commands': List of objects with {{'target': 'node_id', 'command': 'string_or_dict', 'capabilities': 'list'}}.
+           - 'advisories': Optional warnings.
         """
 
         if self.provider == "google":
