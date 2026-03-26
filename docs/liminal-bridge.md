@@ -248,7 +248,6 @@ What it does not guarantee yet:
 
 - Durable state across process restart (partially implemented via SQLite).
 - Strongly consistent lock ownership under partitions or simultaneous timeout claims.
-- Authenticated per-agent identities.
 - Deterministic conflict resolution beyond last-write-wins style overwrites.
 
 ## Known Limitations and Roadmap Alignment
