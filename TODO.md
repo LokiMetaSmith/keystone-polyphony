@@ -31,8 +31,8 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **Automated Sidecar Setup**: Ensure Node.js dependencies are installed automatically when the python package is installed or run.
 
 ## 7. Testing & Quality Improvements
-- [ ] **`tests/test_network_simulation.py`**: Replace `assert True` in `test_packet_loss` with meaningful probabilistic bounds assertions (e.g., `0 < val <= total_sent`).
-- [ ] **`tests/test_ensemble_chat.py`**: Replace conditional `print` statements with standard `assert` statements to ensure pytest correctly registers failures.
-- [ ] **`tests/test_architect_commands.py`**: Refactor to use idiomatic `assert` statements instead of boolean returns and prints for pass/fail logic.
-- [ ] **`scripts/load_test.py`**: Improve `KeyboardInterrupt` handling to ensure resources (DB files, identities) are cleaned up properly even on interrupted runs.
-- [ ] **`tests/test_ssh_exchange.py`**: Refine the `except SystemExit: pass` block to distinguish between expected successful exits and unexpected error exits (e.g., `sys.exit(1)`).
+- [x] **`tests/test_network_simulation.py`**: Replace `assert True` in `test_packet_loss` with meaningful probabilistic bounds assertions (e.g., `0 < val <= total_sent`).
+- [x] **`tests/test_ensemble_chat.py`**: Replace conditional `print` statements with standard `assert` statements to ensure pytest correctly registers failures.
+- [x] **`tests/test_architect_commands.py`**: Refactor to use idiomatic `assert` statements instead of boolean returns and prints for pass/fail logic.
+- [x] **`scripts/load_test.py`**: Improve `KeyboardInterrupt` handling to ensure resources (DB files, identities) are cleaned up properly even on interrupted runs.
+- [x] **`tests/test_ssh_exchange.py`**: Refine the `except SystemExit: pass` block to distinguish between expected successful exits and unexpected error exits (e.g., `sys.exit(1)`).

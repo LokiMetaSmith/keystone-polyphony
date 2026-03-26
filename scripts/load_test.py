@@ -83,40 +83,45 @@ async def main():
 
         agents.append(LoadTestAgent(name, secret, db_path, id_path))
 
-    # Start agents
-    print(f"Starting {len(agents)} agents for {args.duration} seconds...")
-    await asyncio.gather(*(a.start() for a in agents))
+    try:
+        # Start agents
+        print(f"Starting {len(agents)} agents for {args.duration} seconds...")
+        await asyncio.gather(*(a.start() for a in agents))
 
-    # Wait for discovery
-    print("Waiting for discovery...")
-    await asyncio.sleep(5)
+        # Wait for discovery
+        print("Waiting for discovery...")
+        await asyncio.sleep(5)
 
-    # Run load test
-    print("Running load test...")
-    await asyncio.gather(*(a.run(args.duration) for a in agents))
+        # Run load test
+        print("Running load test...")
+        await asyncio.gather(*(a.run(args.duration) for a in agents))
 
-    # Stop agents
-    print("Stopping agents...")
-    await asyncio.gather(*(a.stop() for a in agents))
+    except asyncio.CancelledError:
+        print("Load test interrupted.")
 
-    # Report
-    total_actions = sum(a.actions_performed for a in agents)
-    total_errors = sum(a.errors for a in agents)
-    print(f"Total actions: {total_actions}")
-    print(f"Total errors: {total_errors}")
+    finally:
+        # Stop agents
+        print("Stopping agents...")
+        await asyncio.gather(*(a.stop() for a in agents))
 
-    # Cleanup
-    for i in range(args.agents):
-        db_path = f"agent{i}.db"
-        id_path = f"agent{i}.pem"
-        if os.path.exists(db_path):
-            os.remove(db_path)
-        if os.path.exists(id_path):
-            os.remove(id_path)
+        # Report
+        total_actions = sum(a.actions_performed for a in agents)
+        total_errors = sum(a.errors for a in agents)
+        print(f"Total actions: {total_actions}")
+        print(f"Total errors: {total_errors}")
+
+        # Cleanup
+        for i in range(args.agents):
+            db_path = f"agent{i}.db"
+            id_path = f"agent{i}.pem"
+            if os.path.exists(db_path):
+                os.remove(db_path)
+            if os.path.exists(id_path):
+                os.remove(id_path)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        print("\nProcess interrupted by user. Cleaning up...")
