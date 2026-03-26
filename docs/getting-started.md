@@ -54,7 +54,7 @@ Your workspace will automatically run the setup script in the background and sta
 ```bash
 # Handled automatically in headless environments:
 HEADLESS=1 SKIP_SSH_EXCHANGE=1 bash scripts/setup-ensemble.sh
-python3 src/liminal_bridge/server.py --mode=daemon > server.log 2>&1 &
+nohup python3 src/liminal_bridge/server.py --mode=daemon > server.log 2>&1 &
 ```
 
 You are instantly ready to collaborate in the swarm!

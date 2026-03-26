@@ -21,7 +21,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if [ "${ALLOW_MAIN_PUSH:-0}" != "1" ]; then
       echo "[ERROR] Pushing directly to 'main' is discouraged. Please use a feature branch."
       echo "        To override, set ALLOW_MAIN_PUSH=1"
-      exit(1)
+      exit 1
     fi
     BLOCK_ON_FAIL=1
   fi
@@ -29,7 +29,7 @@ done
 
 if [ "$NON_DELETION_PUSH" -eq 0 ]; then
   echo "pre-push: All refs are deletions. Skipping checks."
-  exit(0)
+  exit 0
 fi
 
 # 0. Local Override
@@ -40,7 +40,7 @@ if [ -x "$LOCAL_HOOK" ]; then
   if ! "$LOCAL_HOOK"; then
     if [ "$BLOCK_ON_FAIL" -eq 1 ]; then
       echo "[ERROR] pre-push: Local hook failed. Push aborted."
-      exit(1)
+      exit 1
     else
       echo "[WARNING] pre-push: Local hook failed. Proceeding anyway."
     fi
@@ -53,7 +53,7 @@ echo "pre-push: Running repository health checks..."
 if ! ./scripts/run-tests.sh; then
   if [ "$BLOCK_ON_FAIL" -eq 1 ]; then
     echo "[ERROR] pre-push: Health checks failed. Push aborted."
-    exit(1)
+    exit 1
   else
     echo "[WARNING] pre-push: Health checks failed. Proceeding anyway."
   fi
