@@ -4,7 +4,7 @@ description: How agents should broadcast their thoughts and status to the Limina
 
 # Swarm Communication Protocol for Agents
 
-Agents running in the Keystone Polyphony ecosystem are expected to proactively communicate their state, findings, and intentions to the human operators and other agents in the "Liminal Space" mesh network.
+Agents running in the Keystone Polyphony ecosystem are expected to proactively communicate their state, findings, and intentions to the human operators and other agents in the "Liminal Space" mesh network. 
 
 If your environment does not have the FastMCP CLI installed natively, you MUST use the built-in `./polyphony` wrapper script to vocalize your thoughts.
 
@@ -35,5 +35,5 @@ If you need to alert a specific node (e.g., when you encounter a conflict or nee
 
 ## Norms
 1. **Be Vocal**: Share thoughts frequently based on the task you are executing. It allows the Architect and humans to monitor your workflow.
-2. **Be Succinct**: Do not dump raw logs or massive JSON blobs into thoughts. Keep them concise and human-readable, like a commit message or a chat message.
+2. **Be Succinct**: Do not dump raw logs or massive JSON blobs into thoughts. Keep them concise and human-readable, like a commit message or a chat message. 
 3. **Go Idle**: Always remember to set your status back to `idle` when your workflow concludes!

@@ -39,11 +39,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-
+          
           # Initialize variables
           ISSUE_NUMBER=""
           AGENT_NAME="opencode" # fallback
-
+          
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ISSUE_NUMBER="${{ inputs.issue_number }}"
             # Default to jules on manual runs if not specified
@@ -51,19 +51,19 @@ jobs:
           else
             ISSUE_NUMBER="${{ github.event.issue.number }}"
             LABEL_NAME="${{ github.event.label.name }}"
-
+            
             # Extract agent name from 'parallel-<agent>'
             if [[ "$LABEL_NAME" =~ ^parallel-(.+)$ ]]; then
               AGENT_NAME="${BASH_REMATCH[1]}"
             fi
-
+            
             # Label swap: remove parallel-<agent>, add agent-working
             gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "$LABEL_NAME" --add-label "agent-working"
           fi
-
+          
           echo "Selected Issue: #$ISSUE_NUMBER"
           echo "Selected Agent: $AGENT_NAME"
-
+          
           echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
           echo "agent_name=$AGENT_NAME" >> "$GITHUB_OUTPUT"
 
@@ -71,7 +71,7 @@ jobs:
           # Fetch AGENT_PARALLELISM or <AGENT>_PARALLELISM from repository variables
           PARALLELISM=0
           AGENT_UPPER=$(echo "$AGENT_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-
+          
           RAW_VAL=$(gh api "/repos/$REPO/actions/variables/${AGENT_UPPER}_PARALLELISM" --jq '.value // "0"' 2>/dev/null | tr -d '[:space:]' || echo "0")
           if [[ "$RAW_VAL" =~ ^[0-9]+$ ]] && [ "$RAW_VAL" -gt 0 ]; then
              PARALLELISM="$RAW_VAL"
@@ -83,9 +83,9 @@ jobs:
                  PARALLELISM=5 # Hard fallback
              fi
           fi
-
+          
           echo "Parallelism configured to $PARALLELISM"
-
+          
           # Construct JSON array [1, 2, ..., N]
           MATRIX_JSON="["
           for ((i=1; i<=$PARALLELISM; i++)); do
@@ -93,14 +93,14 @@ jobs:
              if [ $i -lt $PARALLELISM ]; then MATRIX_JSON+=", "; fi
           done
           MATRIX_JSON+="]"
-
+          
           echo "matrix_json=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
-
+          
           # Bootstrap the single shared branch for all workers
           BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
+          
           if git ls-remote --exit-code --heads origin "$BRANCH_NAME"; then
              echo "Branch $BRANCH_NAME already exists on origin."
           else
@@ -175,7 +175,7 @@ jobs:
               cat AGENTS.md
               echo ""
             fi
-
+            
           } > agent_prompt.txt
 
       - name: Run Agent
@@ -240,31 +240,31 @@ jobs:
           set -e
 
           echo "agent_exit_code=$EXIT_CODE" >> "$GITHUB_ENV"
-
+          
       - name: Robust Pull-Rebase-Push
         if: always()
         run: |
           # Even if the agent failed, it might have made some local commits or changes
           set -euo pipefail
           BRANCH_NAME="feat/agent-${{ env.ISSUE_NUMBER }}"
-
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
+          
           # Check if there are local uncommitted changes
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "feat/agent-${{ env.ISSUE_NUMBER }}: (worker ${{ matrix.worker_id }}) intermediate progress"
           fi
-
+          
           # Loop to handle contention when multiple agents push simultaneously
           MAX_RETRIES=5
           RETRY_COUNT=0
           SUCCESS=0
-
+          
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             echo "Attempting pull --rebase and push (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)..."
-
+            
             # Fetch the latest from origin, rebase our local changes on top
             # If there's a serious git conflict (e.g. they both edited the exact same lines without baton),
             # this will fail and abort the rebase.
@@ -272,23 +272,23 @@ jobs:
             git pull --rebase origin "$BRANCH_NAME"
             PULL_STAT=$?
             set -e
-
+            
             if [ $PULL_STAT -ne 0 ]; then
               echo "Git rebase conflict detected. Attempting to abort and retry later..."
               git rebase --abort || true
-
+              
               # If we can't resolve it, sleep random time to desync runners and try again
               sleep $(( (RANDOM % 5) + 2 ))
               RETRY_COUNT=$((RETRY_COUNT+1))
               continue
             fi
-
+            
             # Rebase was successful, try to push
             set +e
             git push origin "$BRANCH_NAME"
             PUSH_STAT=$?
             set -e
-
+            
             if [ $PUSH_STAT -eq 0 ]; then
                echo "Successfully pushed changes!"
                SUCCESS=1
@@ -299,7 +299,7 @@ jobs:
                RETRY_COUNT=$((RETRY_COUNT+1))
             fi
           done
-
+          
           if [ $SUCCESS -eq 0 ]; then
              echo "Failed to safely push changes to origin/$BRANCH_NAME after $MAX_RETRIES retries."
              exit 1
@@ -315,7 +315,7 @@ jobs:
 
   finalize:
     needs: [setup, solve-parallel]
-    if: always()
+    if: always() 
     runs-on: ubuntu-latest
     steps:
       - name: Determine Status
@@ -352,10 +352,10 @@ jobs:
           set -euo pipefail
           ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json title -q .title)
           BRANCH_NAME="feat/agent-$ISSUE_NUMBER"
-
+          
           # Check if PR already exists
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --repo "$REPO" --json number --jq '.[0].number' || echo "")
-
+          
           if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" == "null" ]; then
              echo "Creating PR for issue #$ISSUE_NUMBER"
              gh pr create \

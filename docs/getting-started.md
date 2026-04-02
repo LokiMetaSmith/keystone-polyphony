@@ -37,7 +37,6 @@ We provide automated scripts to help you set up your environment, configure the 
     ```
 
 2.  **Run Onboarding Scripts**:
-    ```bash
     # Configure Jules MCP, Integrations, API Key, and GitHub Permissions (Interactive UI)
     npm run setup
 
