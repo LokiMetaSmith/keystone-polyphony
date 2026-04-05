@@ -262,7 +262,7 @@ jobs:
     # Serialized after merge-to-main chain to avoid concurrent pushes to main.
     needs: [sweep-issues, create-upstream-pr]
     if: always() && needs.sweep-issues.outputs.found == 'true'
-    uses: niklas-olsson/keystone-polyphony/.github/workflows/agent-issues.yml@main
+    uses: ./.github/workflows/agent-issue-triage.yml
     secrets: inherit
 
   retry-agent-queue:
