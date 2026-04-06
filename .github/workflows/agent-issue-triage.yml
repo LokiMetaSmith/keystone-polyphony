@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/issues/*.md'
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: publish-agent-issues-${{ github.repository }}-${{ github.ref_name }}
