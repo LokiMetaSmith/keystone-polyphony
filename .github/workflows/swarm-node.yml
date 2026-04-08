@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: '*/30 * * * *'  # Re-anchor every 30 minutes to keep DHT entries alive
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   anchor-swarm:
     if: github.repository == 'niklas-olsson/keystone-polyphony'

@@ -59,7 +59,9 @@ async def _run_pulse_broadcasts_architect_commands():
             await pulse.trigger(context="force")
 
             # Check if broadcast_command was called via the mock_broadcast
-            assert sent_commands, "FAILURE: Pulse did not broadcast command from Architect."
+            assert (
+                sent_commands
+            ), "FAILURE: Pulse did not broadcast command from Architect."
 
             cmd = sent_commands[0]
             assert cmd["target"] == "target-node-id"
