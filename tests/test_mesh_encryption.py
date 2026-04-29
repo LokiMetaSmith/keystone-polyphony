@@ -56,7 +56,10 @@ async def test_receive_decrypts_payload(mesh_node):
     original_payload = {"type": "test_msg", "content": "secret data"}
     encrypted_data = mesh_node._encrypt(original_payload)
 
-    msg = {"type": "message", "peer_id": "some_peer", "payload": {"e": encrypted_data}}
+    # Sign it
+    signature = mesh_node.private_key.sign(encrypted_data.encode())
+
+    msg = {"type": "message", "peer_id": "some_peer", "payload": {"e": encrypted_data, "s": signature.hex(), "p": mesh_node.public_key_hex}}
 
     await mesh_node._handle_message(msg)
 
@@ -69,8 +72,8 @@ async def test_receive_decrypts_payload(mesh_node):
 
 @pytest.mark.asyncio
 async def test_receive_unencrypted_payload_ignored_or_processed(mesh_node):
-    """Test behavior for unencrypted payload (legacy support)."""
-    # Assuming we still support unencrypted messages as fallback or if 'e' is missing
+    """Test behavior for unencrypted payload (legacy support dropped)."""
+    # We no longer support unencrypted messages, so it should NOT be processed
     mesh_node._handle_payload = AsyncMock()
 
     msg = {
@@ -81,9 +84,7 @@ async def test_receive_unencrypted_payload_ignored_or_processed(mesh_node):
 
     await mesh_node._handle_message(msg)
 
-    mesh_node._handle_payload.assert_called_once()
-    received_payload = mesh_node._handle_payload.call_args[0][0]
-    assert received_payload["content"] == "plaintext"
+    mesh_node._handle_payload.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -91,10 +92,14 @@ async def test_decryption_failure_handling(mesh_node, capsys):
     """Test that decryption failure is handled gracefully."""
     mesh_node._handle_payload = AsyncMock()
 
+    # To test decryption failure, we need a valid signature over the invalid ciphertext
+    invalid_ciphertext = "invalid_base64_or_ciphertext"
+    signature = mesh_node.private_key.sign(invalid_ciphertext.encode())
+
     msg = {
         "type": "message",
         "peer_id": "bad_peer",
-        "payload": {"e": "invalid_base64_or_ciphertext"},
+        "payload": {"e": invalid_ciphertext, "s": signature.hex(), "p": mesh_node.public_key_hex},
     }
 
     await mesh_node._handle_message(msg)

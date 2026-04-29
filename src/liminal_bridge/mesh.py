@@ -520,6 +520,9 @@ class LiminalMesh:
         # Broadcast initial state (so dashboard sees us)
         asyncio.create_task(self.broadcast_network_state())
 
+        # Register identity
+        await self.update_set("identity_registry", json.dumps({"node_id": self.node_id, "public_key": self.public_key_hex}))
+
         print(
             f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
         )
@@ -672,6 +675,16 @@ class LiminalMesh:
         data = self.fernet.decrypt(encrypted_b64.encode())
         return json.loads(data.decode())
 
+    async def log_audit_event(self, event_type: str, details: Dict[str, Any]):
+        """Logs an audit event to the persistent CRDT."""
+        event = {
+            "type": event_type,
+            "details": details,
+            "timestamp": time.time(),
+            "origin": self.node_id
+        }
+        await self.update_set("audit_log", json.dumps(event))
+
     async def broadcast(self, payload: Any, urgency: str = "low"):
         """Broadcasts a payload to all peers."""
         # TODO: Implement multi-modal transport switching.
@@ -692,7 +705,14 @@ class LiminalMesh:
 
         # Encrypt the payload before sending
         encrypted_data = self._encrypt(payload)
-        await self._send_to_sidecar("broadcast", {"e": encrypted_data})
+
+        # Sign the encrypted data
+        signature = self.private_key.sign(encrypted_data.encode())
+
+        await self._send_to_sidecar(
+            "broadcast",
+            {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex},
+        )
 
     def _increment_clock(self):
         """Increments the local logical clock."""
@@ -767,13 +787,51 @@ class LiminalMesh:
 
             payload = msg.get("payload", {})
 
-            # Decrypt if encrypted
-            if "e" in payload:
+            # Verify signature (must be present for all messages now)
+            if "e" in payload and "s" in payload and "p" in payload:
                 try:
-                    payload = self._decrypt(payload["e"])
+                    sender_pubkey = ed25519.Ed25519PublicKey.from_public_bytes(
+                        bytes.fromhex(payload["p"])
+                    )
+                    sender_pubkey.verify(
+                        bytes.fromhex(payload["s"]), payload["e"].encode()
+                    )
                 except Exception as e:
-                    print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
+                    print(f"Signature verification failed from {msg.get('peer_id')}: {e}")
                     return
+            else:
+                print(f"Warning: Message from {msg.get('peer_id')} is missing encrypted payload or signature. Dropping.")
+                return
+
+            try:
+                decrypted_payload = self._decrypt(payload["e"])
+
+                # Verify identity registry
+                origin = decrypted_payload.get("origin")
+                if origin:
+                    derived_node_id = hashlib.sha256(bytes.fromhex(payload["p"])).hexdigest()[:16]
+                    if origin != derived_node_id:
+                        print(f"Identity mismatch from {msg.get('peer_id')}: claimed origin {origin} does not match pubkey {derived_node_id}.")
+                        return
+
+                    registry_raw = self.get_kv("identity_registry") or []
+                    registry_map = {}
+                    for item in registry_raw:
+                        try:
+                            reg_entry = json.loads(item)
+                            if "node_id" in reg_entry and "public_key" in reg_entry:
+                                registry_map[reg_entry["node_id"]] = reg_entry["public_key"]
+                        except Exception:
+                            pass
+
+                    if origin in registry_map and registry_map[origin] != payload["p"]:
+                        print(f"Identity spoofing detected from {msg.get('peer_id')}: public key does not match registry.")
+                        return
+
+                payload = decrypted_payload
+            except Exception as e:
+                print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
+                return
 
             # Update peer map
             origin = payload.get("origin")
@@ -789,6 +847,12 @@ class LiminalMesh:
         origin = payload.get("origin")
         remote_vc = payload.get("vc", {})
         urgency = payload.get("urgency", "low")
+        timestamp = payload.get("timestamp", time.time())
+
+        # Telemetry
+        latency = time.time() - timestamp
+        self.log_aggregator.add_telemetry("latency", latency)
+        self.log_aggregator.add_telemetry("message_count", 1)
 
         # Contextual Attenuation Filtering
         if urgency == "low" and origin in self.peer_distances:
@@ -880,12 +944,18 @@ class LiminalMesh:
 
         elif p_type == "baton_release":
             resource = payload.get("resource")
-            if self.batons.get(resource) == origin:
-                del self.batons[resource]
+            force = payload.get("force", False)
+            if self.batons.get(resource) == origin or force:
+                if resource in self.batons:
+                    del self.batons[resource]
 
         elif p_type == "baton_deny":
             resource = payload.get("resource")
             target = payload.get("target")
+
+            # Telemetry for contention
+            self.log_aggregator.add_telemetry("contentions", 1)
+
             if target == self.node_id:
                 if resource in self._lock_requests:
                     self._lock_requests[resource].set_result(False)
@@ -1152,10 +1222,25 @@ class LiminalMesh:
             except (json.JSONDecodeError, TypeError):
                 continue
 
-        # Filter: todo AND capabilities match
+        # Filter: todo AND capabilities match AND dependencies met
         available = []
+
+        # Build a fast lookup for task statuses
+        task_statuses = {t.get("id"): t.get("status") for t in tasks if t.get("id")}
+
         for task in tasks:
             if task.get("status") == "todo":
+                # Check dependencies first
+                blocked_by = task.get("blocked_by", [])
+                dependencies_met = True
+                for dep_id in blocked_by:
+                    if task_statuses.get(dep_id) != "done":
+                        dependencies_met = False
+                        break
+
+                if not dependencies_met:
+                    continue
+
                 required = task.get("required", [])
                 # If node has all required capabilities (or none required)
                 if not required or all(cap in self.capabilities for cap in required):
@@ -1355,17 +1440,21 @@ class LiminalMesh:
             await asyncio.wait_for(future, timeout=timeout)
             result = future.result()
             del self._lock_requests[resource]
+            if result:
+                asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
             return result
         except asyncio.TimeoutError:
             del self._lock_requests[resource]
             self.batons[resource] = self.node_id
             await self.broadcast({"type": "baton_claim", "resource": resource})
+            asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
             return True
 
     async def release_baton(self, resource: str):
         if self.batons.get(resource) == self.node_id:
             del self.batons[resource]
             await self.broadcast({"type": "baton_release", "resource": resource})
+            asyncio.create_task(self.log_audit_event("baton_released", {"resource": resource}))
             # Trigger Pulse
             if self.on_baton_release:
                 # Pass resource and my identity

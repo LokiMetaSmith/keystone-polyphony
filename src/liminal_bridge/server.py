@@ -50,6 +50,25 @@ mcp = FastMCP("Keystone-Polyphony")
 
 async def handle_command_request(origin: str, command: dict):
     """Callback for when this node receives a command request."""
+
+    # RBAC Check
+    if mesh:
+        roles_raw = mesh.get_kv("roles") or []
+        origin_role = "user" # default
+        for item in roles_raw:
+            try:
+                role_entry = json.loads(item)
+                if role_entry.get("node_id") == origin:
+                    origin_role = role_entry.get("role", "user")
+                    break
+            except Exception:
+                continue
+
+        cmd_type = command.get("type")
+        if cmd_type in ["execute", "broadcast"] and origin_role != "admin":
+            await mesh.log("warn", f"Unauthorized command execution request from {origin}")
+            return
+
     print(f">>> [Command Request] Received from {origin}: {command}")
 
     # Store in queue
@@ -451,6 +470,26 @@ async def claim_task(task_id: str) -> str:
     if err:
         return err
 
+    # Check dependencies before claiming
+    backlog = mesh.get_kv("swarm_backlog") or []
+    tasks = []
+    target_task = None
+    for item in backlog:
+        try:
+            t = json.loads(item)
+            tasks.append(t)
+            if t.get("id") == task_id:
+                target_task = t
+        except BaseException:
+            continue
+
+    if target_task:
+        task_statuses = {t.get("id"): t.get("status") for t in tasks if t.get("id")}
+        blocked_by = target_task.get("blocked_by", [])
+        for dep_id in blocked_by:
+            if task_statuses.get(dep_id) != "done":
+                return f"Failed to claim task {task_id} - unmet dependency: {dep_id}"
+
     success = await mesh.acquire_baton(f"task:{task_id}")
     if success:
         backlog = mesh.get_kv("swarm_backlog") or []
@@ -489,6 +528,7 @@ async def complete_task(task_id: str) -> str:
                 t["status"] = "done"
                 t["owner"] = mesh.node_id
                 await mesh.update_set("swarm_backlog", json.dumps(t))
+                asyncio.create_task(mesh.log_audit_event("task_completed", {"task_id": task_id}))
                 break
         except BaseException:
             continue
@@ -626,6 +666,7 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
             # Periodically pulse (every 60s check, but trigger respects cooldown)
             if int(time.time()) % 60 == 0:
                 await pulse.trigger(context="seed_heartbeat")
+                await pulse.check_baton_health()
 
             # Autonomous Swarm Behaviors (every 30s)
             if int(time.time()) % 30 == 0:
