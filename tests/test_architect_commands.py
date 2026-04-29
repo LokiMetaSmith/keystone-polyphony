@@ -59,9 +59,9 @@ async def _run_pulse_broadcasts_architect_commands():
             await pulse.trigger(context="force")
 
             # Check if broadcast_command was called via the mock_broadcast
-            if not sent_commands:
-                print("FAILURE: Pulse did not broadcast command from Architect.")
-                return False
+            assert (
+                sent_commands
+            ), "FAILURE: Pulse did not broadcast command from Architect."
 
             cmd = sent_commands[0]
             assert cmd["target"] == "target-node-id"
@@ -69,17 +69,14 @@ async def _run_pulse_broadcasts_architect_commands():
             assert cmd["capabilities"] == ["tester"]
 
             print("SUCCESS: Pulse correctly broadcasted Architect's command!")
-            return True
 
     finally:
         shutil.rmtree(tmp_dir)
 
 
 def test_pulse_broadcasts_architect_commands():
-    success = asyncio.run(_run_pulse_broadcasts_architect_commands())
-    assert success
+    asyncio.run(_run_pulse_broadcasts_architect_commands())
 
 
 if __name__ == "__main__":
-    success = asyncio.run(_run_pulse_broadcasts_architect_commands())
-    sys.exit(0 if success else 1)
+    asyncio.run(_run_pulse_broadcasts_architect_commands())

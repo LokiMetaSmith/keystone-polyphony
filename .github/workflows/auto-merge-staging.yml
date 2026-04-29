@@ -13,6 +13,9 @@ concurrency:
   group: auto-merge-staging
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   check-workflow-changes:
     # Detect whether the PR touches any workflow files.

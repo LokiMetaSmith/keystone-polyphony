@@ -60,20 +60,18 @@ async def test_chat():
     res2 = mesh2.get_kv(f"chat:{topic}")
     print(f"Node 2 sees: {res2}")
 
-    if len(res1) == 2 and len(res2) == 2:
+    try:
+        assert len(res1) == 2
+        assert len(res2) == 2
         print("SUCCESS: Chat messages synced correctly across members of the swarm!")
-    else:
-        print(
-            f"FAILURE: Sync incomplete. Node 1 size: {len(res1)}, Node 2 size: {len(res2)}"
-        )
+    finally:
+        await mesh1.stop()
+        await mesh2.stop()
 
-    await mesh1.stop()
-    await mesh2.stop()
-
-    # Cleanup
-    for f in ["chat1.db", "chat2.db", "chat1.pem", "chat2.pem"]:
-        if os.path.exists(f):
-            os.remove(f)
+        # Cleanup
+        for f in ["chat1.db", "chat2.db", "chat1.pem", "chat2.pem"]:
+            if os.path.exists(f):
+                os.remove(f)
 
 
 if __name__ == "__main__":

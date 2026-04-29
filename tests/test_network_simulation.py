@@ -325,8 +325,9 @@ async def test_packet_loss(simulator, mesh_a, mesh_b):
     print(f"Sent {total_sent}, received value {val}")
 
     # This test just documents behavior, asserting strict values is hard with randomness.
-    # We assert that the system doesn't crash.
-    assert True
+    # However, since we are sending additive updates (counter), B should receive at least
+    # some updates (so val > 0) but not all of them (val <= total_sent).
+    assert 0 <= val <= total_sent
 
     await mesh_a.stop()
     await mesh_b.stop()

@@ -45,8 +45,9 @@ def test_ssh_exchange_logic():
                 try:
                     with patch("sys.argv", ["exchange-ssh-keys.py", "--duration", "2"]):
                         await main()
-                except SystemExit:
-                    pass
+                except SystemExit as e:
+                    # main() should return normally; sys.exit is used for early errors
+                    assert e.code == 0, f"Unexpected SystemExit with code {e.code}"
 
             # Verify mesh was started and stopped
             mock_mesh_instance.start.assert_called_once()

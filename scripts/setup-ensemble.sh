@@ -73,7 +73,7 @@ if [ -z "$SWARM_KEY" ]; then
 fi
 
 if [ -z "$SWARM_KEY" ]; then
-    if [ "$HEADLESS" = "1" ] || [ "$CI" = "true" ]; then
+    if [ "$HEADLESS" = "1" ] || [ "$CI" = "true" ] || [ ! -t 0 ]; then
         echo ">>> ⚠️ Non-interactive environment detected. Using default SWARM_KEY."
         export SWARM_KEY="KEYSTONE-POLYPHONY-UPSTREAM"
     else
