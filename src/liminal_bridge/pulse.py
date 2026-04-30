@@ -77,6 +77,27 @@ class Pulse:
         self.last_consultation = now
         print("PULSE: Plan updated and commands issued.")
 
+    async def check_baton_health(self):
+        """
+        Iterates over active batons. If the owner's last thought is older than 5 minutes (300s),
+        release the baton by broadcasting baton_release.
+        """
+        now = time.time()
+        for resource, owner in list(self.mesh.batons.items()):
+            thought = self.mesh.thoughts.get(owner)
+            if not thought:
+                continue
+
+            last_activity = thought.get("timestamp", 0)
+            if now - last_activity > 300:
+                print(f"PULSE: Baton {resource} held by {owner} appears stale. Broadcasting release.")
+                # We can originate the release from our own node_id, we will update mesh.py to allow it
+                await self.mesh.broadcast({
+                    "type": "baton_release",
+                    "resource": resource,
+                    "force": True  # Add a force flag for mesh to recognize
+                })
+
     async def on_baton_release(self, resource: str, agent_id: str):
         """
         Callback when a baton is released.
