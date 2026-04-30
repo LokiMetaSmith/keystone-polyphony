@@ -80,7 +80,7 @@ jobs:
           # Fetch the PR branch into a local ref
           git fetch origin pull/$PR_NUMBER/head:pr-branch
           # Merge it into staging
-          git merge pr-branch --no-edit
+          git merge pr-branch -X theirs --no-edit
           # Push back to origin
           git push origin staging
 
