@@ -36,3 +36,14 @@ This document outlines the next steps and planned improvements for the "Liminal 
 - [x] **`tests/test_architect_commands.py`**: Refactor to use idiomatic `assert` statements instead of boolean returns and prints for pass/fail logic.
 - [x] **`scripts/load_test.py`**: Improve `KeyboardInterrupt` handling to ensure resources (DB files, identities) are cleaned up properly even on interrupted runs.
 - [x] **`tests/test_ssh_exchange.py`**: Refine the `except SystemExit: pass` block to distinguish between expected successful exits and unexpected error exits (e.g., `sys.exit(1)`).
+
+## 8. Hybrid WASM LLM Engine (Pollen + Keystone)
+This section tracks the work required to build a fully decentralized, peer-to-peer AI pipeline by layering Keystone Polyphony's agent coordination over Pollen's distributed compute fabric.
+
+- [ ] **WASM LLM Compilation:** Compile a lightweight LLM inference engine (e.g., a variant of `llama.cpp` or WasmNN) into a WebAssembly module compatible with Pollen's pure Go runtime.
+- [ ] **Pollen Compute Integration:** Write a Pollen wrapper around the WASM engine so it can receive inference requests via Pollen's QUIC transport and return generated tokens.
+- [ ] **Model Weight Distribution:** Implement a mechanism to chunk and distribute large `.gguf` model files over Pollen's content-addressed peer-to-peer blob sharing (`pln seed`).
+- [ ] **Hardware Capability Routing:** Implement Pollen-level metadata tags (`--prop role=gpu` or `--prop vram=16GB`) to ensure inference requests route only to capable shards.
+- [ ] **Keystone Inference Provider:** Update Keystone's `Architect` class to accept a "Pollen Mesh" provider endpoint instead of just standard REST APIs (OpenAI/Anthropic).
+- [ ] **Agent Task Handoff:** Modify the Keystone `swarm_backlog` logic so agents can seamlessly delegate heavy cognitive tasks (like summarizing massive codebases) down to the Pollen compute layer via `command_request` broadcasts.
+- [ ] **Context Sync Loop:** Ensure the text output from Pollen WASM execution is automatically ingested back into Keystone's CRDT state as an agent "Thought," updating the shared Liminal Space context.
