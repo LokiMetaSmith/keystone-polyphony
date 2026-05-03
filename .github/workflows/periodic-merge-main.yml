@@ -14,6 +14,9 @@ concurrency:
   group: hourly-merge-main
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   detect-staging:
     runs-on: ubuntu-latest
@@ -88,6 +91,12 @@ jobs:
             exit 0
           fi
 
+          if [ -f scripts/run-tests.sh ]; then
+            echo "::notice::HOURLY_TEST_COMMAND not set. Falling back to './scripts/run-tests.sh' in an isolated container."
+            echo "command=./scripts/run-tests.sh" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -f package.json ]; then
             echo "::notice::HOURLY_TEST_COMMAND not set. Falling back to 'npm test' in an isolated container."
             echo "command=npm test" >> "$GITHUB_OUTPUT"
@@ -147,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -B main origin/main
-          git merge "${{ needs.detect-staging.outputs.staging_sha }}" --ff-only
+          git merge "${{ needs.detect-staging.outputs.staging_sha }}" --no-edit
           git push origin main
 
   create-upstream-pr:
@@ -262,7 +271,7 @@ jobs:
     # Serialized after merge-to-main chain to avoid concurrent pushes to main.
     needs: [sweep-issues, create-upstream-pr]
     if: always() && needs.sweep-issues.outputs.found == 'true'
-    uses: niklas-olsson/keystone-polyphony/.github/workflows/agent-issues.yml@main
+    uses: ./.github/workflows/agent-issue-triage.yml
     secrets: inherit
 
   retry-agent-queue:

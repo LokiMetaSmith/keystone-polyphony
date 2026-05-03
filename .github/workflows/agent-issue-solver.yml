@@ -10,6 +10,9 @@ permissions:
   issues: write
   pull-requests: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   solve-issue:
     # Only run on upstream and only when the issue has the 'ready for work' label.

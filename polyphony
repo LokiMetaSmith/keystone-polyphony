@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# polyphony - The Native Swarm CLI Wrapper for Keystone Polyphony
+
+set -e
+
+# Ensure we have SWARM_KEY
+if [ -z "$SWARM_KEY" ]; then
+    if [ -f .env ]; then
+        # Load from .env if it exists
+        export $(grep -v '^#' .env | xargs)
+    fi
+fi
+
+if [ -z "$SWARM_KEY" ]; then
+    echo "❌ ERROR: SWARM_KEY is not set. Please export it or define it in .env"
+    exit 1
+fi
+
+usage() {
+    echo "Usage: polyphony <command> [args...] (or 'kp <command>')"
+    echo ""
+    echo "Core Commands:"
+    echo "  start|join       Start the Liminal Bridge (Seed Mode)"
+    echo "  worker|daemon    Start the Liminal Bridge (Daemon/Worker Mode)"
+    echo "  dashboard [port] Start the bridge with the web dashboard (default: 8000)"
+    echo "  setup            Provision the environment and join the swarm"
+    echo ""
+    echo "Coordination Commands:"
+    echo "  status [msg]     Show swarm state, or update your node status if msg is provided"
+    echo "  idle             Quickly set your node status to 'idle'"
+    echo "  share <thought>  Broadcast a thought to the swarm"
+    echo "  ping <id> <msg>  Directly notify another agent"
+    echo "  task <action>    Manage tasks: list, add, claim, complete"
+    echo "  broadcast <cmd>  Broadcast a command to the swarm"
+    echo "  chat <topic> <msg> Post a message to an ensemble chat topic"
+    echo "  topics           List all active chat topics"
+    echo ""
+    echo "Project Commands:"
+    echo "  dispatch <file>  Dispatch a work order to multiple agents"
+    echo "  issue <action>   Refine or deduplicate issues (refine|dedup)"
+    echo "  keys             Exchange SSH keys with the swarm"
+    echo "  lint             Run the project linters"
+    echo "  test             Run the project tests"
+    echo "  hooks            Install the local git hooks"
+    echo "  help             Display this help message"
+    echo ""
+}
+
+case "$1" in
+    join|start)
+        echo ">>> Joining the Polyphony Swarm (Seed Mode)..."
+        exec python3 src/liminal_bridge/server.py --mode seed "${@:2}"
+        ;;
+    daemon|worker)
+        echo ">>> Starting Polyphony Daemon (Worker Mode)..."
+        exec python3 src/liminal_bridge/server.py --mode daemon "${@:2}"
+        ;;
+    dashboard)
+        PORT="${2:-8000}"
+        echo ">>> Starting Swarm Dashboard on port $PORT..."
+        exec python3 src/liminal_bridge/server.py --mode seed --dashboard-port "$PORT" "${@:3}"
+        ;;
+    setup)
+        ./scripts/setup-ensemble.sh
+        ;;
+    status)
+        if [ -n "$2" ]; then
+            python3 scripts/status.py "$2"
+        else
+            python3 scripts/swarm_status.py
+        fi
+        ;;
+    list|tasks)
+        python3 scripts/swarm_status.py
+        ;;
+    idle)
+        python3 scripts/status.py "idle"
+        ;;
+    share)
+        if [ -z "$2" ]; then
+            echo "Usage: polyphony share 'Your thought here'"
+            exit 1
+        fi
+        python3 scripts/share.py "${@:2}"
+        ;;
+    ping)
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: polyphony ping <node_id> 'Your message here'"
+            exit 1
+        fi
+        python3 scripts/ping.py "$2" "${@:3}"
+        ;;
+    task)
+        shift
+        python3 scripts/task.py "$@"
+        ;;
+    broadcast)
+        shift
+        python3 scripts/broadcast.py "$@"
+        ;;
+    chat)
+        shift
+        python3 scripts/chat.py "$@"
+        ;;
+    topics)
+        python3 scripts/list_topics.py
+        ;;
+    dispatch)
+        shift
+        ./scripts/dispatch-work-order.sh "$@"
+        ;;
+    issue)
+        shift
+        case "$1" in
+            refine)
+                python3 scripts/refine_issue.py "$2"
+                ;;
+            dedup)
+                python3 scripts/deduplicate.py
+                ;;
+            *)
+                echo "Usage: polyphony issue <refine|dedup>"
+                exit 1
+                ;;
+        esac
+        ;;
+    keys)
+        echo ">>> Exchanging SSH keys with the Polyphony Swarm..."
+        python3 scripts/exchange_ssh_keys.py "${@:2}"
+        ;;
+    lint)
+        ./scripts/lint.sh
+        ;;
+    test)
+        ./scripts/run-tests.sh
+        ;;
+    hooks)
+        ./scripts/install-hooks.sh
+        ;;
+    help|--help|-h|"")
+        usage
+        ;;
+    *)
+        echo "❌ Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac

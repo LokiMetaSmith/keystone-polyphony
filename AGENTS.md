@@ -33,7 +33,15 @@ To achieve a "Masterpiece" architecture, agents must not work in silos. Use the 
 2. **Reviewing Peers**: Periodically use `get_ensemble_chat` to check if other agents have posted plans. Provide constructive feedback or "LGTM" to establish consensus.
 3. **Conflict Resolution**: If the Architect (`consult_architect`) identifies a conflict in the `master_plan`, use the chat to discuss the resolution path with other active agents.
 
-## 4. Collaboration Norms
+## 4. Real-time Coordination & Command Execution
+The Liminal Bridge provides a high-urgency push protocol for direct coordination.
+
+**Coordination Norms:**
+1. **Signal Availability**: Use `set_status("idle")` when you are awaiting new tasks. Use `set_status("busy")` during implementation.
+2. **Help the Swarm**: If you are idle and receive a `ping` or a `broadcast_command` directed at your capabilities, prioritize the request.
+3. **Task Pull**: Actively monitor the `swarm_backlog` and use `claim_task` to signal you are working on a specific issue.
+
+## 5. Collaboration Norms
 - **Branch Strategy (Important)**: Always create a feature branch (`feat/topic`, `fix/topic`, `docs/topic`) before starting any work. Please do not commit directly to `main`. If a human drops you onto `main`, check out a new branch right away.
 - **Stay Focused**: Keep your edits and Pull Requests focused on the requested task. Avoid mixing unrelated refactors into a feature task.
 - **Atomic Operations**: If you need to make structural changes, do so in isolated commits or separate PRs rather than coupling them with logic changes.

@@ -82,12 +82,29 @@ class LiminalMesh:
         self.peer_map: Dict[str, str] = {}  # transport_id -> node_id
         self.network_map: Dict[str, list[str]] = {}  # node_id -> [connected_node_ids]
 
+        # Warmup / Idle Detection
+        self.join_time: float = 0
+        self.last_activity_time: float = 0
+        self.warmup_complete: bool = False
+        self._idle_threshold_seconds: float = 300  # 5 min = idle
+        self._warmup_silent_timeout: float = 120  # max 120s if no conversation
+        self._conversation_inactive_timeout: float = (
+            30  # no messages = conversation ended
+        )
+        self._gossip_interval_seconds: float = 30  # gossip heartbeat
+
         # Persistence
         self._init_db()
         self._load_state()
 
         self.process: Optional[asyncio.subprocess.Process] = None
         self.running = False
+        self._sidecar_dead = False
+        self._sidecar_restart_count = 0
+        self._sidecar_max_restarts = 100
+        self._sidecar_restart_delay = 5  # seconds
+        self._monitor_task: Optional[asyncio.Task] = None
+        self._idle_task: Optional[asyncio.Task] = None
 
         # Pending lock requests
         self._lock_requests: Dict[str, asyncio.Future] = {}
@@ -95,6 +112,9 @@ class LiminalMesh:
         # Callbacks for Pulse
         self.on_baton_release: Optional[Callable[[str, str], Awaitable[None]]] = None
         self.on_tandem_sync: Optional[Callable[[str, Dict[str, Any]], None]] = None
+        self.on_command_request: Optional[
+            Callable[[str, Dict[str, Any]], Awaitable[None]]
+        ] = None
 
         # Observability
         self.log_aggregator = LogAggregator()
@@ -113,6 +133,90 @@ class LiminalMesh:
 
             # Also periodically broadcast network state
             await self.broadcast_network_state()
+
+    async def _periodic_gossip(self):
+        """Periodically broadcasts gossip to keep state in sync."""
+        while self.running:
+            try:
+                await asyncio.sleep(self._gossip_interval_seconds)
+                if self.peers:
+                    await self.broadcast(
+                        {
+                            "type": "gossip_request",
+                            "origin": self.node_id,
+                            "vc": self.vector_clock,
+                        },
+                        urgency="low",
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Error in gossip heartbeat: {e}")
+
+    def is_warming_up(self) -> bool:
+        """Check if node is still in warmup period."""
+        if self.warmup_complete:
+            return False
+
+        elapsed = time.time() - self.join_time
+        has_conversation = (
+            time.time() - self.last_activity_time
+        ) < self._conversation_inactive_timeout
+
+        # Timeout after _warmup_silent_timeout if no conversation
+        if elapsed > self._warmup_silent_timeout and not has_conversation:
+            self.warmup_complete = True
+            print(f"[Warmup] Complete (timeout). Node: {self.node_id}")
+            return False
+
+        return True
+
+    def get_warmup_status(self) -> Dict[str, Any]:
+        """Get current warmup status info."""
+        # First check/update warmup state
+        self.is_warming_up()
+
+        elapsed = time.time() - self.join_time
+        has_conversation = (
+            time.time() - self.last_activity_time
+        ) < self._conversation_inactive_timeout
+
+        if self.warmup_complete:
+            return {"warming_up": False, "reason": "complete"}
+
+        remaining = max(0, int(self._warmup_silent_timeout - elapsed))
+        return {
+            "warming_up": True,
+            "elapsed_seconds": int(elapsed),
+            "remaining_silent_timeout": remaining,
+            "has_conversation": has_conversation,
+        }
+
+    async def _periodic_idle_check(self):
+        """Periodically checks if the node has become idle."""
+        while self.running:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                current_time = time.time()
+                # If we were busy and now exceed idle threshold
+                if getattr(self, "status", "unknown") == "busy":
+                    if (
+                        current_time - self.last_activity_time
+                    ) > self._idle_threshold_seconds:
+                        print(
+                            f"[Idle] Node {
+                                self.node_id} idle for >{
+                                self._idle_threshold_seconds}s. Auto-setting status to idle."
+                        )
+                        await self.set_status("idle")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Error in idle check: {e}")
+
+    def touch_activity(self):
+        """Update last activity time - call on any peer message."""
+        self.last_activity_time = time.time()
 
     def _save_snapshot(self):
         """Saves the current state to a JSON file."""
@@ -234,7 +338,14 @@ class LiminalMesh:
         # Load Thoughts
         cursor.execute("SELECT node_id, content FROM thoughts")
         for node_id, content in cursor.fetchall():
-            self.thoughts[node_id] = content
+            try:
+                self.thoughts[node_id] = json.loads(content)
+            except json.JSONDecodeError:
+                self.thoughts[node_id] = {
+                    "content": content,
+                    "status": "unknown",
+                    "capabilities": [],
+                }
 
         # Load Vector Clock
         try:
@@ -265,12 +376,13 @@ class LiminalMesh:
         )
         self.conn.commit()
 
-    def _save_thought(self, node_id: str, content: str):
+    def _save_thought(self, node_id: str, content: Any):
         """Persists a thought."""
+        content_str = json.dumps(content) if isinstance(content, dict) else str(content)
         cursor = self.conn.cursor()
         cursor.execute(
             "INSERT OR REPLACE INTO thoughts (node_id, content) VALUES (?, ?)",
-            (node_id, content),
+            (node_id, content_str),
         )
         self.conn.commit()
 
@@ -348,6 +460,25 @@ class LiminalMesh:
         """Starts the Node.js sidecar and begins listening."""
         self.running = True
 
+        # Check for idle wakeup and trigger warmup if needed
+        current_time = time.time()
+        # last_activity_time is 0 on fresh boot
+        was_idle = (
+            self.join_time > 0
+            and self.last_activity_time > 0
+            and (current_time - self.last_activity_time) > self._idle_threshold_seconds
+        )
+
+        if was_idle or self.join_time == 0:
+            self.join_time = current_time
+            self.warmup_complete = False
+            print(
+                f"[Warmup] Warming up after {'idle wake' if was_idle else 'fresh join'}... Node: {self.node_id}"
+            )
+
+        # Now initialize activity time for the current session
+        self.last_activity_time = current_time
+
         # Locate the sidecar script
         current_dir = os.path.dirname(os.path.abspath(__file__))
         sidecar_dir = os.path.join(current_dir, "sidecar")
@@ -377,33 +508,117 @@ class LiminalMesh:
         # Start snapshot task
         self._snapshot_task = asyncio.create_task(self._periodic_snapshot())
 
+        # Start sidecar monitor task for auto-restart
+        self._monitor_task = asyncio.create_task(self._monitor_sidecar())
+
+        # Start gossip heartbeat task
+        self._gossip_task = asyncio.create_task(self._periodic_gossip())
+
+        # Start idle detection task
+        self._idle_task = asyncio.create_task(self._periodic_idle_check())
+
         # Broadcast initial state (so dashboard sees us)
         asyncio.create_task(self.broadcast_network_state())
+
+        # Register identity
+        await self.update_set("identity_registry", json.dumps({"node_id": self.node_id, "public_key": self.public_key_hex}))
 
         print(
             f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
         )
 
-    async def stop(self):
-        """Stops the sidecar."""
-        self.running = False
-
-        if self._snapshot_task:
-            self._snapshot_task.cancel()
-            try:
-                await self._snapshot_task
-            except asyncio.CancelledError:
-                pass
+    async def restart_sidecar(self):
+        """Restarts the Node.js sidecar after a failure."""
+        print("Attempting to restart sidecar...")
 
         if self.process:
             try:
                 self.process.terminate()
                 await self.process.wait()
-            except ProcessLookupError:
-                pass  # Process already dead
+            except Exception:
+                pass
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        sidecar_dir = os.path.join(current_dir, "sidecar")
+        sidecar_path = os.path.join(sidecar_dir, "bridge.js")
+
+        args = ["node", sidecar_path, self.topic]
+        if self.bootstrap:
+            args.extend(["--bootstrap", self.bootstrap])
+        if self.swarm_seed:
+            args.extend(["--seed", self.swarm_seed])
+
+        self.process = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        asyncio.create_task(self._read_stdout())
+        asyncio.create_task(self._read_stderr())
+
+        self._sidecar_dead = False
+        self.peers.clear()
+
+        print(f"Sidecar restarted. Node ID: {self.node_id}")
+
+        asyncio.create_task(self.broadcast_network_state())
+
+    async def _monitor_sidecar(self):
+        """Background task that monitors sidecar health and auto-restarts if dead."""
+        while self.running:
+            await asyncio.sleep(5)
+
+            if self._sidecar_dead:
+                if self._sidecar_restart_count < self._sidecar_max_restarts:
+                    print(f"Auto-restart: Sidecar dead (count: {
+                            self._sidecar_restart_count + 1}/{
+                            self._sidecar_max_restarts}). Restarting in {
+                            self._sidecar_restart_delay}s...")
+                    await asyncio.sleep(self._sidecar_restart_delay)
+                    await self.restart_sidecar()
+                    self._sidecar_restart_count += 1
+                else:
+                    print(
+                        f"Auto-restart: Max restarts ({self._sidecar_max_restarts}) reached. Giving up."
+                    )
+
+    async def stop(self):
+        """Stops the sidecar."""
+        self.running = False
+
+        # Cancel all background tasks
+        tasks_to_cancel = [
+            self._snapshot_task,
+            self._monitor_task,
+            self._idle_task,
+            self._gossip_task,
+        ]
+
+        for task in tasks_to_cancel:
+            if task:
+                task.cancel()
+
+        # Await them to clean up
+        for task in tasks_to_cancel:
+            if task:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+        if self.process:
+            try:
+                self.process.terminate()
+                await self.process.wait()
+            except BaseException:
+                pass
+            self.process = None
 
         if self.conn:
             self.conn.close()
+            self.conn = None
 
     async def _read_stdout(self):
         """Reads JSON messages from the sidecar."""
@@ -439,9 +654,16 @@ class LiminalMesh:
         if not self.process or not self.process.stdin:
             return
 
-        msg = json.dumps({"type": msg_type, "payload": payload}) + "\n"
-        self.process.stdin.write(msg.encode())
-        await self.process.stdin.drain()
+        try:
+            msg = json.dumps({"type": msg_type, "payload": payload}) + "\n"
+            self.process.stdin.write(msg.encode())
+            await self.process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError) as e:
+            print(f"Warning: Sidecar disconnected ({e}). Marking peer count as 0.")
+            self.peers.clear()
+            self._sidecar_dead = True
+        except Exception as e:
+            print(f"Error sending to sidecar: {e}")
 
     def _encrypt(self, payload: Any) -> str:
         """Encrypts a payload dictionary to a base64 string."""
@@ -452,6 +674,16 @@ class LiminalMesh:
         """Decrypts a base64 string to a payload dictionary."""
         data = self.fernet.decrypt(encrypted_b64.encode())
         return json.loads(data.decode())
+
+    async def log_audit_event(self, event_type: str, details: Dict[str, Any]):
+        """Logs an audit event to the persistent CRDT."""
+        event = {
+            "type": event_type,
+            "details": details,
+            "timestamp": time.time(),
+            "origin": self.node_id
+        }
+        await self.update_set("audit_log", json.dumps(event))
 
     async def broadcast(self, payload: Any, urgency: str = "low"):
         """Broadcasts a payload to all peers."""
@@ -473,7 +705,14 @@ class LiminalMesh:
 
         # Encrypt the payload before sending
         encrypted_data = self._encrypt(payload)
-        await self._send_to_sidecar("broadcast", {"e": encrypted_data})
+
+        # Sign the encrypted data
+        signature = self.private_key.sign(encrypted_data.encode())
+
+        await self._send_to_sidecar(
+            "broadcast",
+            {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex},
+        )
 
     def _increment_clock(self):
         """Increments the local logical clock."""
@@ -490,16 +729,50 @@ class LiminalMesh:
         """Updates the tracked distance to a peer."""
         self.peer_distances[peer_id] = distance
 
+    async def _push_welcome_to_peer(self, peer_id: str):
+        """Send full swarm state to new/waking peer via broadcast."""
+        # Serialize KV store to JSON-friendly format
+        kv_serialized = {}
+        for k, v in self.kv_store.items():
+            try:
+                kv_serialized[k] = v.to_dict()
+            except BaseException:
+                kv_serialized[k] = str(v)
+
+        payload = {
+            "type": "welcome",
+            "target": peer_id,  # Only intended peer should process this
+            "thoughts": self.thoughts,
+            "batons": self.batons,
+            "kv": kv_serialized,
+            "vector_clock": self.vector_clock,
+            "origin": self.node_id,
+        }
+        await self.broadcast(payload, urgency="high")
+
     async def _handle_message(self, msg: Dict[str, Any]):
         """Dispatches incoming messages."""
         msg_type = msg.get("type")
 
         if msg_type == "peer_connected":
             print(f"DEBUG: Node {self.node_id} connected to peer {msg.get('peer_id')}")
-            self.peers.add(msg.get("peer_id"))
-            # Re-broadcast my state to new peer
+            peer_id = msg.get("peer_id")
+            self.peers.add(peer_id)
+            # Re-broadcast my current thought to new peer (as a raw broadcast)
             if self.node_id in self.thoughts:
-                await self.share_thought(self.thoughts[self.node_id])
+                thought = self.thoughts[self.node_id]
+                await self.broadcast(
+                    {
+                        "type": "thought",
+                        "origin": self.node_id,
+                        "content": thought.get("content"),
+                        "status": thought.get("status"),
+                        "capabilities": thought.get("capabilities"),
+                        "timestamp": thought.get("timestamp", time.time()),
+                    }
+                )
+            # Push full state welcome packet to new peer
+            await self._push_welcome_to_peer(peer_id)
             await self.broadcast_network_state()
 
         elif msg_type == "peer_disconnected":
@@ -509,15 +782,56 @@ class LiminalMesh:
             await self.broadcast_network_state()
 
         elif msg_type == "message":
+            # Track activity from any peer message
+            self.touch_activity()
+
             payload = msg.get("payload", {})
 
-            # Decrypt if encrypted
-            if "e" in payload:
+            # Verify signature (must be present for all messages now)
+            if "e" in payload and "s" in payload and "p" in payload:
                 try:
-                    payload = self._decrypt(payload["e"])
+                    sender_pubkey = ed25519.Ed25519PublicKey.from_public_bytes(
+                        bytes.fromhex(payload["p"])
+                    )
+                    sender_pubkey.verify(
+                        bytes.fromhex(payload["s"]), payload["e"].encode()
+                    )
                 except Exception as e:
-                    print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
+                    print(f"Signature verification failed from {msg.get('peer_id')}: {e}")
                     return
+            else:
+                print(f"Warning: Message from {msg.get('peer_id')} is missing encrypted payload or signature. Dropping.")
+                return
+
+            try:
+                decrypted_payload = self._decrypt(payload["e"])
+
+                # Verify identity registry
+                origin = decrypted_payload.get("origin")
+                if origin:
+                    derived_node_id = hashlib.sha256(bytes.fromhex(payload["p"])).hexdigest()[:16]
+                    if origin != derived_node_id:
+                        print(f"Identity mismatch from {msg.get('peer_id')}: claimed origin {origin} does not match pubkey {derived_node_id}.")
+                        return
+
+                    registry_raw = self.get_kv("identity_registry") or []
+                    registry_map = {}
+                    for item in registry_raw:
+                        try:
+                            reg_entry = json.loads(item)
+                            if "node_id" in reg_entry and "public_key" in reg_entry:
+                                registry_map[reg_entry["node_id"]] = reg_entry["public_key"]
+                        except Exception:
+                            pass
+
+                    if origin in registry_map and registry_map[origin] != payload["p"]:
+                        print(f"Identity spoofing detected from {msg.get('peer_id')}: public key does not match registry.")
+                        return
+
+                payload = decrypted_payload
+            except Exception as e:
+                print(f"Error decrypting message from {msg.get('peer_id')}: {e}")
+                return
 
             # Update peer map
             origin = payload.get("origin")
@@ -533,6 +847,12 @@ class LiminalMesh:
         origin = payload.get("origin")
         remote_vc = payload.get("vc", {})
         urgency = payload.get("urgency", "low")
+        timestamp = payload.get("timestamp", time.time())
+
+        # Telemetry
+        latency = time.time() - timestamp
+        self.log_aggregator.add_telemetry("latency", latency)
+        self.log_aggregator.add_telemetry("message_count", 1)
 
         # Contextual Attenuation Filtering
         if urgency == "low" and origin in self.peer_distances:
@@ -547,8 +867,18 @@ class LiminalMesh:
 
         if p_type == "thought":
             content = payload.get("content")
-            self.thoughts[origin] = content
-            self._save_thought(origin, content)
+            status = payload.get("status")
+            capabilities = payload.get("capabilities")
+
+            thought_data = {
+                "content": content,
+                "status": status,
+                "capabilities": capabilities,
+                "timestamp": payload.get("timestamp"),
+            }
+
+            self.thoughts[origin] = thought_data
+            self._save_thought(origin, json.dumps(thought_data))
 
         elif p_type == "kv_update":
             key = payload.get("key")
@@ -614,12 +944,18 @@ class LiminalMesh:
 
         elif p_type == "baton_release":
             resource = payload.get("resource")
-            if self.batons.get(resource) == origin:
-                del self.batons[resource]
+            force = payload.get("force", False)
+            if self.batons.get(resource) == origin or force:
+                if resource in self.batons:
+                    del self.batons[resource]
 
         elif p_type == "baton_deny":
             resource = payload.get("resource")
             target = payload.get("target")
+
+            # Telemetry for contention
+            self.log_aggregator.add_telemetry("contentions", 1)
+
             if target == self.node_id:
                 if resource in self._lock_requests:
                     self._lock_requests[resource].set_result(False)
@@ -640,6 +976,102 @@ class LiminalMesh:
             state = payload.get("state")
             if target == self.node_id and self.on_tandem_sync:
                 self.on_tandem_sync(origin, state)
+
+        elif p_type == "command_request":
+            target = payload.get("target")
+            capabilities = payload.get("capabilities", [])
+            status_filter = payload.get("status_filter")
+            command = payload.get("command")
+
+            # Check if we are the target
+            is_target = target == self.node_id
+            if not is_target and capabilities:
+                # Check if we have the required capabilities
+                is_target = all(cap in self.capabilities for cap in capabilities)
+
+            # If no target/capabilities, it might be a general broadcast
+            if target is None and not capabilities:
+                is_target = True
+
+            # If status_filter is provided, we must match it
+            if status_filter and getattr(self, "status", "unknown") != status_filter:
+                is_target = False
+
+            if is_target and self.on_command_request:
+                # Trigger callback (async)
+                asyncio.create_task(self.on_command_request(origin, command))
+
+        elif p_type == "ping":
+            target = payload.get("target")
+            if target == self.node_id:
+                message = payload.get("message", "Ping!")
+                print(f">>> [Ping] from {origin}: {message}")
+                # Log it
+                asyncio.create_task(
+                    self.log("info", f"Received ping from {origin}: {message}")
+                )
+                # Respond with a thought
+                asyncio.create_task(
+                    self.share_thought(f"Responding to ping from {origin}")
+                )
+
+        elif p_type == "welcome":
+            # Handle welcome message from peer (state sync)
+            target = payload.get("target")
+            # Only process if directed at us (or no target = broadcast welcome)
+            if target is None or target == self.node_id:
+                welcome_thoughts = payload.get("thoughts", {})
+                welcome_batons = payload.get("batons", {})
+                welcome_kv = payload.get("kv", {})
+                welcome_vc = payload.get("vector_clock", {})
+
+                # Merge thoughts
+                for node_id, thought in welcome_thoughts.items():
+                    self._save_thought(node_id, thought)
+
+                # Merge batons
+                for resource, owner in welcome_batons.items():
+                    self.batons[resource] = owner
+
+                # Merge KV
+                for key, crdt_data in welcome_kv.items():
+                    try:
+                        remote_crdt = self._deserialize_crdt(crdt_data)
+                        current = self.kv_store.get(key)
+                        if current and isinstance(current, type(remote_crdt)):
+                            current.merge(remote_crdt)
+                            self._save_kv(key, current)
+                        else:
+                            self.kv_store[key] = remote_crdt
+                            self._save_kv(key, remote_crdt)
+                    except Exception as e:
+                        print(f"Error merging welcome KV for key {key}: {e}")
+
+                # Merge vector clock
+                self._merge_clock(welcome_vc)
+
+                print(
+                    f"[Warmup] Received welcome state from {origin}. KV keys: {list(welcome_kv.keys())}"
+                )
+
+        elif p_type == "gossip_request":
+            # Respond to gossip request with our state
+            # The gossip_request comes with the sender's VC and origin
+            # Send back our state (peers will merge)
+            await self.broadcast(
+                {
+                    "type": "welcome",
+                    "thoughts": self.thoughts,
+                    "batons": self.batons,
+                    "kv": {
+                        k: v.to_dict() if hasattr(v, "to_dict") else str(v)
+                        for k, v in self.kv_store.items()
+                    },
+                    "vector_clock": self.vector_clock,
+                    "origin": self.node_id,
+                },
+                urgency="low",
+            )
 
     async def broadcast_network_state(self):
         """Broadcasts the current list of connected peers (Node IDs)."""
@@ -672,9 +1104,55 @@ class LiminalMesh:
         await self.broadcast(entry)
 
     async def share_thought(self, content: str, urgency: str = "low"):
-        self.thoughts[self.node_id] = content
-        self._save_thought(self.node_id, content)
-        await self.broadcast({"type": "thought", "content": content}, urgency=urgency)
+        # Enrich thought with status and capabilities
+        full_thought = {
+            "content": content,
+            "status": getattr(self, "status", "unknown"),
+            "capabilities": self.capabilities,
+        }
+        self.thoughts[self.node_id] = full_thought
+        self._save_thought(self.node_id, json.dumps(full_thought))
+        await self.broadcast(
+            {
+                "type": "thought",
+                "content": content,
+                "status": full_thought["status"],
+                "capabilities": self.capabilities,
+            },
+            urgency=urgency,
+        )
+
+    async def set_status(self, status: str):
+        """Sets the node status (e.g., 'idle', 'busy') and broadcasts a thought."""
+        self.status = status
+        # Update KV too for easier querying
+        await self.update_kv(f"status:{self.node_id}", status, urgency="high")
+        await self.share_thought(f"Status update: {status}")
+
+    async def broadcast_command(
+        self,
+        command: Dict[str, Any],
+        target: str = None,
+        capabilities: list[str] = None,
+        status_filter: str = None,
+    ):
+        """Broadcasts a command execution request to the swarm."""
+        payload = {
+            "type": "command_request",
+            "command": command,
+            "target": target,
+            "capabilities": capabilities or [],
+            "status_filter": status_filter,
+            "origin": self.node_id,
+        }
+        await self.broadcast(payload, urgency="high")
+
+    async def ping(self, target_node_id: str, message: str = "Ping!"):
+        """Sends a direct ping message to a specific node."""
+        await self.broadcast(
+            {"type": "ping", "target": target_node_id, "message": message},
+            urgency="high",
+        )
 
     async def tandem_sync(self, target_node_id: str, state: Dict[str, Any]):
         """
@@ -729,37 +1207,83 @@ class LiminalMesh:
 
     async def autonomously_pick_task(self) -> Optional[Dict[str, Any]]:
         """
-        Reads the 'task_pool' from KV store and picks the highest priority
+        Reads the 'swarm_backlog' from KV store and picks the highest priority
         pending task matching this node's capabilities.
         """
-        pool = self.get_kv("task_pool")
-        if not pool or not isinstance(pool, list):
+        backlog_raw = self.get_kv("swarm_backlog")
+        if not backlog_raw:
             return None
 
-        # Filter: pending AND capabilities match
+        # backlog_raw is a set of JSON strings (from ORSet)
+        tasks = []
+        for item in backlog_raw:
+            try:
+                tasks.append(json.loads(item))
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        # Filter: todo AND capabilities match AND dependencies met
         available = []
-        for task in pool:
-            if task.get("status") == "pending":
+
+        # Build a fast lookup for task statuses
+        task_statuses = {t.get("id"): t.get("status") for t in tasks if t.get("id")}
+
+        for task in tasks:
+            if task.get("status") == "todo":
+                # Check dependencies first
+                blocked_by = task.get("blocked_by", [])
+                dependencies_met = True
+                for dep_id in blocked_by:
+                    if task_statuses.get(dep_id) != "done":
+                        dependencies_met = False
+                        break
+
+                if not dependencies_met:
+                    continue
+
                 required = task.get("required", [])
                 # If node has all required capabilities (or none required)
-                if all(cap in self.capabilities for cap in required):
+                if not required or all(cap in self.capabilities for cap in required):
                     available.append(task)
 
         if not available:
             return None
 
-        # Sort by priority descending
-        available.sort(key=lambda x: x.get("priority", 0), reverse=True)
+        # Sort by priority: high > medium > low
+        priority_map = {"high": 3, "medium": 2, "low": 1}
+        available.sort(
+            key=lambda x: priority_map.get(x.get("priority", "medium"), 0), reverse=True
+        )
         picked = available[0]
 
         # Claim the task
-        picked["status"] = "claimed"
-        picked["claimed_by"] = self.node_id
+        task_id = picked.get("id")
+        if not task_id:
+            return None
 
-        # Update the pool back to KV
-        # Note: In a real swarm, this might have race conditions if two nodes pick simultaneously.
-        # Here we use the best-effort KV update.
-        await self.update_kv("task_pool", pool, urgency="high")
+        # Try to acquire baton first to avoid races
+        success = await self.acquire_baton(f"task:{task_id}")
+        if not success:
+            return None
+
+        # Update the task status in the ORSet
+        # Note: ORSet.remove/add is not atomic at the KV level, but the baton helps.
+        # We need to find the OLD task string to remove it.
+        old_task_str = None
+        for item in backlog_raw:
+            try:
+                if json.loads(item).get("id") == task_id:
+                    old_task_str = item
+                    break
+            except BaseException:
+                continue
+
+        if old_task_str:
+            await self.update_set("swarm_backlog", old_task_str, remove=True)
+
+        picked["status"] = "in_progress"
+        picked["owner"] = self.node_id
+        await self.update_set("swarm_backlog", json.dumps(picked), urgency="high")
 
         return picked
 
@@ -854,6 +1378,13 @@ class LiminalMesh:
         if not self.running:
             return {"status": "offline", "reason": "Mesh daemon not running"}
 
+        if self._sidecar_dead:
+            return {
+                "status": "degraded",
+                "reason": "Sidecar connection lost",
+                "mode": "sidecar_dead",
+            }
+
         if not self.peers:
             return {
                 "status": "degraded",
@@ -865,6 +1396,32 @@ class LiminalMesh:
             "status": "healthy",
             "peer_count": len(self.peers),
             "mode": "global_mesh",
+        }
+
+    async def warm_up(self, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Warms up the node by ensuring mesh is running and waiting for peer discovery.
+        Returns the warm-up status including discovered peers.
+        """
+        # Start mesh if not running
+        if not self.running:
+            await self.start()
+
+        # Wait for peers
+        start_time = time.time()
+        initial_peers = len(self.peers)
+
+        while time.time() - start_time < timeout:
+            if len(self.peers) > initial_peers:
+                break
+            await asyncio.sleep(1)
+
+        return {
+            "node_id": self.node_id,
+            "peers": list(self.peers),
+            "peer_count": len(self.peers),
+            "health": self.get_health_status(),
+            "warm_up_duration": int(time.time() - start_time),
         }
 
     async def acquire_baton(self, resource: str, timeout: float = 2.0) -> bool:
@@ -883,17 +1440,21 @@ class LiminalMesh:
             await asyncio.wait_for(future, timeout=timeout)
             result = future.result()
             del self._lock_requests[resource]
+            if result:
+                asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
             return result
         except asyncio.TimeoutError:
             del self._lock_requests[resource]
             self.batons[resource] = self.node_id
             await self.broadcast({"type": "baton_claim", "resource": resource})
+            asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
             return True
 
     async def release_baton(self, resource: str):
         if self.batons.get(resource) == self.node_id:
             del self.batons[resource]
             await self.broadcast({"type": "baton_release", "resource": resource})
+            asyncio.create_task(self.log_audit_event("baton_released", {"resource": resource}))
             # Trigger Pulse
             if self.on_baton_release:
                 # Pass resource and my identity
