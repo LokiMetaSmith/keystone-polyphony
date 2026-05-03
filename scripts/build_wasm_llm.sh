@@ -3,6 +3,12 @@ set -e
 
 # Build script to pull down llama-cpp-wasm and compile it for Pollen
 
+# Unset any Git environment variables that might interfere with submodules
+# This is a common issue in Windows Git Bash or when invoked via external tools
+unset GIT_DIR
+unset GIT_WORK_TREE
+unset GIT_INDEX_FILE
+
 echo ">>> Setting up WASM LLM Engine build environment..."
 
 # Get the absolute path to the repository root
