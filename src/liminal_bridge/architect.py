@@ -16,6 +16,9 @@ class Architect:
         if provider_env:
             self.provider = provider_env.lower()
         # Heuristics if provider not explicit
+        elif self.model.startswith("pollen:"):
+            self.provider = "pollen_mesh"
+            self.model = self.model.split(":", 1)[1]
         elif self.model.startswith("ollama:"):
             self.provider = "ollama"
             self.model = self.model.split(":", 1)[1]
@@ -73,6 +76,12 @@ class Architect:
             else:
                 print("Warning: API key missing for Anthropic provider.")
 
+        elif self.provider == "pollen_mesh":
+            # Pollen Mesh gateway runs locally or via configured URL
+            self.pollen_url = os.getenv("POLLEN_GATEWAY_URL", "http://localhost:3000")
+            # We will use aiohttp for raw HTTP requests to the Pollen gateway
+            self.client = True  # Mark configured
+
         elif self.provider == "openai":
             # OpenAI / Default
             if self.api_key:
@@ -117,6 +126,8 @@ class Architect:
             return await self._consult_anthropic(prompt)
         elif self.provider == "ollama":
             return await self._consult_ollama(prompt)
+        elif self.provider == "pollen_mesh":
+            return await self._consult_pollen(prompt)
         else:
             return await self._consult_openai(prompt)
 
@@ -149,6 +160,8 @@ class Architect:
             return await self._consult_anthropic(prompt)
         elif self.provider == "ollama":
             return await self._consult_ollama(prompt)
+        elif self.provider == "pollen_mesh":
+            return await self._consult_pollen(prompt)
         else:
             return await self._consult_openai(prompt)
 
@@ -183,6 +196,8 @@ class Architect:
             return await self._refine_anthropic(prompt)
         elif self.provider == "ollama":
             return await self._refine_ollama(prompt)
+        elif self.provider == "pollen_mesh":
+            return await self._refine_pollen(prompt)
         else:
             return await self._refine_openai(prompt)
 
@@ -315,3 +330,59 @@ class Architect:
             return response["message"]["content"]
         except Exception as e:
             return f"Error refining issue (Ollama): {str(e)}"
+
+    async def _consult_pollen(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured for Pollen."
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a precise technical architect. Output only valid JSON."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"}
+                }
+                # Assuming Pollen gateway mimics an OpenAI-compatible /v1/chat/completions endpoint
+                url = f"{self.pollen_url.rstrip('/')}/v1/chat/completions"
+                async with session.post(url, json=payload) as resp:
+                    if resp.status != 200:
+                        return f"Error from Pollen gateway: HTTP {resp.status}"
+                    data = await resp.json()
+                    return data["choices"][0]["message"]["content"]
+        except ImportError:
+            return "Error: aiohttp is required for the Pollen Mesh provider."
+        except Exception as e:
+            return f"Error consulting architect (Pollen): {str(e)}"
+
+    async def _refine_pollen(self, prompt: str) -> str:
+        if not self.client:
+            return "Architect not configured for Pollen."
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a precise technical architect."
+                        },
+                        {"role": "user", "content": prompt}
+                    ]
+                }
+                url = f"{self.pollen_url.rstrip('/')}/v1/chat/completions"
+                async with session.post(url, json=payload) as resp:
+                    if resp.status != 200:
+                        return f"Error from Pollen gateway: HTTP {resp.status}"
+                    data = await resp.json()
+                    return data["choices"][0]["message"]["content"]
+        except ImportError:
+            return "Error: aiohttp is required for the Pollen Mesh provider."
+        except Exception as e:
+            return f"Error refining issue (Pollen): {str(e)}"
