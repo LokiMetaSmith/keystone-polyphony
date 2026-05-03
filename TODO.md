@@ -41,7 +41,7 @@ This document outlines the next steps and planned improvements for the "Liminal 
 This section tracks the work required to build a fully decentralized, peer-to-peer AI pipeline by layering Keystone Polyphony's agent coordination over Pollen's distributed compute fabric.
 
 - [x] **WASM LLM Compilation:** Compile a lightweight LLM inference engine (e.g., a variant of `llama.cpp` or WasmNN) into a WebAssembly module compatible with Pollen's pure Go runtime. (Using `tangledgroup/llama-cpp-wasm` via `scripts/build_wasm_llm.sh`)
-- [ ] **Pollen Compute Integration:** Write a Pollen wrapper around the WASM engine so it can receive inference requests via Pollen's QUIC transport and return generated tokens.
+- [x] **Pollen Compute Integration:** Write a Pollen wrapper around the WASM engine so it can receive inference requests via Pollen's QUIC transport and return generated tokens. (Implemented Extism PDK Go wrapper in `src/pollen_integration/wasm_wrapper.go`)
 - [ ] **Model Weight Distribution:** Implement a mechanism to chunk and distribute large `.gguf` model files over Pollen's content-addressed peer-to-peer blob sharing (`pln seed`).
 - [ ] **Hardware Capability Routing:** Implement Pollen-level metadata tags (`--prop role=gpu` or `--prop vram=16GB`) to ensure inference requests route only to capable shards.
 - [x] **Keystone Inference Provider:** Update Keystone's `Architect` class to accept a "Pollen Mesh" provider endpoint instead of just standard REST APIs (OpenAI/Anthropic).
