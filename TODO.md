@@ -49,4 +49,4 @@ This section tracks the work required to build a fully decentralized, peer-to-pe
 - [x] **Context Sync Loop:** Ensure the text output from Pollen WASM execution is automatically ingested back into Keystone's CRDT state as an agent "Thought," updating the shared Liminal Space context.
 - [x] **Model Sharding Logic:** Teach the Architect to split a `.gguf` into distinct layer stages for Pipeline Parallelism (PP) across the mesh.
 - [x] **Topology Tags:** Implement `pln grant --prop parallel_group=ring_1` logic for grouping shards with low-latency links for Tensor Parallelism (TP).
-- [ ] **Distributed KV Cache:** Research utilizing Keystone's CRDT state to synchronize the KV cache across sharded WASM instances (critical for handling Sequence Parallelism and massive context windows).
+- [x] **Distributed KV Cache:** Research utilizing Keystone's CRDT state to synchronize the KV cache across sharded WASM instances (critical for handling Sequence Parallelism and massive context windows). (Implemented CRDT/Blob hybrid in `src/liminal_bridge/distributed_kv_cache.py`)
