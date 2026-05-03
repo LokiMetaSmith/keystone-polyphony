@@ -165,6 +165,24 @@ class Architect:
         else:
             return await self._consult_openai(prompt)
 
+    async def plan_pipeline_parallelism(self, model_path: str, num_nodes: int) -> str:
+        """
+        Uses the GGUFSharder utility to dynamically split a model across the mesh
+        for Pipeline Parallelism.
+        """
+        try:
+            # Handle both running from src/ and src/liminal_bridge/
+            try:
+                from .gguf_sharder import GGUFSharder
+            except ImportError:
+                from gguf_sharder import GGUFSharder
+
+            sharder = GGUFSharder(model_path)
+            stages = sharder.calculate_pipeline_stages(num_nodes)
+            return sharder.generate_pollen_seed_plan(stages)
+        except Exception as e:
+            return f"Failed to calculate Pipeline Parallelism plan: {e}"
+
     async def refine_issue(self, issue_content: str) -> str:
         """
         Refines a raw issue description into a structured format.
