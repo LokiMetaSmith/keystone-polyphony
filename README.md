@@ -193,6 +193,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
+- Hybrid WASM LLM Engine: [`docs/hybrid-wasm-llm.md`](docs/hybrid-wasm-llm.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
