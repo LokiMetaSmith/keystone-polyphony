@@ -28,7 +28,7 @@ Run the preparation script against your model:
 
 ```bash
 # Split the model for 4 nodes, chunking weights into 50MB blobs
-./scripts/prepare_model_mesh.py my_model.gguf --nodes 4 --chunk-size 50 --out-dir ./mesh_deployment
+./scripts/prepare_mesh.sh my_model.gguf --nodes 4 --chunk-size 50 --out-dir ./mesh_deployment
 ```
 
 This will output two critical files in the `mesh_deployment/` directory:

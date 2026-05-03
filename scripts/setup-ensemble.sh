@@ -30,10 +30,22 @@ else
 fi
 
 # 2. Python Dependencies
-echo ">>> 🐍 Installing Python dependencies..."
+echo ">>> 🐍 Setting up Python virtual environment..."
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+    echo "✅ Virtual environment created at .venv"
+fi
+
+# Activate venv
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+elif [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+fi
+
+echo ">>> 📦 Installing Python dependencies inside venv..."
 if [ -f "requirements.txt" ]; then
-    # Use --break-system-packages to handle PEP 668 in managed environments (like Ubuntu 23.04+)
-    pip3 install -r requirements.txt --break-system-packages || pip3 install -r requirements.txt
+    pip3 install -r requirements.txt
 else
     echo "⚠️ Warning: requirements.txt not found."
 fi
