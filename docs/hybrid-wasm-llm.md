@@ -16,44 +16,29 @@ We provide an automated script that downloads the Emscripten SDK and builds the 
 
 This will output the required WebAssembly files into the `dist/wasm_llm/` directory.
 
-## 2. Distribute the Model Weights (GGUF)
+## 2. Prepare the Model (Distribution & Sharding)
 
-Large Language Models (like Llama 3 `8B.gguf`) are too massive to transfer directly over standard WebSockets. Instead, we chunk them and distribute them over Pollen's content-addressed blob storage.
+Large Language Models (like Llama 3 `8B.gguf`) are too massive to transfer directly over standard WebSockets, and often too large to fit into a single edge node's RAM.
 
-You can use the `ModelDistributor` utility to slice your `.gguf` file into 50MB chunks and generate a deployment script:
+We provide a unified CLI tool that handles both:
+1. **Model Weight Distribution:** Slicing the `.gguf` file into 50MB content-addressed blobs for P2P transfer.
+2. **Model Sharding (Pipeline Parallelism):** Calculating the horizontal layer splits and generating the precise mesh topology tags required.
 
-```python
-from src.liminal_bridge.gguf_distributor import ModelDistributor
+Run the preparation script against your model:
 
-distributor = ModelDistributor(chunk_size_mb=50)
-chunks = distributor.chunk_file("my_model.gguf", output_dir="./model_chunks")
-manifest = distributor.generate_distribution_manifest("my_model.gguf", chunks, "./model_chunks/manifest.json")
-
-# This creates a bash script full of `pln seed` commands
-script_path = distributor.generate_pollen_seed_script("./model_chunks", chunks, "./model_chunks/manifest.json")
-print(f"Run {script_path} to seed the model to the Pollen mesh!")
+```bash
+# Split the model for 4 nodes, chunking weights into 50MB blobs
+./scripts/prepare_model_mesh.py my_model.gguf --nodes 4 --chunk-size 50 --out-dir ./mesh_deployment
 ```
 
-## 3. Plan Pipeline Parallelism (Model Sharding)
+This will output two critical files in the `mesh_deployment/` directory:
+- `seed_model_to_pollen.sh`: A generated bash script full of `pln seed` commands to inject the physical blobs into the mesh.
+- `pipeline_topology_plan.txt`: A text file detailing the exact `--prop pipeline_stage=X` tags you need to assign to your mesh nodes to process the model collectively.
 
-If your model is too large for a single node, you can split it horizontally across multiple nodes (Pipeline Parallelism).
-
-The Keystone `Architect` can autonomously analyze a GGUF file and generate the exact mesh topology required:
-
-```python
-from src.liminal_bridge.architect import Architect
-import asyncio
-
-async def plan():
-    architect = Architect()
-    # Split the model across 4 nodes
-    plan = await architect.plan_pipeline_parallelism("my_model.gguf", num_nodes=4)
-    print(plan)
-
-asyncio.run(plan())
+**Seed the model:**
+```bash
+./mesh_deployment/seed_model_to_pollen.sh
 ```
-
-This will output the specific `--prop pipeline_stage=X` tags you need to assign to your mesh nodes.
 
 ## 4. Launch Nodes with Topology Tags
 
