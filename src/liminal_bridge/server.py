@@ -76,14 +76,12 @@ async def handle_command_request(origin: str, command: dict):
         prompt = command.get("prompt", "")
         if prompt:
             print(f">>> [Pollen Compute] Executing inference task for {origin}...")
-            # We assume architect is configured with pollen_mesh
-            # For this simple prototype, we use the `refine_issue` or `consult` method to send the raw prompt
             try:
                 # Set status to busy while processing
                 await mesh.set_status("busy")
 
-                # Execute via the Architect (which points to Pollen WASM)
-                result = await architect._refine_pollen(prompt) if architect.provider == "pollen_mesh" else await architect.refine_issue(prompt)
+                # Execute via the Architect (which points to Pollen WASM if configured)
+                result = await architect.refine_issue(prompt)
 
                 # Context Sync Loop: stream the result back to the mesh as a Thought
                 await mesh.share_thought(f"Inference Result for {origin}:\n{result}")
@@ -620,17 +618,17 @@ async def restart_sidecar() -> str:
 
 
 # --- Seed Mode ---
-async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
+async def run_seed_mode(timeout: int = None, dashboard_port: int = None, node_name: str = None, explicit_seed: str = None, props: list[str] = None):
     """Runs the mesh in seed mode (no MCP server)."""
     global mesh, pulse
 
     # Determine swarm_seed for identity
-    # Priority: 1) explicit --seed arg, 2) --node-name arg (derived), 3) None (random for AI)
-    if args and args.seed:
-        swarm_seed = args.seed
-    elif args and args.node_name:
+    # Priority: 1) explicit seed arg, 2) node-name arg (derived), 3) None (random for AI)
+    if explicit_seed:
+        swarm_seed = explicit_seed
+    elif node_name:
         swarm_seed = hashlib.sha256(
-            f"{SWARM_KEY}:{args.node_name}".encode()
+            f"{SWARM_KEY}:{node_name}".encode()
         ).hexdigest()
     else:
         swarm_seed = None  # Random identity for AI nodes
@@ -653,6 +651,12 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None):
             f"Starting Liminal Swarm Seed Node (Key: {SWARM_KEY[:8]}..., Random Identity)"
         )
     await mesh.start()
+
+    # Process capability tags
+    capabilities = ["seed", "compute", "pollen_compute"]
+    if props:
+        capabilities.extend(props)
+    await mesh.advertise_capabilities(capabilities)
 
     dashboard = None
     if dashboard_port:
@@ -778,16 +782,16 @@ async def run_verify_mode():
 
 
 # --- Daemon Mode ---
-async def run_daemon_mode():
+async def run_daemon_mode(node_name: str = None, explicit_seed: str = None, props: list[str] = None):
     """Runs the mesh as a headless background worker waiting for commands."""
     global mesh, pulse
 
     # Determine swarm_seed for identity if provided
-    if args and args.seed:
-        swarm_seed = args.seed
-    elif args and args.node_name:
+    if explicit_seed:
+        swarm_seed = explicit_seed
+    elif node_name:
         swarm_seed = hashlib.sha256(
-            f"{SWARM_KEY}:{args.node_name}".encode()
+            f"{SWARM_KEY}:{node_name}".encode()
         ).hexdigest()
     else:
         swarm_seed = None  # Random identity
@@ -806,8 +810,11 @@ async def run_daemon_mode():
     await mesh.start()
 
     # Worker Node Pattern: register, go idle, and listen
-    # We advertise some default developer capabilities
-    mesh.capabilities = ["coder", "tester", "researcher"]
+    capabilities = ["coder", "tester", "researcher"]
+    if props:
+        capabilities.extend(props)
+    await mesh.advertise_capabilities(capabilities)
+
     await mesh.set_status("idle")
 
     try:
@@ -852,6 +859,12 @@ if __name__ == "__main__":
         default=None,
         help="Explicit seed for stable identity (overrides --node-name)",
     )
+    parser.add_argument(
+        "--prop",
+        type=str,
+        action="append",
+        help="Advertise a capability or property tag (e.g. '--prop role=gpu' or '--prop parallel_group=ring_1')",
+    )
 
     # FastMCP uses click/typer which might grab args, so we use parse_known_args
     # Use global args so MCP tools can access it
@@ -859,7 +872,7 @@ if __name__ == "__main__":
 
     if args.mode == "seed":
         try:
-            asyncio.run(run_seed_mode(args.timeout, args.dashboard_port))
+            asyncio.run(run_seed_mode(args.timeout, args.dashboard_port, args.node_name, args.seed, args.prop))
         except KeyboardInterrupt:
             pass
     elif args.mode == "verify":
@@ -869,7 +882,7 @@ if __name__ == "__main__":
             pass
     elif args.mode == "daemon":
         try:
-            asyncio.run(run_daemon_mode())
+            asyncio.run(run_daemon_mode(args.node_name, args.seed, args.prop))
         except KeyboardInterrupt:
             pass
     else:

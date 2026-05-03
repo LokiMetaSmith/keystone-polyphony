@@ -986,7 +986,8 @@ class LiminalMesh:
             # Check if we are the target
             is_target = target == self.node_id
             if not is_target and capabilities:
-                # Check if we have the required capabilities
+                # Check if we have the required capabilities or properties
+                # Supports both boolean flags ("gpu") and kv tags ("role=gpu" or "parallel_group=ring_1")
                 is_target = all(cap in self.capabilities for cap in capabilities)
 
             # If no target/capabilities, it might be a general broadcast
