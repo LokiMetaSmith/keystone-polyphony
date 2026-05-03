@@ -17,3 +17,4 @@ simulation.log
 *.db
 *.pem
 .venv/
+dist/wasm_llm/
