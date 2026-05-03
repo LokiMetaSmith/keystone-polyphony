@@ -1147,6 +1147,15 @@ class LiminalMesh:
         }
         await self.broadcast(payload, urgency="high")
 
+    async def delegate_inference_task(self, prompt: str, target: str = None):
+        """Helper to quickly delegate an inference task to a Pollen-capable node."""
+        command = {
+            "type": "run_inference",
+            "prompt": prompt
+        }
+        # Require the 'pollen_compute' capability so it only hits capable shards
+        await self.broadcast_command(command, target=target, capabilities=["pollen_compute"])
+
     async def ping(self, target_node_id: str, message: str = "Ping!"):
         """Sends a direct ping message to a specific node."""
         await self.broadcast(
