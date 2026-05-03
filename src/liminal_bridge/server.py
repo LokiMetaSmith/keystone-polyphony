@@ -71,7 +71,30 @@ async def handle_command_request(origin: str, command: dict):
 
     print(f">>> [Command Request] Received from {origin}: {command}")
 
-    # Store in queue
+    # --- Agent Task Handoff & Context Sync Loop for Pollen Inference ---
+    if cmd_type == "run_inference":
+        prompt = command.get("prompt", "")
+        if prompt:
+            print(f">>> [Pollen Compute] Executing inference task for {origin}...")
+            # We assume architect is configured with pollen_mesh
+            # For this simple prototype, we use the `refine_issue` or `consult` method to send the raw prompt
+            try:
+                # Set status to busy while processing
+                await mesh.set_status("busy")
+
+                # Execute via the Architect (which points to Pollen WASM)
+                result = await architect._refine_pollen(prompt) if architect.provider == "pollen_mesh" else await architect.refine_issue(prompt)
+
+                # Context Sync Loop: stream the result back to the mesh as a Thought
+                await mesh.share_thought(f"Inference Result for {origin}:\n{result}")
+
+            except Exception as e:
+                await mesh.share_thought(f"Inference Failed: {e}")
+            finally:
+                await mesh.set_status("idle")
+        return
+
+    # Store standard commands in queue
     pending_commands.append(
         {
             "origin": origin,
