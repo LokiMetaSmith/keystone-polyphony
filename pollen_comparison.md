@@ -69,5 +69,12 @@ By layering these two systems, you create a complete, sovereign, peer-to-peer AI
 
 In this architecture, **Pollen is the brain's raw neurons (distributed compute)**, and **Keystone Polyphony is the prefrontal cortex (executive function, planning, and coordination).** You would have a fully offline, self-organizing swarm of AI agents writing code, making decisions, and running inference entirely on peer-to-peer volunteer hardware.
 
+#### Parallelism Mapping: Megatron vs. Pollen
+To achieve enterprise-grade inference across a decentralized swarm, the Pollen/Keystone hybrid can map traditional cluster parallelism techniques (like those in NVIDIA Megatron) directly to the peer-to-peer mesh topology:
+
+1. **WASM Pipeline Parallelism (PP):** Instead of fitting a monolithic model onto one GPU, the model is horizontally chunked. Consecutive layers are seeded as distinct WASM modules across different peers (`pln seed layer_0_10.wasm`). A request flows through the mesh from Node A to Node B to Node C, pipelining the inference.
+2. **Mesh Tensor Sharding (TP):** Tensor Parallelism requires high bandwidth. Using Pollen tags (`pln grant <peer> --prop parallel_group=ring_1`), we can identify physical peers on the same local network or with ultra-low latency links to handle sub-layer sharding cooperatively.
+3. **MoE Expert Routing (EP):** Mixture of Experts is perfectly suited for Pollen's organic placement. Different "experts" are hosted on specialized nodes (e.g., a node with high VRAM hosts the coding expert, a standard node hosts the summarization expert). The WASM router node uses Pollen's service discovery to dispatch tokens to the appropriate expert dynamically.
+
 ### Summary
 If **Pollen** is the distributed hardware layer (turning many computers into one giant generic CPU), **Keystone Polyphony** is the distributed RTOS (turning many autonomous agents and humans into one cohesive development team). Combining Pollen's transport and compute execution with Keystone's agent orchestration and context-sharing creates an incredibly powerful, fully decentralized AI infrastructure.

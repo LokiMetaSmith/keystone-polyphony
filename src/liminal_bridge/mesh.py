@@ -986,7 +986,8 @@ class LiminalMesh:
             # Check if we are the target
             is_target = target == self.node_id
             if not is_target and capabilities:
-                # Check if we have the required capabilities
+                # Check if we have the required capabilities or properties
+                # Supports both boolean flags ("gpu") and kv tags ("role=gpu" or "parallel_group=ring_1")
                 is_target = all(cap in self.capabilities for cap in capabilities)
 
             # If no target/capabilities, it might be a general broadcast
@@ -1146,6 +1147,15 @@ class LiminalMesh:
             "origin": self.node_id,
         }
         await self.broadcast(payload, urgency="high")
+
+    async def delegate_inference_task(self, prompt: str, target: str = None):
+        """Helper to quickly delegate an inference task to a Pollen-capable node."""
+        command = {
+            "type": "run_inference",
+            "prompt": prompt
+        }
+        # Require the 'pollen_compute' capability so it only hits capable shards
+        await self.broadcast_command(command, target=target, capabilities=["pollen_compute"])
 
     async def ping(self, target_node_id: str, message: str = "Ping!"):
         """Sends a direct ping message to a specific node."""
