@@ -17,6 +17,13 @@ DEST_DIR="${REPO_ROOT}/dist/wasm_llm"
 
 cd "$REPO_ROOT"
 
+# On Windows, Git can fail with "Filename too long" when cloning repos with deep paths (like llama.cpp webui).
+# We must ensure core.longpaths is enabled.
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    echo ">>> Windows environment detected. Enabling Git core.longpaths..."
+    git config --global core.longpaths true
+fi
+
 echo ">>> Initializing and updating git submodules..."
 git submodule update --init --recursive
 
