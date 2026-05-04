@@ -17,11 +17,22 @@ DEST_DIR="${REPO_ROOT}/dist/wasm_llm"
 
 cd "$REPO_ROOT"
 
+# Determine if we are running in a Windows environment (including Git Bash/MINGW)
+IS_WINDOWS=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    IS_WINDOWS=true
+elif uname -s 2>/dev/null | grep -qiE "mingw|msys|cygwin"; then
+    IS_WINDOWS=true
+fi
+
 # On Windows, Git can fail with "Filename too long" when cloning repos with deep paths (like llama.cpp webui).
 # We must ensure core.longpaths is enabled.
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+if [[ "$IS_WINDOWS" == "true" ]]; then
     echo ">>> Windows environment detected. Enabling Git core.longpaths..."
     git config --global core.longpaths true
+    export GIT_CONFIG_COUNT=1
+    export GIT_CONFIG_KEY_0="core.longpaths"
+    export GIT_CONFIG_VALUE_0="true"
 fi
 
 echo ">>> Initializing and updating git submodules..."
@@ -33,7 +44,7 @@ if ! command -v emcc &> /dev/null; then
 
     # On Windows MSYS, 'python' often hits the Microsoft Store alias instead of the real python executable.
     # Emscripten uses Python for its build tools, so we need to ensure EMSDK_PYTHON is set to a valid interpreter.
-    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    if [[ "$IS_WINDOWS" == "true" ]]; then
         # Try to find a valid python3 or python executable that isn't the store wrapper
         if command -v python3 &> /dev/null && ! python3 -c "pass" 2>&1 | grep -q "not found"; then
             export EMSDK_PYTHON=$(command -v python3)
