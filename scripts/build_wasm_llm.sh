@@ -58,7 +58,13 @@ if ! command -v emcc &> /dev/null; then
     cd third_party/emsdk
     ./emsdk install latest
     ./emsdk activate latest
-    source ./emsdk_env.sh
+
+    # In Windows MSYS/Git Bash, python can output CRLF line endings (\r\n).
+    # When `emsdk_env.sh` runs `eval $(./emsdk construct_env)`, the trailing \r
+    # causes bash errors like `$'\r': command not found` or garbled PATH parsing,
+    # leading to `emcc` not being found.
+    # We strip the carriage returns before evaluating the environment exports.
+    eval "$(`./emsdk construct_env | tr -d '\r'`)"
     cd "$REPO_ROOT"
 else
     echo ">>> Emscripten found."
