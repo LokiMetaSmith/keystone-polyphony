@@ -5,8 +5,6 @@ set -e
 
 echo ">>> 🚀 Initializing Polyphony Ensemble Baseline..."
 
-# 1. Dependency Check
-echo ">>> 🔍 Checking system dependencies..."
 
 # Detect python executable
 if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
@@ -27,6 +25,9 @@ else
     echo "❌ ERROR: Pip is not installed."
     exit 1
 fi
+
+# 1. Dependency Check
+echo ">>> 🔍 Checking system dependencies..."
 
 # Required commands - script will fail if missing
 REQUIRED_CMDS=("node" "npm" "ssh-keygen")

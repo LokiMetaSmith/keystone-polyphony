@@ -42,14 +42,17 @@ git submodule update --init --recursive
 if ! command -v emcc &> /dev/null; then
     echo ">>> Emscripten (emcc) not found in PATH. Setting up emsdk from submodule..."
 
+    # On Windows MSYS, 'python' often hits the Microsoft Store alias instead of the real python executable.
     # Emscripten uses Python for its build tools, so we need to ensure EMSDK_PYTHON is set to a valid interpreter.
-    # Try to find a valid python3 or python executable that isn't the store wrapper
-    if command -v python3 &> /dev/null && python3 -c "import sys" 2>/dev/null; then
-        export EMSDK_PYTHON=$(command -v python3)
-    elif command -v python &> /dev/null && python -c "import sys" 2>/dev/null; then
-        export EMSDK_PYTHON=$(command -v python)
-    else
-        echo ">>> WARNING: Could not verify a working Python installation. EMSDK setup may fail."
+    if [[ "$IS_WINDOWS" == "true" ]]; then
+        # Try to find a valid python3 or python executable that isn't the store wrapper
+        if command -v python3 &> /dev/null && ! python3 -c "pass" 2>&1 | grep -q "not found"; then
+            export EMSDK_PYTHON=$(command -v python3)
+        elif command -v python &> /dev/null && ! python -c "pass" 2>&1 | grep -q "not found"; then
+            export EMSDK_PYTHON=$(command -v python)
+        else
+            echo ">>> WARNING: Could not verify a working Python installation. EMSDK setup may fail."
+        fi
     fi
 
     cd third_party/emsdk

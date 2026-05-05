@@ -12,6 +12,7 @@ else
         source .venv/Scripts/activate
     fi
 
+
     if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
         PYTHON_EXEC="python3"
     elif command -v python &>/dev/null && python -c "import sys" 2>/dev/null; then
