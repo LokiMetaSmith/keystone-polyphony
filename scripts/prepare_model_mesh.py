@@ -4,17 +4,35 @@ import sys
 import argparse
 
 # Add the src directory to the python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from src.liminal_bridge.gguf_sharder import GGUFSharder
 from src.liminal_bridge.gguf_distributor import ModelDistributor
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Prepare a GGUF model for distribution across the Pollen Mesh.")
+    parser = argparse.ArgumentParser(
+        description="Prepare a GGUF model for distribution across the Pollen Mesh."
+    )
     parser.add_argument("model", type=str, help="Path to the .gguf model file")
-    parser.add_argument("--nodes", type=int, default=4, help="Number of nodes/stages for Pipeline Parallelism")
-    parser.add_argument("--chunk-size", type=int, default=50, help="Size in MB for each distributed blob chunk")
-    parser.add_argument("--out-dir", type=str, default="./mesh_deployment", help="Output directory for chunks and scripts")
+    parser.add_argument(
+        "--nodes",
+        type=int,
+        default=4,
+        help="Number of nodes/stages for Pipeline Parallelism",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=50,
+        help="Size in MB for each distributed blob chunk",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        default="./mesh_deployment",
+        help="Output directory for chunks and scripts",
+    )
 
     args = parser.parse_args()
 
@@ -46,9 +64,13 @@ def main():
         chunks = distributor.chunk_file(args.model, args.out_dir)
 
         manifest_path = os.path.join(args.out_dir, "manifest.json")
-        distributor.generate_distribution_manifest(os.path.basename(args.model), chunks, manifest_path)
+        distributor.generate_distribution_manifest(
+            os.path.basename(args.model), chunks, manifest_path
+        )
 
-        script_path = distributor.generate_pollen_seed_script(args.out_dir, chunks, manifest_path)
+        script_path = distributor.generate_pollen_seed_script(
+            args.out_dir, chunks, manifest_path
+        )
         print(f"✅ Generated {len(chunks)} chunks.")
         print(f"✅ Assembly manifest saved to: {manifest_path}")
         print(f"✅ Pollen seeding script saved to: {script_path}")
@@ -59,8 +81,11 @@ def main():
     print("\n🚀 Preparation Complete!")
     print("Next steps:")
     print(f"  1. Run '{script_path}' to push the blobs to the P2P mesh.")
-    print(f"  2. Review '{plan_path}' to launch your Keystone nodes with the correct --prop tags.")
+    print(
+        f"  2. Review '{plan_path}' to launch your Keystone nodes with the correct --prop tags."
+    )
     print("\n")
+
 
 if __name__ == "__main__":
     main()

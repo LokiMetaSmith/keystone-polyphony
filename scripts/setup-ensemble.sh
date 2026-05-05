@@ -8,8 +8,28 @@ echo ">>> 🚀 Initializing Polyphony Ensemble Baseline..."
 # 1. Dependency Check
 echo ">>> 🔍 Checking system dependencies..."
 
+# Detect python executable
+if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python3"
+elif command -v python &>/dev/null && python -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python"
+else
+    echo "❌ ERROR: Python is not installed or not working correctly."
+    exit 1
+fi
+
+# Detect pip executable
+if command -v pip3 &>/dev/null; then
+    PIP_EXEC="pip3"
+elif command -v pip &>/dev/null; then
+    PIP_EXEC="pip"
+else
+    echo "❌ ERROR: Pip is not installed."
+    exit 1
+fi
+
 # Required commands - script will fail if missing
-REQUIRED_CMDS=("python3" "pip3" "node" "npm" "ssh-keygen")
+REQUIRED_CMDS=("node" "npm" "ssh-keygen")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "❌ Error: $cmd is not installed."
@@ -17,7 +37,7 @@ for cmd in "${REQUIRED_CMDS[@]}"; do
         exit 1
     fi
 done
-echo "✅ Required system dependencies found."
+echo "✅ Required system dependencies found ($PYTHON_EXEC, $PIP_EXEC, node, npm, ssh-keygen)."
 
 # Optional: Check for GitHub CLI (gh)
 # Not required for basic mesh functionality; only needed for GitHub API interactions
@@ -32,7 +52,7 @@ fi
 # 2. Python Dependencies
 echo ">>> 🐍 Setting up Python virtual environment..."
 if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    $PYTHON_EXEC -m venv .venv
     echo "✅ Virtual environment created at .venv"
 fi
 
@@ -45,7 +65,7 @@ fi
 
 echo ">>> 📦 Installing Python dependencies inside venv..."
 if [ -f "requirements.txt" ]; then
-    pip3 install -r requirements.txt
+    $PIP_EXEC install -r requirements.txt
 else
     echo "⚠️ Warning: requirements.txt not found."
 fi
@@ -111,7 +131,7 @@ if [ "$SKIP_SSH_EXCHANGE" = "1" ]; then
 else
     echo ">>> 🐝 Starting Swarm & Exchanging SSH Keys..."
     # This script uses LiminalMesh which starts the Node sidecar internally.
-    python3 scripts/exchange_ssh_keys.py --duration 30
+    $PYTHON_EXEC scripts/exchange_ssh_keys.py --duration 30
 fi
 
 echo ">>> 🎉 Ensemble Setup Complete!"

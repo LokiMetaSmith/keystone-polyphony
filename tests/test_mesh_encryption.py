@@ -59,7 +59,15 @@ async def test_receive_decrypts_payload(mesh_node):
     # Sign it
     signature = mesh_node.private_key.sign(encrypted_data.encode())
 
-    msg = {"type": "message", "peer_id": "some_peer", "payload": {"e": encrypted_data, "s": signature.hex(), "p": mesh_node.public_key_hex}}
+    msg = {
+        "type": "message",
+        "peer_id": "some_peer",
+        "payload": {
+            "e": encrypted_data,
+            "s": signature.hex(),
+            "p": mesh_node.public_key_hex,
+        },
+    }
 
     await mesh_node._handle_message(msg)
 
@@ -99,7 +107,11 @@ async def test_decryption_failure_handling(mesh_node, capsys):
     msg = {
         "type": "message",
         "peer_id": "bad_peer",
-        "payload": {"e": invalid_ciphertext, "s": signature.hex(), "p": mesh_node.public_key_hex},
+        "payload": {
+            "e": invalid_ciphertext,
+            "s": signature.hex(),
+            "p": mesh_node.public_key_hex,
+        },
     }
 
     await mesh_node._handle_message(msg)

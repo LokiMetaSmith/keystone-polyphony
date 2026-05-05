@@ -521,7 +521,10 @@ class LiminalMesh:
         asyncio.create_task(self.broadcast_network_state())
 
         # Register identity
-        await self.update_set("identity_registry", json.dumps({"node_id": self.node_id, "public_key": self.public_key_hex}))
+        await self.update_set(
+            "identity_registry",
+            json.dumps({"node_id": self.node_id, "public_key": self.public_key_hex}),
+        )
 
         print(
             f"LiminalMesh started. Node ID: {self.node_id}. Topic: {self.topic[:8]}..."
@@ -681,7 +684,7 @@ class LiminalMesh:
             "type": event_type,
             "details": details,
             "timestamp": time.time(),
-            "origin": self.node_id
+            "origin": self.node_id,
         }
         await self.update_set("audit_log", json.dumps(event))
 
@@ -797,10 +800,14 @@ class LiminalMesh:
                         bytes.fromhex(payload["s"]), payload["e"].encode()
                     )
                 except Exception as e:
-                    print(f"Signature verification failed from {msg.get('peer_id')}: {e}")
+                    print(
+                        f"Signature verification failed from {msg.get('peer_id')}: {e}"
+                    )
                     return
             else:
-                print(f"Warning: Message from {msg.get('peer_id')} is missing encrypted payload or signature. Dropping.")
+                print(
+                    f"Warning: Message from {msg.get('peer_id')} is missing encrypted payload or signature. Dropping."
+                )
                 return
 
             try:
@@ -809,9 +816,13 @@ class LiminalMesh:
                 # Verify identity registry
                 origin = decrypted_payload.get("origin")
                 if origin:
-                    derived_node_id = hashlib.sha256(bytes.fromhex(payload["p"])).hexdigest()[:16]
+                    derived_node_id = hashlib.sha256(
+                        bytes.fromhex(payload["p"])
+                    ).hexdigest()[:16]
                     if origin != derived_node_id:
-                        print(f"Identity mismatch from {msg.get('peer_id')}: claimed origin {origin} does not match pubkey {derived_node_id}.")
+                        print(
+                            f"Identity mismatch from {msg.get('peer_id')}: claimed origin {origin} does not match pubkey {derived_node_id}."
+                        )
                         return
 
                     registry_raw = self.get_kv("identity_registry") or []
@@ -820,12 +831,16 @@ class LiminalMesh:
                         try:
                             reg_entry = json.loads(item)
                             if "node_id" in reg_entry and "public_key" in reg_entry:
-                                registry_map[reg_entry["node_id"]] = reg_entry["public_key"]
+                                registry_map[reg_entry["node_id"]] = reg_entry[
+                                    "public_key"
+                                ]
                         except Exception:
                             pass
 
                     if origin in registry_map and registry_map[origin] != payload["p"]:
-                        print(f"Identity spoofing detected from {msg.get('peer_id')}: public key does not match registry.")
+                        print(
+                            f"Identity spoofing detected from {msg.get('peer_id')}: public key does not match registry."
+                        )
                         return
 
                 payload = decrypted_payload
@@ -1150,12 +1165,11 @@ class LiminalMesh:
 
     async def delegate_inference_task(self, prompt: str, target: str = None):
         """Helper to quickly delegate an inference task to a Pollen-capable node."""
-        command = {
-            "type": "run_inference",
-            "prompt": prompt
-        }
+        command = {"type": "run_inference", "prompt": prompt}
         # Require the 'pollen_compute' capability so it only hits capable shards
-        await self.broadcast_command(command, target=target, capabilities=["pollen_compute"])
+        await self.broadcast_command(
+            command, target=target, capabilities=["pollen_compute"]
+        )
 
     async def ping(self, target_node_id: str, message: str = "Ping!"):
         """Sends a direct ping message to a specific node."""
@@ -1451,20 +1465,26 @@ class LiminalMesh:
             result = future.result()
             del self._lock_requests[resource]
             if result:
-                asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
+                asyncio.create_task(
+                    self.log_audit_event("baton_acquired", {"resource": resource})
+                )
             return result
         except asyncio.TimeoutError:
             del self._lock_requests[resource]
             self.batons[resource] = self.node_id
             await self.broadcast({"type": "baton_claim", "resource": resource})
-            asyncio.create_task(self.log_audit_event("baton_acquired", {"resource": resource}))
+            asyncio.create_task(
+                self.log_audit_event("baton_acquired", {"resource": resource})
+            )
             return True
 
     async def release_baton(self, resource: str):
         if self.batons.get(resource) == self.node_id:
             del self.batons[resource]
             await self.broadcast({"type": "baton_release", "resource": resource})
-            asyncio.create_task(self.log_audit_event("baton_released", {"resource": resource}))
+            asyncio.create_task(
+                self.log_audit_event("baton_released", {"resource": resource})
+            )
             # Trigger Pulse
             if self.on_baton_release:
                 # Pass resource and my identity

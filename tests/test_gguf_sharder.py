@@ -5,6 +5,7 @@ import hashlib
 from src.liminal_bridge.gguf_sharder import GGUFSharder
 from src.liminal_bridge.gguf_distributor import ModelDistributor
 
+
 class TestGGUFShardingAndChunking(unittest.TestCase):
 
     def setUp(self):
@@ -46,13 +47,13 @@ class TestGGUFShardingAndChunking(unittest.TestCase):
         self.assertTrue(stages[3]["requires_output_head"])
 
     def test_manifest_determinism(self):
-        distributor = ModelDistributor(chunk_size_mb=1) # small chunk size
+        distributor = ModelDistributor(chunk_size_mb=1)  # small chunk size
         output_dir = "/tmp/test_pollen_dist"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         test_file = "/tmp/test_pollen_dist/static_test.bin"
-        static_data = b"HelloPollenMesh" * 1024 # Create a static payload
+        static_data = b"HelloPollenMesh" * 1024  # Create a static payload
 
         with open(test_file, "wb") as f:
             f.write(static_data)
@@ -60,11 +61,15 @@ class TestGGUFShardingAndChunking(unittest.TestCase):
         chunks = distributor.chunk_file(test_file, output_dir)
 
         # Verify the hash is exactly the same every time for this static data
-        first_chunk_hash = hashlib.sha256(static_data[:distributor.chunk_size_bytes]).hexdigest()
+        first_chunk_hash = hashlib.sha256(
+            static_data[: distributor.chunk_size_bytes]
+        ).hexdigest()
         self.assertEqual(chunks[0]["hash"], first_chunk_hash)
 
         manifest_path = os.path.join(output_dir, "manifest.json")
-        manifest = distributor.generate_distribution_manifest("test", chunks, manifest_path)
+        manifest = distributor.generate_distribution_manifest(
+            "test", chunks, manifest_path
+        )
 
         with open(manifest_path, "r") as f:
             loaded_manifest = json.load(f)
@@ -77,5 +82,6 @@ class TestGGUFShardingAndChunking(unittest.TestCase):
         for c in chunks:
             os.remove(c["path"])
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

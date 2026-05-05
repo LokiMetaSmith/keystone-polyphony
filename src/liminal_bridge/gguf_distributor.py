@@ -3,6 +3,7 @@ import hashlib
 import json
 from typing import List, Dict
 
+
 class ModelDistributor:
     """
     A utility class to chunk large GGUF model files and generate the
@@ -47,13 +48,15 @@ class ModelDistributor:
                     with open(chunk_path, "wb") as out_f:
                         out_f.write(chunk)
 
-                    chunks_meta.append({
-                        "index": chunk_idx,
-                        "filename": chunk_filename,
-                        "size": len(chunk),
-                        "hash": chunk_hash,
-                        "path": chunk_path
-                    })
+                    chunks_meta.append(
+                        {
+                            "index": chunk_idx,
+                            "filename": chunk_filename,
+                            "size": len(chunk),
+                            "hash": chunk_hash,
+                            "path": chunk_path,
+                        }
+                    )
                     chunk_idx += 1
         else:
             # Mocking the chunking process for a 500MB file
@@ -67,19 +70,23 @@ class ModelDistributor:
                 with open(chunk_path, "wb") as out_f:
                     out_f.write(b"\0" * size)
 
-                chunks_meta.append({
-                    "index": chunk_idx,
-                    "filename": chunk_filename,
-                    "size": size,
-                    "hash": chunk_hash,
-                    "path": chunk_path
-                })
+                chunks_meta.append(
+                    {
+                        "index": chunk_idx,
+                        "filename": chunk_filename,
+                        "size": size,
+                        "hash": chunk_hash,
+                        "path": chunk_path,
+                    }
+                )
                 bytes_read += size
                 chunk_idx += 1
 
         return chunks_meta
 
-    def generate_distribution_manifest(self, model_name: str, chunks_meta: List[Dict[str, str]], output_path: str):
+    def generate_distribution_manifest(
+        self, model_name: str, chunks_meta: List[Dict[str, str]], output_path: str
+    ):
         """
         Generates a JSON manifest containing the assembled chunk hashes.
         This manifest is what nodes will use to reassemble the GGUF file.
@@ -89,13 +96,9 @@ class ModelDistributor:
             "total_chunks": len(chunks_meta),
             "total_size": sum(c["size"] for c in chunks_meta),
             "chunks": [
-                {
-                    "index": c["index"],
-                    "hash": c["hash"],
-                    "filename": c["filename"]
-                }
+                {"index": c["index"], "hash": c["hash"], "filename": c["filename"]}
                 for c in chunks_meta
-            ]
+            ],
         }
 
         with open(output_path, "w") as f:
@@ -103,7 +106,9 @@ class ModelDistributor:
 
         return manifest
 
-    def generate_pollen_seed_script(self, output_dir: str, chunks_meta: List[Dict[str, str]], manifest_path: str) -> str:
+    def generate_pollen_seed_script(
+        self, output_dir: str, chunks_meta: List[Dict[str, str]], manifest_path: str
+    ) -> str:
         """
         Generates a bash script containing the `pln seed` commands to inject
         the blobs into the Pollen content-addressed mesh.
@@ -115,7 +120,7 @@ class ModelDistributor:
             "set -e",
             "",
             "echo '>>> Seeding GGUF Model chunks to Pollen Mesh...'",
-            ""
+            "",
         ]
 
         # Seed individual chunks
@@ -128,7 +133,9 @@ class ModelDistributor:
         lines.append("echo '>>> Seeding master manifest...'")
         lines.append(f"pln seed {manifest_path} model_manifest")
         lines.append("")
-        lines.append("echo '>>> Distribution complete. Other nodes can now run: pln fetch model_manifest'")
+        lines.append(
+            "echo '>>> Distribution complete. Other nodes can now run: pln fetch model_manifest'"
+        )
 
         script_content = "\n".join(lines)
         with open(script_path, "w") as f:
@@ -137,6 +144,7 @@ class ModelDistributor:
         os.chmod(script_path, 0o755)
         return script_path
 
+
 if __name__ == "__main__":
     print("Testing Model Distributor Prototype...")
     distributor = ModelDistributor(chunk_size_mb=50)
@@ -144,7 +152,9 @@ if __name__ == "__main__":
 
     chunks = distributor.chunk_file("dummy_model.gguf", output_dir)
     manifest_path = os.path.join(output_dir, "manifest.json")
-    manifest = distributor.generate_distribution_manifest("dummy_model.gguf", chunks, manifest_path)
+    manifest = distributor.generate_distribution_manifest(
+        "dummy_model.gguf", chunks, manifest_path
+    )
 
     script = distributor.generate_pollen_seed_script(output_dir, chunks, manifest_path)
     print(f"Success! Generated {len(chunks)} chunks.")

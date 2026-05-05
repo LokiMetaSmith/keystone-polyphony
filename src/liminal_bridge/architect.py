@@ -354,17 +354,18 @@ class Architect:
             return "Architect not configured for Pollen."
         try:
             import aiohttp
+
             async with aiohttp.ClientSession() as session:
                 payload = {
                     "model": self.model,
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are a precise technical architect. Output only valid JSON."
+                            "content": "You are a precise technical architect. Output only valid JSON.",
                         },
-                        {"role": "user", "content": prompt}
+                        {"role": "user", "content": prompt},
                     ],
-                    "response_format": {"type": "json_object"}
+                    "response_format": {"type": "json_object"},
                 }
                 # Assuming Pollen gateway mimics an OpenAI-compatible /v1/chat/completions endpoint
                 url = f"{self.pollen_url.rstrip('/')}/v1/chat/completions"
@@ -383,16 +384,17 @@ class Architect:
             return "Architect not configured for Pollen."
         try:
             import aiohttp
+
             async with aiohttp.ClientSession() as session:
                 payload = {
                     "model": self.model,
                     "messages": [
                         {
                             "role": "system",
-                            "content": "You are a precise technical architect."
+                            "content": "You are a precise technical architect.",
                         },
-                        {"role": "user", "content": prompt}
-                    ]
+                        {"role": "user", "content": prompt},
+                    ],
                 }
                 url = f"{self.pollen_url.rstrip('/')}/v1/chat/completions"
                 async with session.post(url, json=payload) as resp:

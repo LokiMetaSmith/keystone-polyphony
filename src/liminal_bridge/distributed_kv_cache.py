@@ -8,6 +8,7 @@ try:
 except ImportError:
     from mesh import LiminalMesh
 
+
 class DistributedKVCache:
     """
     Manages the synchronization of the LLM Attention KV Cache across sharded
@@ -26,7 +27,9 @@ class DistributedKVCache:
         # We use a specific CRDT key prefix for sequence parallel caching
         self.kv_prefix = "llm_cache:"
 
-    async def push_cache_block(self, session_id: str, layer_id: int, sequence_idx: int, pollen_blob_hash: str) -> str:
+    async def push_cache_block(
+        self, session_id: str, layer_id: int, sequence_idx: int, pollen_blob_hash: str
+    ) -> str:
         """
         Publishes the existence of a new KV cache block to the CRDT mesh.
 
@@ -44,7 +47,7 @@ class DistributedKVCache:
             "sequence_idx": sequence_idx,
             "hash": pollen_blob_hash,
             "node_id": self.mesh.node_id,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         # We use an ORSet so multiple shards can append their chunks to the same session simultaneously
@@ -52,7 +55,9 @@ class DistributedKVCache:
         await self.mesh.update_set(crdt_key, json.dumps(cache_metadata), urgency="high")
         return crdt_key
 
-    def get_cache_blocks(self, session_id: str, layer_id: Optional[int] = None) -> list[Dict[str, Any]]:
+    def get_cache_blocks(
+        self, session_id: str, layer_id: Optional[int] = None
+    ) -> list[Dict[str, Any]]:
         """
         Retrieves all synchronized KV cache blocks for a given session.
         If layer_id is provided, filters the blocks to just that layer.
@@ -89,7 +94,7 @@ class DistributedKVCache:
             "#!/usr/bin/env bash",
             "set -e",
             f"echo '>>> Fetching Distributed KV Cache for session {session_id}...'",
-            f"mkdir -p {output_dir}"
+            f"mkdir -p {output_dir}",
         ]
 
         for b in blocks:
@@ -102,6 +107,7 @@ class DistributedKVCache:
 
         return "\n".join(script_lines)
 
+
 # Example Usage
 if __name__ == "__main__":
     import asyncio
@@ -109,17 +115,24 @@ if __name__ == "__main__":
     async def run_mock():
         # Mock mesh
         from unittest.mock import MagicMock
+
         mesh = LiminalMesh(secret_key="mock", db_path=":memory:")
         cache = DistributedKVCache(mesh)
 
         print("Pushing Mock Cache Blocks to CRDT...")
-        await cache.push_cache_block("chat_abc123", layer_id=5, sequence_idx=0, pollen_blob_hash="a1b2c3d4")
-        await cache.push_cache_block("chat_abc123", layer_id=5, sequence_idx=1, pollen_blob_hash="e5f6g7h8")
+        await cache.push_cache_block(
+            "chat_abc123", layer_id=5, sequence_idx=0, pollen_blob_hash="a1b2c3d4"
+        )
+        await cache.push_cache_block(
+            "chat_abc123", layer_id=5, sequence_idx=1, pollen_blob_hash="e5f6g7h8"
+        )
 
         print("\nRetrieving Blocks from CRDT:")
         blocks = cache.get_cache_blocks("chat_abc123", layer_id=5)
         for b in blocks:
-            print(f"Layer {b['layer']} Sequence {b['sequence_idx']} -> Blob {b['hash']}")
+            print(
+                f"Layer {b['layer']} Sequence {b['sequence_idx']} -> Blob {b['hash']}"
+            )
 
         print("\nGenerated Pollen Fetch Script:")
         print(cache.generate_pollen_fetch_script("chat_abc123", "/tmp/kv_cache"))

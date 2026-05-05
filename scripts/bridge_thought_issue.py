@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(current_dir))
 from src.liminal_bridge.mesh import LiminalMesh
 from src.liminal_bridge.architect import Architect
 
+
 async def main():
     swarm_key = os.getenv("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
     mesh = LiminalMesh(secret_key=swarm_key)
@@ -28,8 +29,14 @@ async def main():
     try:
         while True:
             for node_id, thought in mesh.thoughts.items():
-                content = thought.get("content", "") if isinstance(thought, dict) else thought
-                if isinstance(content, str) and "#proposal" in content and node_id not in processed_thoughts:
+                content = (
+                    thought.get("content", "") if isinstance(thought, dict) else thought
+                )
+                if (
+                    isinstance(content, str)
+                    and "#proposal" in content
+                    and node_id not in processed_thoughts
+                ):
                     print(f"Found proposal from {node_id}: {content[:50]}...")
                     refined_content = await architect.refine_issue(content)
 
@@ -46,6 +53,7 @@ async def main():
         pass
     finally:
         await mesh.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

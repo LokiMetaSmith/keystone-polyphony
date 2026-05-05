@@ -18,15 +18,24 @@ if ! ./scripts/lint.sh; then
     FAILED=1
 fi
 
+# Detect python executable
+if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python3"
+elif command -v python &>/dev/null && python -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python"
+else
+    PYTHON_EXEC=""
+fi
+
 # 2. Run Tests (Unit Tests)
-if command -v python3 >/dev/null 2>&1 && python3 -c "import pytest" >/dev/null 2>&1; then
+if [ -n "$PYTHON_EXEC" ] && $PYTHON_EXEC -c "import pytest" >/dev/null 2>&1; then
     echo "Running pytest..."
-    if ! python3 -m pytest; then
+    if ! $PYTHON_EXEC -m pytest; then
         echo "[ERROR] Unit tests failed."
         FAILED=1
     fi
 else
-    echo "[WARNING] pytest module not found. Skipping unit tests."
+    echo "[WARNING] pytest module not found or python not installed. Skipping unit tests."
 fi
 
 # 3. Check for broken symbolic links (if any)

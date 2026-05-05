@@ -1,6 +1,7 @@
 import re
 from typing import Dict, List, Any
 
+
 class GGUFSharder:
     """
     A utility class to parse GGUF model metadata and calculate horizontal
@@ -21,10 +22,18 @@ class GGUFSharder:
         # Standard Llama 3 8B has 32 layers
         # Tensors look like: blk.0.attn_q.weight, blk.0.ffn_down.weight, etc.
         for layer in range(32):
-            tensors.append({"name": f"blk.{layer}.attn_q.weight", "size_bytes": 100000000})
-            tensors.append({"name": f"blk.{layer}.attn_k.weight", "size_bytes": 25000000})
-            tensors.append({"name": f"blk.{layer}.attn_v.weight", "size_bytes": 25000000})
-            tensors.append({"name": f"blk.{layer}.ffn_down.weight", "size_bytes": 150000000})
+            tensors.append(
+                {"name": f"blk.{layer}.attn_q.weight", "size_bytes": 100000000}
+            )
+            tensors.append(
+                {"name": f"blk.{layer}.attn_k.weight", "size_bytes": 25000000}
+            )
+            tensors.append(
+                {"name": f"blk.{layer}.attn_v.weight", "size_bytes": 25000000}
+            )
+            tensors.append(
+                {"name": f"blk.{layer}.ffn_down.weight", "size_bytes": 150000000}
+            )
 
         # Add head/embedding
         tensors.append({"name": "token_embd.weight", "size_bytes": 500000000})
@@ -51,7 +60,9 @@ class GGUFSharder:
         """
         total_layers = self.get_total_layers()
         if total_layers == 0:
-            raise ValueError("Could not detect any transformer layers in the GGUF file.")
+            raise ValueError(
+                "Could not detect any transformer layers in the GGUF file."
+            )
         if num_stages > total_layers:
             num_stages = total_layers
 
@@ -74,7 +85,7 @@ class GGUFSharder:
                 "pollen_tag": f"pipeline_stage={i}",
                 # Embeddings go to the first stage, Output goes to the last stage
                 "requires_embeddings": (i == 0),
-                "requires_output_head": (i == num_stages - 1)
+                "requires_output_head": (i == num_stages - 1),
             }
             stages.append(stage)
             current_layer += stage_layers
@@ -88,14 +99,15 @@ class GGUFSharder:
         for s in stages:
             plan += f"Stage {s['stage_index']}:\n"
             plan += f"  - Layers: {s['layer_start']} to {s['layer_end']} ({s['num_layers']} layers)\n"
-            if s['requires_embeddings']:
+            if s["requires_embeddings"]:
                 plan += f"  - Includes: token_embd.weight\n"
-            if s['requires_output_head']:
+            if s["requires_output_head"]:
                 plan += f"  - Includes: output.weight\n"
             plan += f"  - Pollen Tag Required: --prop {s['pollen_tag']}\n"
             # Conceptually, a script would slice the GGUF here and output stage_0.gguf
             plan += f"  > pln seed ./stage_{s['stage_index']}.gguf\n\n"
         return plan
+
 
 if __name__ == "__main__":
     sharder = GGUFSharder("mock_llama3_8b.gguf")

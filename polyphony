@@ -3,6 +3,16 @@
 
 set -e
 
+# Detect python executable (avoiding Windows Store stubs)
+if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python3"
+elif command -v python &>/dev/null && python -c "import sys" 2>/dev/null; then
+    PYTHON_EXEC="python"
+else
+    echo "❌ ERROR: Python is not installed or not working correctly."
+    exit 1
+fi
+
 # Ensure we have SWARM_KEY
 if [ -z "$SWARM_KEY" ]; then
     if [ -f .env ]; then
@@ -49,61 +59,61 @@ usage() {
 case "$1" in
     join|start)
         echo ">>> Joining the Polyphony Swarm (Seed Mode)..."
-        exec python3 src/liminal_bridge/server.py --mode seed "${@:2}"
+        exec $PYTHON_EXEC src/liminal_bridge/server.py --mode seed "${@:2}"
         ;;
     daemon|worker)
         echo ">>> Starting Polyphony Daemon (Worker Mode)..."
-        exec python3 src/liminal_bridge/server.py --mode daemon "${@:2}"
+        exec $PYTHON_EXEC src/liminal_bridge/server.py --mode daemon "${@:2}"
         ;;
     dashboard)
         PORT="${2:-8000}"
         echo ">>> Starting Swarm Dashboard on port $PORT..."
-        exec python3 src/liminal_bridge/server.py --mode seed --dashboard-port "$PORT" "${@:3}"
+        exec $PYTHON_EXEC src/liminal_bridge/server.py --mode seed --dashboard-port "$PORT" "${@:3}"
         ;;
     setup)
         ./scripts/setup-ensemble.sh
         ;;
     status)
         if [ -n "$2" ]; then
-            python3 scripts/status.py "$2"
+            $PYTHON_EXEC scripts/status.py "$2"
         else
-            python3 scripts/swarm_status.py
+            $PYTHON_EXEC scripts/swarm_status.py
         fi
         ;;
     list|tasks)
-        python3 scripts/swarm_status.py
+        $PYTHON_EXEC scripts/swarm_status.py
         ;;
     idle)
-        python3 scripts/status.py "idle"
+        $PYTHON_EXEC scripts/status.py "idle"
         ;;
     share)
         if [ -z "$2" ]; then
             echo "Usage: polyphony share 'Your thought here'"
             exit 1
         fi
-        python3 scripts/share.py "${@:2}"
+        $PYTHON_EXEC scripts/share.py "${@:2}"
         ;;
     ping)
         if [ -z "$2" ] || [ -z "$3" ]; then
             echo "Usage: polyphony ping <node_id> 'Your message here'"
             exit 1
         fi
-        python3 scripts/ping.py "$2" "${@:3}"
+        $PYTHON_EXEC scripts/ping.py "$2" "${@:3}"
         ;;
     task)
         shift
-        python3 scripts/task.py "$@"
+        $PYTHON_EXEC scripts/task.py "$@"
         ;;
     broadcast)
         shift
-        python3 scripts/broadcast.py "$@"
+        $PYTHON_EXEC scripts/broadcast.py "$@"
         ;;
     chat)
         shift
-        python3 scripts/chat.py "$@"
+        $PYTHON_EXEC scripts/chat.py "$@"
         ;;
     topics)
-        python3 scripts/list_topics.py
+        $PYTHON_EXEC scripts/list_topics.py
         ;;
     dispatch)
         shift
@@ -113,10 +123,10 @@ case "$1" in
         shift
         case "$1" in
             refine)
-                python3 scripts/refine_issue.py "$2"
+                $PYTHON_EXEC scripts/refine_issue.py "$2"
                 ;;
             dedup)
-                python3 scripts/deduplicate.py
+                $PYTHON_EXEC scripts/deduplicate.py
                 ;;
             *)
                 echo "Usage: polyphony issue <refine|dedup>"
@@ -126,7 +136,7 @@ case "$1" in
         ;;
     keys)
         echo ">>> Exchanging SSH keys with the Polyphony Swarm..."
-        python3 scripts/exchange_ssh_keys.py "${@:2}"
+        $PYTHON_EXEC scripts/exchange_ssh_keys.py "${@:2}"
         ;;
     lint)
         ./scripts/lint.sh
