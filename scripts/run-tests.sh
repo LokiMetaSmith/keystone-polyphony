@@ -9,13 +9,14 @@ cd "$REPO_ROOT"
 
 echo ">>> Running repository health checks..."
 
-FAILED=0
 
-# 1. Run Linting (Code Quality)
-echo "Running lint checks..."
-if ! ./scripts/lint.sh; then
-    echo "[ERROR] Linting checks failed."
-    FAILED=1
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+    elif [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate
+    fi
 fi
 
 # Detect python executable
@@ -27,15 +28,25 @@ else
     PYTHON_EXEC=""
 fi
 
+FAILED=0
+
+# 1. Run Linting (Code Quality)
+echo "Running lint checks..."
+if ! ./scripts/lint.sh; then
+    echo "[ERROR] Linting checks failed."
+    FAILED=1
+fi
+
 # 2. Run Tests (Unit Tests)
 if [ -n "$PYTHON_EXEC" ] && $PYTHON_EXEC -c "import pytest" >/dev/null 2>&1; then
+    export PYTHONPATH=src
     echo "Running pytest..."
     if ! $PYTHON_EXEC -m pytest; then
         echo "[ERROR] Unit tests failed."
         FAILED=1
     fi
 else
-    echo "[WARNING] pytest module not found or python not installed. Skipping unit tests."
+    echo "[WARNING] pytest module not found. Skipping unit tests."
 fi
 
 # 3. Check for broken symbolic links (if any)

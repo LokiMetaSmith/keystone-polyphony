@@ -37,7 +37,7 @@ def main():
     args = parser.parse_args()
 
     print(f"\n🧠 Preparing Model: {args.model}")
-    print(f"============================================================")
+    print("============================================================")
 
     # 1. Model Sharding (Pipeline Parallelism)
     print(f"\n1. Calculating Pipeline Parallelism Topology ({args.nodes} nodes)...")

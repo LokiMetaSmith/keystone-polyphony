@@ -100,9 +100,9 @@ class GGUFSharder:
             plan += f"Stage {s['stage_index']}:\n"
             plan += f"  - Layers: {s['layer_start']} to {s['layer_end']} ({s['num_layers']} layers)\n"
             if s["requires_embeddings"]:
-                plan += f"  - Includes: token_embd.weight\n"
+                plan += "  - Includes: token_embd.weight\n"
             if s["requires_output_head"]:
-                plan += f"  - Includes: output.weight\n"
+                plan += "  - Includes: output.weight\n"
             plan += f"  - Pollen Tag Required: --prop {s['pollen_tag']}\n"
             # Conceptually, a script would slice the GGUF here and output stage_0.gguf
             plan += f"  > pln seed ./stage_{s['stage_index']}.gguf\n\n"

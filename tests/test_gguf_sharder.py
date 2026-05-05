@@ -67,9 +67,7 @@ class TestGGUFShardingAndChunking(unittest.TestCase):
         self.assertEqual(chunks[0]["hash"], first_chunk_hash)
 
         manifest_path = os.path.join(output_dir, "manifest.json")
-        manifest = distributor.generate_distribution_manifest(
-            "test", chunks, manifest_path
-        )
+        distributor.generate_distribution_manifest("test", chunks, manifest_path)
 
         with open(manifest_path, "r") as f:
             loaded_manifest = json.load(f)

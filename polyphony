@@ -3,8 +3,17 @@
 
 set -e
 
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+    elif [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate
+    fi
+fi
+
 # Detect python executable (avoiding Windows Store stubs)
-if command -v python3 &>/dev/null && python3 -c "import sys" 2>/dev/null; then
+if command -v $PYTHON_EXEC &>/dev/null && $PYTHON_EXEC -c "import sys" 2>/dev/null; then
     PYTHON_EXEC="python3"
 elif command -v python &>/dev/null && python -c "import sys" 2>/dev/null; then
     PYTHON_EXEC="python"
@@ -12,6 +21,7 @@ else
     echo "❌ ERROR: Python is not installed or not working correctly."
     exit 1
 fi
+
 
 # Ensure we have SWARM_KEY
 if [ -z "$SWARM_KEY" ]; then
