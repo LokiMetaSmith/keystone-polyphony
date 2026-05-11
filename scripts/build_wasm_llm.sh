@@ -64,7 +64,7 @@ if ! command -v emcc &> /dev/null; then
     # causes bash errors like `$'\r': command not found` or garbled PATH parsing,
     # leading to `emcc` not being found.
     # We strip the carriage returns before evaluating the environment exports.
-    eval "$(`./emsdk construct_env | tr -d '\r'`)"
+    source ./emsdk_env.sh
     cd "$REPO_ROOT"
 else
     echo ">>> Emscripten found."
