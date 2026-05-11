@@ -204,9 +204,7 @@ class LiminalMesh:
                         current_time - self.last_activity_time
                     ) > self._idle_threshold_seconds:
                         print(
-                            f"[Idle] Node {
-                                self.node_id} idle for >{
-                                self._idle_threshold_seconds}s. Auto-setting status to idle."
+                            f"[Idle] Node {self.node_id} idle for >{self._idle_threshold_seconds}s. Auto-setting status to idle."
                         )
                         await self.set_status("idle")
             except asyncio.CancelledError:
