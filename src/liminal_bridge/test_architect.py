@@ -20,11 +20,8 @@ async def test_architect_detects_openai():
 
 @pytest.mark.asyncio
 async def test_architect_detects_google():
-    # For google, the import is `import google.generativeai as genai`
-    # We patch the module in sys.modules
-    with patch.dict(sys.modules, {"google.generativeai": MagicMock()}):
-        arch = Architect(api_key="AIzaSyD-12345678901234567890123456789012")
-        assert arch.provider == "google"
+    arch = Architect(api_key="AIzaSyD-12345678901234567890123456789012")
+    assert arch.provider == "google"
 
 
 @pytest.mark.asyncio

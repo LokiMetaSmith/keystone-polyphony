@@ -9,7 +9,6 @@ class Architect:
         self.model = model or os.getenv("DUCKY_MODEL", "gpt-4o")
         self.provider = "openai"
         self.client = None
-        self.google_model = None
 
         # Check for explicit provider override
         provider_env = os.getenv("DUCKY_PROVIDER")
@@ -46,18 +45,8 @@ class Architect:
                 )
 
         elif self.provider == "google":
-            if self.api_key:
-                try:
-                    import google.generativeai as genai
-
-                    genai.configure(api_key=self.api_key)
-                    self.google_model = genai.GenerativeModel(self.model)
-                except ImportError:
-                    print(
-                        "Warning: google-generativeai package not installed. Architect disabled for Gemini."
-                    )
-            else:
-                print("Warning: API key missing for Google provider.")
+            # For google provider, route through the local interface (Ollama/llama.cpp)
+            pass
 
         elif self.provider == "anthropic":
             if self.api_key:
@@ -121,7 +110,7 @@ class Architect:
         """
 
         if self.provider == "google":
-            return await self._consult_google(prompt)
+            return await self._consult_ollama(prompt)
         elif self.provider == "anthropic":
             return await self._consult_anthropic(prompt)
         elif self.provider == "ollama":
@@ -155,7 +144,7 @@ class Architect:
         """
 
         if self.provider == "google":
-            return await self._consult_google(prompt)
+            return await self._consult_ollama(prompt)
         elif self.provider == "anthropic":
             return await self._consult_anthropic(prompt)
         elif self.provider == "ollama":
@@ -209,7 +198,7 @@ class Architect:
         """
 
         if self.provider == "google":
-            return await self._refine_google(prompt)
+            return await self._refine_ollama(prompt)
         elif self.provider == "anthropic":
             return await self._refine_anthropic(prompt)
         elif self.provider == "ollama":
@@ -221,7 +210,7 @@ class Architect:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.client or self.google_model)
+        return bool(self.client or self.provider == "google")
 
     async def _consult_openai(self, prompt: str) -> str:
         if not self.client:
@@ -260,28 +249,6 @@ class Architect:
             return response.choices[0].message.content
         except Exception as e:
             return f"Error refining issue (OpenAI): {str(e)}"
-
-    async def _consult_google(self, prompt: str) -> str:
-        if not self.google_model:
-            return "Architect not configured (missing API key or google-generativeai package)."
-
-        try:
-            response = await self.google_model.generate_content_async(
-                contents=[prompt],
-                generation_config={"response_mime_type": "application/json"},
-            )
-            return response.text
-        except Exception as e:
-            return f"Error consulting architect (Gemini): {str(e)}"
-
-    async def _refine_google(self, prompt: str) -> str:
-        if not self.google_model:
-            return "Architect not configured (missing API key or google-generativeai package)."
-        try:
-            response = await self.google_model.generate_content_async(contents=[prompt])
-            return response.text
-        except Exception as e:
-            return f"Error refining issue (Gemini): {str(e)}"
 
     async def _consult_anthropic(self, prompt: str) -> str:
         if not self.client:
