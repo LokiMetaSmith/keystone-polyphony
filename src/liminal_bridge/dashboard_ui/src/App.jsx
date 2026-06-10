@@ -8,11 +8,13 @@ import Logs from './components/Logs'
 import Discussions from './components/Discussions'
 import NetworkGraph from './components/NetworkGraph'
 import Login from './components/Login'
+import NervDesignSystem from './components/NervDesignSystem'
 import './App.css'
 
 function App() {
   const [activeTab, setActiveTab] = useState('status')
   const [isAuthenticated, setIsAuthenticated] = useState(null)
+  const [headerClickCount, setHeaderClickCount] = useState(0)
 
   useEffect(() => {
     fetch('/api/status')
@@ -31,13 +33,47 @@ function App() {
       .then(() => setIsAuthenticated(false))
   }
 
+  const handleHeaderClick = () => {
+    const newCount = headerClickCount + 1
+    setHeaderClickCount(newCount)
+    if (newCount >= 5) {
+      setActiveTab('nerv')
+      setHeaderClickCount(0)
+    }
+  }
+
   if (isAuthenticated === null) return <div className="container"><p>Connecting to Liminal...</p></div>
   if (isAuthenticated === false) return <div className="container"><Login onLoginSuccess={() => setIsAuthenticated(true)} /></div>
+
+  if (activeTab === 'nerv') {
+    return (
+      <div className="container">
+        <header>
+          <h1 onClick={handleHeaderClick} style={{ cursor: 'pointer', userSelect: 'none' }}>Liminal Swarm</h1>
+          <nav>
+            <button onClick={() => setActiveTab('status')}>Status</button>
+            <button onClick={() => setActiveTab('network')}>Network</button>
+            <button onClick={() => setActiveTab('thoughts')}>Thoughts</button>
+            <button onClick={() => setActiveTab('discussions')}>Discussions</button>
+            <button onClick={() => setActiveTab('backlog')}>Backlog</button>
+            <button onClick={() => setActiveTab('batons')}>Batons</button>
+            <button onClick={() => setActiveTab('kv')}>KV Store</button>
+            <button onClick={() => setActiveTab('logs')}>Logs</button>
+            <button onClick={() => setActiveTab('nerv')} className="active" style={{display: 'none'}}>Nerv</button>
+          </nav>
+          <button onClick={handleLogout} style={{ marginLeft: 'auto', padding: '5px 10px', background: '#333' }}>Logout</button>
+        </header>
+        <main style={{ padding: 0, background: 'transparent' }}>
+          <NervDesignSystem />
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="container">
       <header>
-        <h1>Liminal Swarm</h1>
+        <h1 onClick={handleHeaderClick} style={{ cursor: 'pointer', userSelect: 'none' }}>Liminal Swarm</h1>
         <nav>
           <button onClick={() => setActiveTab('status')} className={activeTab === 'status' ? 'active' : ''}>Status</button>
           <button onClick={() => setActiveTab('network')} className={activeTab === 'network' ? 'active' : ''}>Network</button>
