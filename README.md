@@ -187,6 +187,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
    - The server prints an **Admin Invite Code** to stdout on startup (search logs for `ADMIN INVITE CODE`).
    - Enter this code in the dashboard to cryptographically register your identity with the swarm.
 4. **Usage**: Once authenticated, you can view the mesh status, visualize the network graph, share thoughts, and acquire/release resource locks (Batons).
+5. **Easter Egg**: The dashboard includes a hidden NERV Design System theme. To activate it, click the "Liminal Swarm" header title exactly 5 times.
 
 ## Project Links
 
