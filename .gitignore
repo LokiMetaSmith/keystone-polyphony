@@ -16,5 +16,7 @@ venv/
 simulation.log
 *.db
 *.pem
+liminal.db
+identity.pem
 .venv/
 dist/wasm_llm/

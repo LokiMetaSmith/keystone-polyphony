@@ -12,7 +12,13 @@ from src.liminal_bridge.architect import Architect
 
 
 async def main():
-    swarm_key = os.getenv("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
+    swarm_key = os.getenv("SWARM_KEY")
+    if not swarm_key:
+        print(
+            "ERROR: SWARM_KEY environment variable is not set. Unable to connect to the swarm.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     mesh = LiminalMesh(secret_key=swarm_key)
     architect = Architect()
 

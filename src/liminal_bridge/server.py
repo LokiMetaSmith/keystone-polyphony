@@ -5,6 +5,7 @@ import argparse
 import time
 import hashlib
 import json
+import secrets
 
 # Get the directory containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +27,15 @@ except (ImportError, ValueError):
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 # Initialize components
-SWARM_KEY = os.getenv("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
+SWARM_KEY = os.getenv("SWARM_KEY")
+if not SWARM_KEY:
+    SWARM_KEY = secrets.token_hex(32)
+    print(
+        "WARNING: SWARM_KEY environment variable is not set. A random secure key has been generated for this session to prevent unauthorized access. "
+        "Other nodes will not be able to discover this node unless they share this key.",
+        file=sys.stderr,
+    )
+
 # Use environment variables or defaults for persistence
 DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
 IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
