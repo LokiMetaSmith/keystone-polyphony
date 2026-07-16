@@ -6,32 +6,41 @@ from src.core.mailbox import BoundedMailbox
 from src.core.effects import LogEffect, SendMessageEffect
 from src.runtime.tpc_executor import TpcExecutor, pin_to_core
 
+
 @dataclass
 class SimpleState:
     count: int
+
 
 @dataclass(frozen=True)
 class IncrementMessage:
     amount: int
 
+
 class DummyIsolate(BaseIsolate):
     def handle_message(self, msg: IncrementMessage):
         self.state.count += msg.amount
         return [
-            LogEffect(level="INFO", message=f"Incremented by {msg.amount}, total is {self.state.count}"),
-            SendMessageEffect(target_mailbox_id="dummy_target", message="Done")
+            LogEffect(
+                level="INFO",
+                message=f"Incremented by {msg.amount}, total is {self.state.count}",
+            ),
+            SendMessageEffect(target_mailbox_id="dummy_target", message="Done"),
         ]
+
 
 def test_pin_to_core_fallback():
     # Calling pin_to_core should run without crash, returning True or False depending on platform support
     res = pin_to_core(0)
     assert isinstance(res, bool)
 
+
 def test_tpc_executor():
     isolate = DummyIsolate(SimpleState(count=0))
     mailbox = BoundedMailbox(max_size=10)
 
     dispatched_effects = []
+
     def dispatcher(sender, effect):
         dispatched_effects.append((sender, effect))
 
@@ -40,7 +49,7 @@ def test_tpc_executor():
         isolate=isolate,
         mailbox=mailbox,
         core_id=0,
-        effect_dispatcher=dispatcher
+        effect_dispatcher=dispatcher,
     )
 
     executor.start()

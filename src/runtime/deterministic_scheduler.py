@@ -14,6 +14,7 @@ from src.core.effects import (
 
 logger = logging.getLogger(__name__)
 
+
 class DeterministicScheduler:
     """
     Manages and coordinates a deterministic simulation of multi-agent isolates.
@@ -25,6 +26,7 @@ class DeterministicScheduler:
 
     All execution flows are 100% reproducible for a given seed.
     """
+
     def __init__(
         self,
         seed: int = 42,
@@ -46,14 +48,18 @@ class DeterministicScheduler:
         self.mailboxes: Dict[str, BoundedMailbox] = {}
         self.trace: List[str] = []
 
-    def register_agent(self, agent_id: str, isolate: BaseIsolate, mailbox: BoundedMailbox):
+    def register_agent(
+        self, agent_id: str, isolate: BaseIsolate, mailbox: BoundedMailbox
+    ):
         self.isolates[agent_id] = isolate
         self.mailboxes[agent_id] = mailbox
 
     def schedule_event(self, delay: int, callback: Callable, *args):
         scheduled_time = self.current_time + delay
         self.event_counter += 1
-        heapq.heappush(self.events, (scheduled_time, self.event_counter, callback, args))
+        heapq.heappush(
+            self.events, (scheduled_time, self.event_counter, callback, args)
+        )
 
     def log_trace(self, message: str):
         msg = f"[T={self.current_time}] {message}"
@@ -73,7 +79,9 @@ class DeterministicScheduler:
             # To simulate processing time/steps, we handle it sequentially:
             self._execute_isolate_step(target_mailbox_id)
         except Exception as e:
-            self.log_trace(f"Shed/Dropped message to {target_mailbox_id} due to: {e.__class__.__name__}")
+            self.log_trace(
+                f"Shed/Dropped message to {target_mailbox_id} due to: {e.__class__.__name__}"
+            )
 
     def _execute_isolate_step(self, agent_id: str):
         isolate = self.isolates[agent_id]
@@ -95,27 +103,44 @@ class DeterministicScheduler:
         elif isinstance(effect, PersistStateEffect):
             # Simulate DB lag
             db_lag = self.random.randint(*self.db_lag_range)
-            self.log_trace(f"DB Write started for {agent_id}. Simulating DB write lag of {db_lag} ticks.")
+            self.log_trace(
+                f"DB Write started for {agent_id}. Simulating DB write lag of {db_lag} ticks."
+            )
 
             def commit_state(aid, delta):
                 self.isolates[aid].state = delta
-                self.log_trace(f"DB Write completed/committed for {aid}. State updated.")
+                self.log_trace(
+                    f"DB Write completed/committed for {aid}. State updated."
+                )
 
             self.schedule_event(db_lag, commit_state, agent_id, effect.state_delta)
 
         elif isinstance(effect, SendMessageEffect):
             # Simulating network: drop or delay
             if self.random.random() < self.packet_drop_rate:
-                self.log_trace(f"NETWORK DROP: Message from {agent_id} to {effect.target_mailbox_id} dropped.")
+                self.log_trace(
+                    f"NETWORK DROP: Message from {agent_id} to {effect.target_mailbox_id} dropped."
+                )
             else:
                 delay = self.random.randint(*self.network_delay_range)
-                self.log_trace(f"NETWORK DELAY: Message from {agent_id} to {effect.target_mailbox_id} delayed by {delay} ticks.")
-                self.schedule_event(delay, self.dispatch_message, effect.target_mailbox_id, effect.message)
+                self.log_trace(
+                    f"NETWORK DELAY: Message from {agent_id} to {effect.target_mailbox_id} delayed by {delay} ticks."
+                )
+                self.schedule_event(
+                    delay,
+                    self.dispatch_message,
+                    effect.target_mailbox_id,
+                    effect.message,
+                )
 
         elif isinstance(effect, ScheduleTimeoutEffect):
             target = effect.target_mailbox_id if effect.target_mailbox_id else agent_id
-            self.log_trace(f"TIMEOUT SCHEDULED: {agent_id} scheduled message to {target} in {effect.delay_ticks} ticks.")
-            self.schedule_event(effect.delay_ticks, self.dispatch_message, target, effect.message)
+            self.log_trace(
+                f"TIMEOUT SCHEDULED: {agent_id} scheduled message to {target} in {effect.delay_ticks} ticks."
+            )
+            self.schedule_event(
+                effect.delay_ticks, self.dispatch_message, target, effect.message
+            )
 
     def step(self) -> bool:
         """
