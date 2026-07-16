@@ -18,23 +18,18 @@ try:
     from .architect import Architect  # noqa: E402
     from .pulse import Pulse  # noqa: E402
     from .dashboard import DashboardServer  # noqa: E402
+    from .auth import get_or_create_swarm_key  # noqa: E402
 except (ImportError, ValueError):
     from mesh import LiminalMesh  # noqa: E402
     from architect import Architect  # noqa: E402
     from pulse import Pulse  # noqa: E402
     from dashboard import DashboardServer  # noqa: E402
+    from auth import get_or_create_swarm_key  # noqa: E402
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 # Initialize components
-SWARM_KEY = os.getenv("SWARM_KEY")
-if not SWARM_KEY:
-    SWARM_KEY = secrets.token_hex(32)
-    print(
-        "WARNING: SWARM_KEY environment variable is not set. A random secure key has been generated for this session to prevent unauthorized access. "
-        "Other nodes will not be able to discover this node unless they share this key.",
-        file=sys.stderr,
-    )
+SWARM_KEY = get_or_create_swarm_key()
 
 # Use environment variables or defaults for persistence
 DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
