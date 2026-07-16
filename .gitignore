@@ -18,5 +18,6 @@ simulation.log
 *.pem
 liminal.db
 identity.pem
+.swarm_key
 .venv/
 dist/wasm_llm/
