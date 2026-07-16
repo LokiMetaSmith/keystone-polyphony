@@ -6,16 +6,11 @@ import time
 
 sys.path.insert(0, os.path.abspath("src"))
 from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.auth import get_or_create_swarm_key
 
 
 async def main():
-    swarm_key = os.environ.get("SWARM_KEY")
-    if not swarm_key:
-        print(
-            "ERROR: SWARM_KEY environment variable is not set. Unable to connect to the swarm.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    swarm_key = get_or_create_swarm_key()
     mesh = LiminalMesh(secret_key=swarm_key, capabilities=["worker", "executor"])
 
     # Callback for commands

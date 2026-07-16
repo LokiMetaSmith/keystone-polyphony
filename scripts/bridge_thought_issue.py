@@ -9,16 +9,11 @@ sys.path.append(os.path.dirname(current_dir))
 
 from src.liminal_bridge.mesh import LiminalMesh
 from src.liminal_bridge.architect import Architect
+from src.liminal_bridge.auth import get_or_create_swarm_key
 
 
 async def main():
-    swarm_key = os.getenv("SWARM_KEY")
-    if not swarm_key:
-        print(
-            "ERROR: SWARM_KEY environment variable is not set. Unable to connect to the swarm.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    swarm_key = get_or_create_swarm_key()
     mesh = LiminalMesh(secret_key=swarm_key)
     architect = Architect()
 
