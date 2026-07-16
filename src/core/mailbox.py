@@ -5,15 +5,19 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
 class LoadSheddingPolicy(Enum):
     FAIL_FAST = "FAIL_FAST"
     DROP_OLDEST = "DROP_OLDEST"
     DROP_NEWEST = "DROP_NEWEST"
     BACKPRESSURE_WAIT = "BACKPRESSURE_WAIT"
 
+
 class MailboxFullException(Exception):
     """Exception raised when the mailbox queue is full and FAIL_FAST or BACKPRESSURE_WAIT timeout is triggered."""
+
     pass
+
 
 class BoundedMailbox:
     """
@@ -23,7 +27,13 @@ class BoundedMailbox:
     - DROP_NEWEST: Discards the incoming message, and logs a warning.
     - BACKPRESSURE_WAIT: Blocks on insertion with a configurable timeout. Raises MailboxFullException on expiration.
     """
-    def __init__(self, max_size: int = 100, policy: LoadSheddingPolicy = LoadSheddingPolicy.FAIL_FAST, wait_timeout: float = 1.0):
+
+    def __init__(
+        self,
+        max_size: int = 100,
+        policy: LoadSheddingPolicy = LoadSheddingPolicy.FAIL_FAST,
+        wait_timeout: float = 1.0,
+    ):
         self.max_size = max_size
         self.policy = policy
         self.wait_timeout = wait_timeout
@@ -45,7 +55,9 @@ class BoundedMailbox:
             try:
                 self._queue.put_nowait(message)
             except queue.Full:
-                raise MailboxFullException(f"Mailbox is full (size={self._queue.qsize()}). Load shedding: FAIL_FAST.")
+                raise MailboxFullException(
+                    f"Mailbox is full (size={self._queue.qsize()}). Load shedding: FAIL_FAST."
+                )
 
         elif self.policy == LoadSheddingPolicy.DROP_OLDEST:
             # Synchronously drop oldest if full.
@@ -59,7 +71,9 @@ class BoundedMailbox:
                 except queue.Full:
                     try:
                         dropped = self._queue.get_nowait()
-                        logger.warning(f"Mailbox is full. DROP_OLDEST policy discarded oldest message: {dropped}")
+                        logger.warning(
+                            f"Mailbox is full. DROP_OLDEST policy discarded oldest message: {dropped}"
+                        )
                     except queue.Empty:
                         # Another thread might have cleared it. Just loop and try put again.
                         pass
@@ -68,7 +82,9 @@ class BoundedMailbox:
             try:
                 self._queue.put_nowait(message)
             except queue.Full:
-                logger.warning(f"Mailbox is full. DROP_NEWEST policy discarded incoming message: {message}")
+                logger.warning(
+                    f"Mailbox is full. DROP_NEWEST policy discarded incoming message: {message}"
+                )
 
         elif self.policy == LoadSheddingPolicy.BACKPRESSURE_WAIT:
             try:

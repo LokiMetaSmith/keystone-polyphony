@@ -15,6 +15,7 @@ from src.core.effects import (
 
 logger = logging.getLogger(__name__)
 
+
 def pin_to_core(core_id: int) -> bool:
     """
     Attempts to pin the current process/thread to a specific CPU core using sched_setaffinity.
@@ -23,13 +24,17 @@ def pin_to_core(core_id: int) -> bool:
     if hasattr(os, "sched_setaffinity"):
         try:
             os.sched_setaffinity(0, {core_id})
-            logger.info(f"Successfully pinned executor thread/process to CPU core {core_id}")
+            logger.info(
+                f"Successfully pinned executor thread/process to CPU core {core_id}"
+            )
             return True
         except Exception as e:
             logger.warning(f"Failed to set CPU affinity to core {core_id}: {e}")
             return False
     else:
-        logger.warning("Core pinning (sched_setaffinity) is not supported on this platform. Operating on default OS scheduler threads.")
+        logger.warning(
+            "Core pinning (sched_setaffinity) is not supported on this platform. Operating on default OS scheduler threads."
+        )
         return False
 
 
@@ -39,6 +44,7 @@ class TpcExecutor:
     Pins its executor thread to a designated CPU core, pops messages from the isolate's BoundedMailbox,
     runs handle_message inside a synchronous execution loop, and interprets the returned Effects.
     """
+
     def __init__(
         self,
         executor_id: str,
@@ -59,7 +65,9 @@ class TpcExecutor:
     def start(self):
         """Starts the execution loop thread."""
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, name=f"TPC-Executor-{self.executor_id}")
+        self._thread = threading.Thread(
+            target=self._run_loop, name=f"TPC-Executor-{self.executor_id}"
+        )
         self._thread.daemon = True
         self._thread.start()
 
@@ -94,7 +102,10 @@ class TpcExecutor:
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"Error in TpcExecutor '{self.executor_id}' loop: {e}", exc_info=True)
+                logger.error(
+                    f"Error in TpcExecutor '{self.executor_id}' loop: {e}",
+                    exc_info=True,
+                )
 
     def _process_message(self, msg: Any):
         """Executes the isolate message handler and routes the produced effects."""
@@ -124,13 +135,17 @@ class TpcExecutor:
             if self.effect_dispatcher:
                 self.effect_dispatcher(self.executor_id, effect)
             else:
-                logger.warning(f"No effect dispatcher configured. SendMessageEffect dropped: {effect}")
+                logger.warning(
+                    f"No effect dispatcher configured. SendMessageEffect dropped: {effect}"
+                )
 
         elif isinstance(effect, ScheduleTimeoutEffect):
             if self.effect_dispatcher:
                 self.effect_dispatcher(self.executor_id, effect)
             else:
-                logger.warning(f"No effect dispatcher configured. ScheduleTimeoutEffect dropped: {effect}")
+                logger.warning(
+                    f"No effect dispatcher configured. ScheduleTimeoutEffect dropped: {effect}"
+                )
 
         else:
             if self.effect_dispatcher:
