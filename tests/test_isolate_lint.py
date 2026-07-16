@@ -3,6 +3,7 @@ import os
 import tempfile
 from scripts.check_isolates import lint_file
 
+
 def test_linter_passes_clean_isolate():
     code = """
 from src.core.isolate import BaseIsolate
@@ -23,6 +24,7 @@ class GoodIsolate(BaseIsolate):
     finally:
         os.remove(temp_path)
 
+
 def test_linter_detects_async_def():
     code = """
 from src.core.isolate import BaseIsolate
@@ -41,6 +43,7 @@ class BadIsolate(BaseIsolate):
         assert any("async def" in err for err in errors)
     finally:
         os.remove(temp_path)
+
 
 def test_linter_detects_await():
     code = """
@@ -61,6 +64,7 @@ class BadIsolate(BaseIsolate):
         assert any("await" in err for err in errors)
     finally:
         os.remove(temp_path)
+
 
 def test_linter_detects_forbidden_libs():
     code = """

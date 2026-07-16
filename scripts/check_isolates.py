@@ -5,6 +5,7 @@ import os
 
 FORBIDDEN_MODULES = {"requests", "urllib", "socket", "sqlite3", "psycopg2"}
 
+
 class IsolateVisitor(ast.NodeVisitor):
     """
     AST visitor that performs the following validation on a BaseIsolate subclass:
@@ -12,6 +13,7 @@ class IsolateVisitor(ast.NodeVisitor):
     2. No `await` expressions exist inside the AST nodes of the isolate class definition.
     3. No imports or calls to typical blocking networking/database libraries inside handle_message.
     """
+
     def __init__(self):
         self.errors = []
         self.in_isolate_class = False
@@ -24,7 +26,10 @@ class IsolateVisitor(ast.NodeVisitor):
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in ("BaseIsolate", "Isolate"):
                 is_isolate = True
-            elif isinstance(base, ast.Attribute) and base.attr in ("BaseIsolate", "Isolate"):
+            elif isinstance(base, ast.Attribute) and base.attr in (
+                "BaseIsolate",
+                "Isolate",
+            ):
                 is_isolate = True
 
         if is_isolate:
@@ -65,7 +70,7 @@ class IsolateVisitor(ast.NodeVisitor):
     def visit_Import(self, node):
         if self.in_handle_message:
             for alias in node.names:
-                name = alias.name.split('.')[0]
+                name = alias.name.split(".")[0]
                 if name in FORBIDDEN_MODULES:
                     self.errors.append(
                         f"Line {node.lineno}: Import of forbidden module '{alias.name}' inside 'handle_message'."
@@ -74,7 +79,7 @@ class IsolateVisitor(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node):
         if self.in_handle_message and node.module:
-            name = node.module.split('.')[0]
+            name = node.module.split(".")[0]
             if name in FORBIDDEN_MODULES:
                 self.errors.append(
                     f"Line {node.lineno}: Import from forbidden module '{node.module}' inside 'handle_message'."
