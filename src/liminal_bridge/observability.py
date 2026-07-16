@@ -10,7 +10,7 @@ class LogAggregator:
         self.telemetry: Dict[str, Any] = {
             "latency": [],
             "message_count": 0,
-            "contentions": 0
+            "contentions": 0,
         }
 
     def add_telemetry(self, key: str, value: Any):

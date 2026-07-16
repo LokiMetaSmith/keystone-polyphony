@@ -4,6 +4,7 @@ import os
 from src.liminal_bridge.architect import Architect
 from src.liminal_bridge.mesh import LiminalMesh
 
+
 class TestArchitectRouting(unittest.IsolatedAsyncioTestCase):
 
     def test_provider_heuristics(self):
@@ -61,7 +62,7 @@ class TestArchitectRouting(unittest.IsolatedAsyncioTestCase):
             "command": {"type": "run_inference", "prompt": "test"},
             "capabilities": ["role=gpu"],
             "target": None,
-            "origin": "sender_node"
+            "origin": "sender_node",
         }
 
         # Inject the payload directly into both nodes' handler
@@ -75,5 +76,6 @@ class TestArchitectRouting(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(node1_called)
         self.assertFalse(node2_called)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import json
 from src.liminal_bridge.crdt import ORSet
 from src.liminal_bridge.distributed_kv_cache import DistributedKVCache
 
+
 class MockMesh:
     def __init__(self):
         self.node_id = "test_node_1"
@@ -19,6 +20,7 @@ class MockMesh:
         if key in self.kv_store:
             return self.kv_store[key].value()
         return None
+
 
 class TestDistributedKVCache(unittest.IsolatedAsyncioTestCase):
 
@@ -65,5 +67,6 @@ class TestDistributedKVCache(unittest.IsolatedAsyncioTestCase):
         self.assertIn("hash_seq1", fetch_commands[1])
         self.assertIn("hash_seq2", fetch_commands[2])
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

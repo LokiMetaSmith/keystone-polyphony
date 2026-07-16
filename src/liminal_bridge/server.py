@@ -54,7 +54,7 @@ async def handle_command_request(origin: str, command: dict):
     # RBAC Check
     if mesh:
         roles_raw = mesh.get_kv("roles") or []
-        origin_role = "user" # default
+        origin_role = "user"  # default
         for item in roles_raw:
             try:
                 role_entry = json.loads(item)
@@ -66,7 +66,9 @@ async def handle_command_request(origin: str, command: dict):
 
         cmd_type = command.get("type")
         if cmd_type in ["execute", "broadcast"] and origin_role != "admin":
-            await mesh.log("warn", f"Unauthorized command execution request from {origin}")
+            await mesh.log(
+                "warn", f"Unauthorized command execution request from {origin}"
+            )
             return
 
     print(f">>> [Command Request] Received from {origin}: {command}")
@@ -549,7 +551,9 @@ async def complete_task(task_id: str) -> str:
                 t["status"] = "done"
                 t["owner"] = mesh.node_id
                 await mesh.update_set("swarm_backlog", json.dumps(t))
-                asyncio.create_task(mesh.log_audit_event("task_completed", {"task_id": task_id}))
+                asyncio.create_task(
+                    mesh.log_audit_event("task_completed", {"task_id": task_id})
+                )
                 break
         except BaseException:
             continue
@@ -618,7 +622,13 @@ async def restart_sidecar() -> str:
 
 
 # --- Seed Mode ---
-async def run_seed_mode(timeout: int = None, dashboard_port: int = None, node_name: str = None, explicit_seed: str = None, props: list[str] = None):
+async def run_seed_mode(
+    timeout: int = None,
+    dashboard_port: int = None,
+    node_name: str = None,
+    explicit_seed: str = None,
+    props: list[str] = None,
+):
     """Runs the mesh in seed mode (no MCP server)."""
     global mesh, pulse
 
@@ -627,9 +637,7 @@ async def run_seed_mode(timeout: int = None, dashboard_port: int = None, node_na
     if explicit_seed:
         swarm_seed = explicit_seed
     elif node_name:
-        swarm_seed = hashlib.sha256(
-            f"{SWARM_KEY}:{node_name}".encode()
-        ).hexdigest()
+        swarm_seed = hashlib.sha256(f"{SWARM_KEY}:{node_name}".encode()).hexdigest()
     else:
         swarm_seed = None  # Random identity for AI nodes
 
@@ -782,7 +790,9 @@ async def run_verify_mode():
 
 
 # --- Daemon Mode ---
-async def run_daemon_mode(node_name: str = None, explicit_seed: str = None, props: list[str] = None):
+async def run_daemon_mode(
+    node_name: str = None, explicit_seed: str = None, props: list[str] = None
+):
     """Runs the mesh as a headless background worker waiting for commands."""
     global mesh, pulse
 
@@ -790,9 +800,7 @@ async def run_daemon_mode(node_name: str = None, explicit_seed: str = None, prop
     if explicit_seed:
         swarm_seed = explicit_seed
     elif node_name:
-        swarm_seed = hashlib.sha256(
-            f"{SWARM_KEY}:{node_name}".encode()
-        ).hexdigest()
+        swarm_seed = hashlib.sha256(f"{SWARM_KEY}:{node_name}".encode()).hexdigest()
     else:
         swarm_seed = None  # Random identity
 
@@ -872,7 +880,15 @@ if __name__ == "__main__":
 
     if args.mode == "seed":
         try:
-            asyncio.run(run_seed_mode(args.timeout, args.dashboard_port, args.node_name, args.seed, args.prop))
+            asyncio.run(
+                run_seed_mode(
+                    args.timeout,
+                    args.dashboard_port,
+                    args.node_name,
+                    args.seed,
+                    args.prop,
+                )
+            )
         except KeyboardInterrupt:
             pass
     elif args.mode == "verify":

@@ -1,0 +1,6 @@
+[submodule "third_party/emsdk"]
+	path = third_party/emsdk
+	url = https://github.com/emscripten-core/emsdk.git
+[submodule "third_party/llama-cpp-wasm"]
+	path = third_party/llama-cpp-wasm
+	url = https://github.com/tangledgroup/llama-cpp-wasm.git
