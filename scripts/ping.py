@@ -16,7 +16,13 @@ async def main():
 
     target_id = sys.argv[1]
     message = " ".join(sys.argv[2:])
-    swarm_key = os.environ.get("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
+    swarm_key = os.environ.get("SWARM_KEY")
+    if not swarm_key:
+        print(
+            "ERROR: SWARM_KEY environment variable is not set. Unable to connect to the swarm.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     identity = os.path.expanduser("~/.liminal_cli_identity.pem")
 
     mesh = LiminalMesh(secret_key=swarm_key, identity_path=identity)
