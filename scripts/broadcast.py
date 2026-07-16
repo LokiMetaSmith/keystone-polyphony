@@ -23,7 +23,13 @@ async def main():
     caps = sys.argv[3].split(",") if len(sys.argv) > 3 and sys.argv[3] else []
     status_filter = sys.argv[4] if len(sys.argv) > 4 else None
 
-    swarm_key = os.environ.get("SWARM_KEY", "KEYSTONE-POLYPHONY-UPSTREAM")
+    swarm_key = os.environ.get("SWARM_KEY")
+    if not swarm_key:
+        print(
+            "ERROR: SWARM_KEY environment variable is not set. Unable to connect to the swarm.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     mesh = LiminalMesh(secret_key=swarm_key)
 
     try:
