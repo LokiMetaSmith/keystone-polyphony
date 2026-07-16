@@ -19,7 +19,7 @@ echo ">>> Running lint checks..."
 # 1. Python Formatting (Black)
 if command -v black >/dev/null 2>&1; then
     echo "Checking Python formatting..."
-    if ! black . --check --quiet; then
+    if ! black . --exclude="third_party|.venv" --check --quiet; then
         echo "[ERROR] Python formatting issues found."
         echo "        Run 'black .' to fix them."
         FAILED=1

@@ -7,7 +7,7 @@ This repository is configured for autonomous and headless collaboration. When an
 The primary entry point is `./scripts/setup-ensemble.sh`.
 
 - By default, the script detects headless environments automatically (e.g. checking `! -t 0`, `$HEADLESS=1` or `$CI=true`).
-- It will bypass interactive SSH key exchange and SWARM_KEY prompts, using `KEYSTONE-POLYPHONY-UPSTREAM` as the default mesh key.
+- It will bypass interactive SSH key exchange and SWARM_KEY prompts, generating a cryptographically secure random key to prevent unauthorized access.
 
 ```bash
 # Optional explicit override flags:

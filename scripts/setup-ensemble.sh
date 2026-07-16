@@ -107,14 +107,20 @@ fi
 
 if [ -z "$SWARM_KEY" ]; then
     if [ "$HEADLESS" = "1" ] || [ "$CI" = "true" ] || [ ! -t 0 ]; then
-        echo ">>> ⚠️ Non-interactive environment detected. Using default SWARM_KEY."
-        export SWARM_KEY="KEYSTONE-POLYPHONY-UPSTREAM"
+        echo ">>> ⚠️ Non-interactive environment detected. Generating a random secure SWARM_KEY."
+        SWARM_KEY=$($PYTHON_EXEC -c "import secrets; print(secrets.token_hex(32))")
     else
         echo ">>> ⚠️ SWARM_KEY (Ensemble Secret) not detected."
-        read -p "Enter SWARM_KEY [KEYSTONE-POLYPHONY-UPSTREAM]: " input_key
-        export SWARM_KEY=${input_key:-"KEYSTONE-POLYPHONY-UPSTREAM"}
+        read -p "Enter SWARM_KEY (or press Enter to generate a random secure key): " input_key
+        if [ -z "$input_key" ]; then
+            SWARM_KEY=$($PYTHON_EXEC -c "import secrets; print(secrets.token_hex(32))")
+            echo ">>> Generated secure key: $SWARM_KEY"
+        else
+            SWARM_KEY="$input_key"
+        fi
     fi
-    echo "✅ SWARM_KEY set to $SWARM_KEY"
+    export SWARM_KEY
+    echo "✅ SWARM_KEY set"
 fi
 
 # 5b. Create .env file if not exists
