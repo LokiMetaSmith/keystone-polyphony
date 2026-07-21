@@ -51,6 +51,7 @@ usage() {
     echo "  share <thought>  Broadcast a thought to the swarm"
     echo "  ping <id> <msg>  Directly notify another agent"
     echo "  task <action>    Manage tasks: list, add, claim, complete"
+    echo "  baton <action>   Manage granular file locks (acquire|release)"
     echo "  broadcast <cmd>  Broadcast a command to the swarm"
     echo "  chat <topic> <msg> Post a message to an ensemble chat topic"
     echo "  topics           List all active chat topics"
@@ -114,6 +115,10 @@ case "$1" in
         shift
         $PYTHON_EXEC scripts/task.py "$@"
         ;;
+    baton)
+        shift
+        $PYTHON_EXEC scripts/baton.py "$@"
+        ;;
     broadcast)
         shift
         $PYTHON_EXEC scripts/broadcast.py "$@"
@@ -138,8 +143,11 @@ case "$1" in
             dedup)
                 $PYTHON_EXEC scripts/deduplicate.py
                 ;;
+            flag-megafile)
+                $PYTHON_EXEC scripts/flag_megafile.py "$2"
+                ;;
             *)
-                echo "Usage: polyphony issue <refine|dedup>"
+                echo "Usage: polyphony issue <refine|dedup|flag-megafile>"
                 exit 1
                 ;;
         esac
