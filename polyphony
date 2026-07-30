@@ -62,6 +62,7 @@ usage() {
     echo "  keys             Exchange SSH keys with the swarm"
     echo "  lint             Run the project linters"
     echo "  test             Run the project tests"
+    echo "  land             Safely rebase, test, and push to main sequentially"
     echo "  hooks            Install the local git hooks"
     echo "  help             Display this help message"
     echo ""
@@ -160,7 +161,11 @@ case "$1" in
         ./scripts/lint.sh
         ;;
     test)
-        ./scripts/run-tests.sh
+        $PYTHON_EXEC scripts/test_wrapper.py
+        ;;
+    land)
+        shift
+        $PYTHON_EXEC scripts/land.py "$@"
         ;;
     hooks)
         ./scripts/install-hooks.sh
