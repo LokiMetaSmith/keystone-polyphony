@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
+from src.liminal_bridge.storage import SQLiteStorageProvider
 
 
 @pytest.fixture
@@ -8,7 +9,11 @@ def mesh_node(tmp_path):
     db = tmp_path / "test.db"
     identity = tmp_path / "test.pem"
     secret = "test-secret-key-123"
-    mesh = LiminalMesh(secret, db_path=str(db), identity_path=str(identity))
+    mesh = LiminalMesh(
+        secret,
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh._send_to_sidecar = AsyncMock()
     return mesh
 

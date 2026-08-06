@@ -38,7 +38,7 @@ Both Etherpad and Keystone Polyphony are designed to manage concurrent changes a
 
 Etherpad's history provides valuable insights into scaling collaborative systems. Based on this comparison, here are recommended integration steps and features we can consider porting or adapting:
 
-- [ ] **Finer-Grained CRDTs for Text:** Evaluate replacing or augmenting the coarse file-level `Baton` lock with a Sequence CRDT (like Yjs or Automerge). This would allow fine-grained, character-by-character resolution similar to Etherpad's OT without sacrificing our P2P architecture.
+- [x] **Finer-Grained CRDTs for Text:** Evaluate replacing or augmenting the coarse file-level `Baton` lock with a Sequence CRDT (like Yjs or Automerge). This would allow fine-grained, character-by-character resolution similar to Etherpad's OT without sacrificing our P2P architecture.
 - [ ] **Adopt UeberDB-like Storage Portability:** While our current KV/CRDT store is effective, implementing an abstraction layer (similar to UeberDB) could allow node operators to persist mesh state in scalable backends like Redis or PostgreSQL instead of just local SQLite/JSON snapshots.
 - [ ] **Granular Revision History:** Etherpad explicitly stores a sequence of revisions (`pad:$PADID:revs:$REVNUM`). We should consider adding a dedicated CRDT or logging mechanism that specifically tracks incremental code changesets/deltas, enabling agents to "rewind" state similar to Etherpad's timeslider feature.
 

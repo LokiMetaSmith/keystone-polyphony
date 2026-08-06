@@ -19,12 +19,24 @@ try:
     from .pulse import Pulse  # noqa: E402
     from .dashboard import DashboardServer  # noqa: E402
     from .auth import get_or_create_swarm_key  # noqa: E402
+    from .storage import (
+        BaseStorageProvider,
+        SQLiteStorageProvider,
+        RedisStorageProvider,
+        PostgresStorageProvider,
+    )  # noqa: E402
 except (ImportError, ValueError):
     from mesh import LiminalMesh  # noqa: E402
     from architect import Architect  # noqa: E402
     from pulse import Pulse  # noqa: E402
     from dashboard import DashboardServer  # noqa: E402
     from auth import get_or_create_swarm_key  # noqa: E402
+    from storage import (
+        BaseStorageProvider,
+        SQLiteStorageProvider,
+        RedisStorageProvider,
+        PostgresStorageProvider,
+    )  # noqa: E402
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
@@ -34,6 +46,26 @@ SWARM_KEY = get_or_create_swarm_key()
 # Use environment variables or defaults for persistence
 DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
 IDENTITY_PATH = os.getenv("LIMINAL_IDENTITY", "identity.pem")
+STORAGE_BACKEND = os.getenv("LIMINAL_STORAGE_BACKEND", "sqlite")
+STORAGE_URL = os.getenv("LIMINAL_STORAGE_URL", None)
+
+
+def _create_storage_provider(
+    backend: str, db_path: str, url: str
+) -> "BaseStorageProvider":
+    if backend == "redis":
+        if not url:
+            raise ValueError("Redis backend requires LIMINAL_STORAGE_URL")
+        return RedisStorageProvider(url)
+    elif backend == "postgres":
+        if not url:
+            raise ValueError("Postgres backend requires LIMINAL_STORAGE_URL")
+        return PostgresStorageProvider(url)
+    elif backend == "sqlite":
+        return SQLiteStorageProvider(db_path)
+    else:
+        raise ValueError(f"Unknown storage backend: {backend}")
+
 
 # Derive stable swarm seed from SWARM_KEY if in seed mode (will be set later if needed)
 # For now, default mesh initialization
@@ -122,8 +154,9 @@ async def handle_command_request(origin: str, command: dict):
 def ensure_mesh():
     global mesh, pulse
     if mesh is None:
+        storage = _create_storage_provider(STORAGE_BACKEND, DB_PATH, STORAGE_URL)
         mesh = LiminalMesh(
-            secret_key=SWARM_KEY, db_path=DB_PATH, identity_path=IDENTITY_PATH
+            secret_key=SWARM_KEY, storage_provider=storage, identity_path=IDENTITY_PATH
         )
         pulse = Pulse(mesh, architect)
         mesh.on_baton_release = pulse.on_baton_release
@@ -645,9 +678,10 @@ async def run_seed_mode(
     else:
         swarm_seed = None  # Random identity for AI nodes
 
+    storage = _create_storage_provider(STORAGE_BACKEND, DB_PATH, STORAGE_URL)
     mesh = LiminalMesh(
         secret_key=SWARM_KEY,
-        db_path=DB_PATH,
+        storage_provider=storage,
         identity_path=IDENTITY_PATH,
         swarm_seed=swarm_seed,
     )
@@ -743,9 +777,10 @@ async def run_verify_mode():
         # Use a stable key for the seed to test that part too
         swarm_seed = hashlib.sha256(SWARM_KEY.encode()).hexdigest()
 
+        storage1 = SQLiteStorageProvider(seed_db)
         mesh1 = LiminalMesh(
             secret_key=SWARM_KEY,
-            db_path=seed_db,
+            storage_provider=storage1,
             identity_path=seed_id,
             swarm_seed=swarm_seed,
         )
@@ -753,8 +788,9 @@ async def run_verify_mode():
         # Node 2: Client
         client_db = os.path.join(tmp_dir, "client.db")
         client_id = os.path.join(tmp_dir, "client.pem")
+        storage2 = SQLiteStorageProvider(client_db)
         mesh2 = LiminalMesh(
-            secret_key=SWARM_KEY, db_path=client_db, identity_path=client_id
+            secret_key=SWARM_KEY, storage_provider=storage2, identity_path=client_id
         )
 
         print(f"Starting Node 1 (Anchor)... ID: {mesh1.node_id}")
@@ -878,9 +914,27 @@ if __name__ == "__main__":
         help="Advertise a capability or property tag (e.g. '--prop role=gpu' or '--prop parallel_group=ring_1')",
     )
 
+    parser.add_argument(
+        "--storage-backend",
+        type=str,
+        default=STORAGE_BACKEND,
+        choices=["sqlite", "redis", "postgres"],
+        help="The storage backend to use for the mesh (default: sqlite)",
+    )
+    parser.add_argument(
+        "--storage-url",
+        type=str,
+        default=STORAGE_URL,
+        help="The connection URL for the storage backend (required for redis/postgres)",
+    )
+
     # FastMCP uses click/typer which might grab args, so we use parse_known_args
     # Use global args so MCP tools can access it
     args, unknown = parser.parse_known_args()
+
+    # Apply cli overrides
+    STORAGE_BACKEND = args.storage_backend
+    STORAGE_URL = args.storage_url
 
     if args.mode == "seed":
         try:

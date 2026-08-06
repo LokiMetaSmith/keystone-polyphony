@@ -3,7 +3,6 @@ import json
 import hashlib
 import time
 import os
-import sqlite3
 import base64
 from typing import Dict, Optional, Any, Set, Callable, Awaitable
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -19,15 +18,17 @@ except ImportError:
 
 try:
     from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+    from .storage import BaseStorageProvider, SQLiteStorageProvider
 except ImportError:
     from crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+    from storage import BaseStorageProvider, SQLiteStorageProvider
 
 
 class LiminalMesh:
     def __init__(
         self,
         secret_key: str,
-        db_path: str = "liminal.db",
+        storage_provider: Optional[BaseStorageProvider] = None,
         identity_path: str = "identity.pem",
         bootstrap: Optional[str] = None,
         swarm_seed: Optional[str] = None,
@@ -37,7 +38,7 @@ class LiminalMesh:
         self.secret_key = secret_key
         # Generate topic hash for the swarm
         self.topic = hashlib.sha256(secret_key.encode()).hexdigest()
-        self.db_path = db_path
+        self.storage = storage_provider or SQLiteStorageProvider("liminal.db")
         self.identity_path = identity_path
         self.bootstrap = bootstrap
         self.swarm_seed = swarm_seed
@@ -94,7 +95,7 @@ class LiminalMesh:
         self._gossip_interval_seconds: float = 30  # gossip heartbeat
 
         # Persistence
-        self._init_db()
+        self.storage.init_db()
         self._load_state()
 
         self.process: Optional[asyncio.subprocess.Process] = None
@@ -266,36 +267,6 @@ class LiminalMesh:
 
         return private_key
 
-    def _init_db(self):
-        """Initializes the SQLite database."""
-        self.conn = sqlite3.connect(self.db_path)
-        cursor = self.conn.cursor()
-
-        # Key-Value Store Table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS kv_store (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-
-        # Thoughts Table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS thoughts (
-                node_id TEXT PRIMARY KEY,
-                content TEXT
-            )
-        """)
-
-        # Metadata Table (for Vector Clock)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        self.conn.commit()
-
     def _deserialize_crdt(self, data: Any) -> CRDT:
         """Helper to deserialize JSON data into a CRDT object."""
         if isinstance(data, dict):
@@ -322,67 +293,42 @@ class LiminalMesh:
 
     def _load_state(self):
         """Loads state from the database."""
-        cursor = self.conn.cursor()
-
         # Load KV
-        cursor.execute("SELECT key, value FROM kv_store")
-        for key, value_json in cursor.fetchall():
-            try:
-                data = json.loads(value_json)
-                self.kv_store[key] = self._deserialize_crdt(data)
-            except json.JSONDecodeError:
-                pass
+        self.kv_store.update(self.storage.get_all_kv())
 
         # Load Thoughts
-        cursor.execute("SELECT node_id, content FROM thoughts")
-        for node_id, content in cursor.fetchall():
-            try:
-                self.thoughts[node_id] = json.loads(content)
-            except json.JSONDecodeError:
-                self.thoughts[node_id] = {
-                    "content": content,
-                    "status": "unknown",
-                    "capabilities": [],
-                }
+        self.thoughts.update(self.storage.get_all_thoughts())
 
         # Load Vector Clock
-        try:
-            cursor.execute("SELECT value FROM metadata WHERE key = 'vector_clock'")
-            row = cursor.fetchone()
-            if row:
-                self.vector_clock = json.loads(row[0])
+        vc_meta = self.storage.get_metadata("vector_clock")
+        if vc_meta is not None:
+            if isinstance(vc_meta, str):
+                try:
+                    self.vector_clock = json.loads(vc_meta)
+                except json.JSONDecodeError:
+                    self.vector_clock = {self.node_id: 0}
+            elif isinstance(vc_meta, dict):
+                self.vector_clock = vc_meta
             else:
                 self.vector_clock = {self.node_id: 0}
-        except Exception:
+        else:
             self.vector_clock = {self.node_id: 0}
+
+        # Ensure we always have our own entry
+        if self.node_id not in self.vector_clock:
+            self.vector_clock[self.node_id] = 0
 
     def _save_kv(self, key: str, value: CRDT):
         """Persists a KV update."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
-            (key, json.dumps(value.to_dict())),
-        )
-        self.conn.commit()
+        self.storage.save_kv(key, value)
 
     def _save_clock(self):
         """Persists the vector clock."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-            ("vector_clock", json.dumps(self.vector_clock)),
-        )
-        self.conn.commit()
+        self.storage.save_metadata("vector_clock", self.vector_clock)
 
     def _save_thought(self, node_id: str, content: Any):
         """Persists a thought."""
-        content_str = json.dumps(content) if isinstance(content, dict) else str(content)
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO thoughts (node_id, content) VALUES (?, ?)",
-            (node_id, content_str),
-        )
-        self.conn.commit()
+        self.storage.save_thought(node_id, content)
 
     async def join_swarms(self, keys: list[str]):
         """Joins additional swarm topics."""
@@ -616,10 +562,6 @@ class LiminalMesh:
             except BaseException:
                 pass
             self.process = None
-
-        if self.conn:
-            self.conn.close()
-            self.conn = None
 
     async def _read_stdout(self):
         """Reads JSON messages from the sidecar."""

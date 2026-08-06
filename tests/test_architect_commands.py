@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.append(os.path.abspath("src"))
 
 from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.storage import SQLiteStorageProvider
 from liminal_bridge.pulse import Pulse
 from liminal_bridge.architect import Architect
 
@@ -23,7 +24,7 @@ async def _run_pulse_broadcasts_architect_commands():
         # Node 1: The Coordinator
         node1 = LiminalMesh(
             secret_key=swarm_key,
-            db_path=os.path.join(tmp_dir, "node1.db"),
+            storage_provider=SQLiteStorageProvider(os.path.join(tmp_dir, "node1.db")),
             identity_path=os.path.join(tmp_dir, "node1.pem"),
         )
 

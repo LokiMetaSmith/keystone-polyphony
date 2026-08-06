@@ -1,13 +1,18 @@
 import pytest
 from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
+from src.liminal_bridge.storage import SQLiteStorageProvider
 
 
 @pytest.fixture
 def mesh_a(tmp_path):
     db = tmp_path / "a.db"
     identity = tmp_path / "a.pem"
-    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh.broadcast = AsyncMock()
     return mesh
 
@@ -16,7 +21,11 @@ def mesh_a(tmp_path):
 def mesh_b(tmp_path):
     db = tmp_path / "b.db"
     identity = tmp_path / "b.pem"
-    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh.broadcast = AsyncMock()
     return mesh
 
@@ -139,7 +148,11 @@ async def test_concurrent_writes(mesh_a, mesh_b):
     # But wait, we are testing how ONE node resolves conflict.
     # Let's say Mesh C receives both.
 
-    mesh_c = LiminalMesh("test-secret", db_path=":memory:", identity_path="c.pem")
+    mesh_c = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(":memory:"),
+        identity_path="c.pem",
+    )
 
     # C receives A
     await mesh_c._handle_payload(msg_a)
