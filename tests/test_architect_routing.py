@@ -3,6 +3,7 @@ import asyncio
 import os
 from src.liminal_bridge.architect import Architect
 from src.liminal_bridge.mesh import LiminalMesh
+from src.liminal_bridge.storage import SQLiteStorageProvider
 
 
 class TestArchitectRouting(unittest.IsolatedAsyncioTestCase):
@@ -32,12 +33,16 @@ class TestArchitectRouting(unittest.IsolatedAsyncioTestCase):
                 pass
 
         # Initialize Node 1 (Has GPU)
-        mesh1 = OfflineMesh(secret_key="test", db_path=":memory:")
+        mesh1 = OfflineMesh(
+            secret_key="test", storage_provider=SQLiteStorageProvider(":memory:")
+        )
         mesh1.node_id = "node1"
         mesh1.capabilities = ["seed", "compute", "role=gpu"]
 
         # Initialize Node 2 (No GPU)
-        mesh2 = OfflineMesh(secret_key="test", db_path=":memory:")
+        mesh2 = OfflineMesh(
+            secret_key="test", storage_provider=SQLiteStorageProvider(":memory:")
+        )
         mesh2.node_id = "node2"
         mesh2.capabilities = ["seed", "compute"]
 

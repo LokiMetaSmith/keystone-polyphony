@@ -10,6 +10,7 @@ import tempfile
 sys.path.insert(0, os.path.abspath("src"))
 
 from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.storage import SQLiteStorageProvider
 
 
 @pytest.mark.asyncio
@@ -19,7 +20,11 @@ async def test_unread_tracking():
     db1 = os.path.join(tmp_dir, "db1.db")
     id1 = os.path.join(tmp_dir, "id1.pem")
 
-    mesh = LiminalMesh(secret_key="test-key", db_path=db1, identity_path=id1)
+    mesh = LiminalMesh(
+        secret_key="test-key",
+        storage_provider=SQLiteStorageProvider(db1),
+        identity_path=id1,
+    )
 
     try:
         await mesh.start()
@@ -39,12 +44,8 @@ async def test_unread_tracking():
         for key in mesh.kv_store.keys():
             if key.startswith("chat:"):
                 topic = key[5:]
-                cursor = mesh.conn.cursor()
-                cursor.execute(
-                    "SELECT value FROM metadata WHERE key = ?", (f"read_ts:{topic}",)
-                )
-                row = cursor.fetchone()
-                read_ts = float(row[0]) if row else 0
+                meta_val = mesh.storage.get_metadata(f"read_ts:{topic}")
+                read_ts = float(meta_val) if meta_val else 0
 
                 has_new = False
                 messages_raw = mesh.get_kv(key) or []
@@ -61,24 +62,15 @@ async def test_unread_tracking():
         # 3. Mark general as read
         # Simulating mark_chat_read tool logic
         last_msg = 100
-        cursor = mesh.conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-            ("read_ts:general", str(last_msg)),
-        )
-        mesh.conn.commit()
+        mesh.storage.save_metadata("read_ts:general", str(last_msg))
 
         # 4. Check unread again - only work should be unread
         unread = []
         for key in mesh.kv_store.keys():
             if key.startswith("chat:"):
                 topic = key[5:]
-                cursor = mesh.conn.cursor()
-                cursor.execute(
-                    "SELECT value FROM metadata WHERE key = ?", (f"read_ts:{topic}",)
-                )
-                row = cursor.fetchone()
-                read_ts = float(row[0]) if row else 0
+                meta_val = mesh.storage.get_metadata(f"read_ts:{topic}")
+                read_ts = float(meta_val) if meta_val else 0
 
                 has_new = False
                 messages_raw = mesh.get_kv(key) or []
@@ -103,12 +95,8 @@ async def test_unread_tracking():
         for key in mesh.kv_store.keys():
             if key.startswith("chat:"):
                 topic = key[5:]
-                cursor = mesh.conn.cursor()
-                cursor.execute(
-                    "SELECT value FROM metadata WHERE key = ?", (f"read_ts:{topic}",)
-                )
-                row = cursor.fetchone()
-                read_ts = float(row[0]) if row else 0
+                meta_val = mesh.storage.get_metadata(f"read_ts:{topic}")
+                read_ts = float(meta_val) if meta_val else 0
 
                 has_new = False
                 messages_raw = mesh.get_kv(key) or []

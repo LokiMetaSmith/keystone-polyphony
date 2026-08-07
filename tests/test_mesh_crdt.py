@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from src.liminal_bridge.mesh import LiminalMesh
+from src.liminal_bridge.storage import SQLiteStorageProvider
 from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet
 
 
@@ -8,7 +9,11 @@ from src.liminal_bridge.crdt import LWWRegister, PNCounter, ORSet
 def mesh_a(tmp_path):
     db = tmp_path / "a.db"
     identity = tmp_path / "a.pem"
-    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh.broadcast = AsyncMock()
     return mesh
 
@@ -17,7 +22,11 @@ def mesh_a(tmp_path):
 def mesh_b(tmp_path):
     db = tmp_path / "b.db"
     identity = tmp_path / "b.pem"
-    mesh = LiminalMesh("test-secret", db_path=str(db), identity_path=str(identity))
+    mesh = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh.broadcast = AsyncMock()
     return mesh
 
@@ -143,7 +152,9 @@ async def test_persistence_crdt(mesh_a):
 
     # Create new mesh instance pointing to same DB
     mesh_new = LiminalMesh(
-        "test-secret", db_path=mesh_a.db_path, identity_path=mesh_a.identity_path
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(mesh_a.storage.db_path),
+        identity_path=mesh_a.identity_path,
     )
 
     assert mesh_new.get_kv("cnt") == 10

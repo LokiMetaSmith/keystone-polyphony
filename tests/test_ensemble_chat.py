@@ -7,7 +7,8 @@ import pytest
 # Ensure we can import local modules
 sys.path.append(os.path.abspath("src"))
 
-from liminal_bridge.mesh import LiminalMesh  # noqa: E402
+from liminal_bridge.mesh import LiminalMesh
+from liminal_bridge.storage import SQLiteStorageProvider  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -16,13 +17,17 @@ async def test_chat():
 
     # Setup Node 1
     mesh1 = LiminalMesh(
-        "chat-test-secret", db_path="chat1.db", identity_path="chat1.pem"
+        "chat-test-secret",
+        storage_provider=SQLiteStorageProvider("chat1.db"),
+        identity_path="chat1.pem",
     )
     await mesh1.start()
 
     # Setup Node 2
     mesh2 = LiminalMesh(
-        "chat-test-secret", db_path="chat2.db", identity_path="chat2.pem"
+        "chat-test-secret",
+        storage_provider=SQLiteStorageProvider("chat2.db"),
+        identity_path="chat2.pem",
     )
     await mesh2.start()
 
@@ -33,7 +38,7 @@ async def test_chat():
             break
         await asyncio.sleep(1)
 
-    if len(mesh1.peers) == 0:
+    if len(mesh1.peers) == 0 or len(mesh2.peers) == 0:
         print("FAILURE: Peers did not discover each other.")
         await mesh1.stop()
         await mesh2.stop()

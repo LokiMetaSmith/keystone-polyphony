@@ -3,6 +3,7 @@ import asyncio
 import random
 from typing import Dict, Set, Any
 from src.liminal_bridge.mesh import LiminalMesh
+from src.liminal_bridge.storage import SQLiteStorageProvider
 
 
 class NetworkSimulator:
@@ -106,8 +107,6 @@ class MockMesh(LiminalMesh):
         self.simulator.unregister(self)
         if self._snapshot_task:
             self._snapshot_task.cancel()
-        if self.conn:
-            self.conn.close()
 
     async def _send_to_sidecar(self, msg_type: str, payload: Any):
         if not self.running:
@@ -134,7 +133,10 @@ def mesh_a(simulator, tmp_path):
     db = tmp_path / "a.db"
     identity = tmp_path / "a.pem"
     mesh = MockMesh(
-        simulator, "test-secret", db_path=str(db), identity_path=str(identity)
+        simulator,
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
     )
     return mesh
 
@@ -144,7 +146,10 @@ def mesh_b(simulator, tmp_path):
     db = tmp_path / "b.db"
     identity = tmp_path / "b.pem"
     mesh = MockMesh(
-        simulator, "test-secret", db_path=str(db), identity_path=str(identity)
+        simulator,
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
     )
     return mesh
 
