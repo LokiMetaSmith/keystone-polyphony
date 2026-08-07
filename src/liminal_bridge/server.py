@@ -201,6 +201,28 @@ async def set_status(status: str) -> str:
 
 
 @mcp.tool()
+async def save_revision(key: str, diff: str) -> str:
+    """
+    Appends a unified diff text to the granular revision history of a specific key.
+    This allows agents to track incremental changesets over time, similar to Etherpad's timeslider.
+    """
+    ensure_mesh()
+    await mesh.save_revision(key, diff)
+    return f"Revision successfully saved and broadcasted to mesh for key: {key}"
+
+
+@mcp.tool()
+async def get_revisions(key: str) -> str:
+    """
+    Retrieves the chronological list of all revisions for a specific key.
+    Each revision is a dictionary containing timestamp, author, revision_id, and diff text.
+    """
+    ensure_mesh()
+    revisions = mesh.get_revisions(key)
+    return json.dumps(revisions, indent=2)
+
+
+@mcp.tool()
 async def broadcast_command(
     command: str,
     target: str = None,

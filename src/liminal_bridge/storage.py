@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from abc import ABC, abstractmethod
 
 # Use late import for CRDT to avoid circular dependency if needed, or import directly
-from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet, RevisionLog
 
 
 def deserialize_crdt(data: Any) -> CRDT:
@@ -19,6 +19,8 @@ def deserialize_crdt(data: Any) -> CRDT:
             return GSet.from_dict(data)
         elif crdt_type == "or-set":
             return ORSet.from_dict(data)
+        elif crdt_type == "revision-log":
+            return RevisionLog.from_dict(data)
     # Default fallback for backwards compatibility
     return LWWRegister.from_dict(data)
 

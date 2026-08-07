@@ -17,10 +17,10 @@ except ImportError:
     from observability import LogAggregator
 
 try:
-    from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+    from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet, RevisionLog
     from .storage import BaseStorageProvider, SQLiteStorageProvider
 except ImportError:
-    from crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet
+    from crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet, RevisionLog
     from storage import BaseStorageProvider, SQLiteStorageProvider
 
 
@@ -279,6 +279,8 @@ class LiminalMesh:
                 return GSet.from_dict(data)
             elif crdt_type == "or-set":
                 return ORSet.from_dict(data)
+            elif crdt_type == "revision-log":
+                return RevisionLog.from_dict(data)
             elif "vc" in data and "value" in data:
                 # Legacy wrapped format -> LWWRegister
                 return LWWRegister(
@@ -1336,6 +1338,43 @@ class LiminalMesh:
     def get_all_kv(self) -> Dict[str, Any]:
         """Returns a copy of the KV store with values unwrapped."""
         return {k: v.value() for k, v in self.kv_store.items()}
+
+    async def save_revision(self, key: str, diff: str) -> None:
+        """Appends a code or state revision diff to the log and broadcasts it."""
+        import uuid
+        import time
+        from .crdt import RevisionLog
+
+        current = self.kv_store.get(key)
+        if current and not isinstance(current, RevisionLog):
+            # Overwrite if it was a different CRDT
+            current = RevisionLog()
+        elif not current:
+            current = RevisionLog()
+
+        revision_id = str(uuid.uuid4())
+        current.append(time.time(), self.node_id, revision_id, diff)
+
+        self.kv_store[key] = current
+        self._save_kv(key, current)
+
+        # Broadcast the update
+        self._increment_clock()
+        payload = {
+            "type": "kv_update",
+            "key": key,
+            "crdt": current.to_dict(),
+        }
+        await self.broadcast(payload)
+
+    def get_revisions(self, key: str) -> list:
+        """Retrieves the chronological list of revisions for a key."""
+        from .crdt import RevisionLog
+
+        crdt = self.kv_store.get(key)
+        if crdt and isinstance(crdt, RevisionLog):
+            return crdt.value()
+        return []
 
     def get_health_status(self) -> Dict[str, Any]:
         """Returns the current operational health of the node."""
