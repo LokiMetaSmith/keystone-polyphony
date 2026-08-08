@@ -294,3 +294,49 @@ class ORSet(CRDT):
         added = {tuple(x) for x in data.get("added", [])}
         removed = {tuple(x) for x in data.get("removed", [])}
         return cls(added=added, removed=removed)
+
+
+class RevisionLog(CRDT):
+    """
+    A Grow-only CRDT representing an append-only log of code or state revisions.
+    State:
+        revisions: Set[Tuple[float, str, str, str]]
+            Each tuple is (timestamp, author, revision_id, unified_diff_text).
+            Using a UUID/revision_id alongside timestamp prevents collisions.
+    """
+
+    def __init__(self, revisions: Set[Tuple[float, str, str, str]] = None):
+        self.revisions = revisions if revisions is not None else set()
+
+    def append(self, timestamp: float, author: str, revision_id: str, diff_text: str):
+        self.revisions.add((timestamp, author, revision_id, diff_text))
+
+    def merge(self, other: "RevisionLog") -> "RevisionLog":
+        if not isinstance(other, RevisionLog):
+            raise ValueError("Cannot merge with non-RevisionLog")
+        self.revisions.update(other.revisions)
+        return self
+
+    def value(self) -> list[Dict[str, Any]]:
+        # Return a chronologically sorted list of revisions
+        sorted_revs = sorted(list(self.revisions), key=lambda x: x[0])
+        return [
+            {
+                "timestamp": rev[0],
+                "author": rev[1],
+                "revision_id": rev[2],
+                "diff": rev[3],
+            }
+            for rev in sorted_revs
+        ]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "revision-log",
+            "revisions": list(self.revisions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RevisionLog":
+        revisions = {tuple(x) for x in data.get("revisions", [])}
+        return cls(revisions=revisions)
