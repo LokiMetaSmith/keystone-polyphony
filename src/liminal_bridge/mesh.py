@@ -17,10 +17,10 @@ except ImportError:
     from observability import LogAggregator
 
 try:
-    from .crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet, RevisionLog
+    from .crdt import CRDT, Register, PNCounter, GSet, ORSet, RevisionLog
     from .storage import BaseStorageProvider, SQLiteStorageProvider
 except ImportError:
-    from crdt import CRDT, LWWRegister, PNCounter, GSet, ORSet, RevisionLog
+    from crdt import CRDT, Register, PNCounter, GSet, ORSet, RevisionLog
     from storage import BaseStorageProvider, SQLiteStorageProvider
 
 
@@ -288,8 +288,8 @@ class LiminalMesh:
         """Helper to deserialize JSON data into a CRDT object."""
         if isinstance(data, dict):
             crdt_type = data.get("type")
-            if crdt_type == "lww-register":
-                return LWWRegister.from_dict(data)
+            if crdt_type == "register":
+                return Register.from_dict(data)
             elif crdt_type == "pn-counter":
                 return PNCounter.from_dict(data)
             elif crdt_type == "g-set":
@@ -299,16 +299,16 @@ class LiminalMesh:
             elif crdt_type == "revision-log":
                 return RevisionLog.from_dict(data)
             elif "vc" in data and "value" in data:
-                # Legacy wrapped format -> LWWRegister
-                return LWWRegister(
+                # Legacy wrapped format -> Register
+                return Register(
                     value=data["value"],
                     timestamp=data.get("timestamp", 0),
                     origin=data.get("origin", "unknown"),
                     vc=data["vc"],
                 )
 
-        # Raw value -> LWWRegister with empty VC (should ideally not happen in new system)
-        return LWWRegister(value=data, timestamp=0, origin="unknown", vc={})
+        # Raw value -> Register with empty VC (should ideally not happen in new system)
+        return Register(value=data, timestamp=0, origin="unknown", vc={})
 
     def _load_state(self):
         """Loads state from the database."""
@@ -1069,21 +1069,21 @@ class LiminalMesh:
                     self._save_kv(key, current)
                 else:
                     # Overwrite or New
-                    # For LWWRegister, we might want to check causality vs current if types mismatch?
+                    # For Register, we might want to check causality vs current if types mismatch?
                     # For simplicity, if types mismatch, we overwrite with the incoming one
                     # (assuming the network converges to the new type eventually).
                     self.kv_store[key] = remote_crdt
                     self._save_kv(key, remote_crdt)
 
             else:
-                # Legacy update (LWWRegister implicit)
+                # Legacy update (Register implicit)
                 value = payload.get("value")
                 remote_ts = payload.get("timestamp", 0)
 
-                remote_lww = LWWRegister(value, remote_ts, origin, remote_vc)
+                remote_lww = Register(value, remote_ts, origin, remote_vc)
 
                 current = self.kv_store.get(key)
-                if current and isinstance(current, LWWRegister):
+                if current and isinstance(current, Register):
                     current.merge(remote_lww)
                     self._save_kv(key, current)
                 elif current is None:
@@ -1469,23 +1469,23 @@ class LiminalMesh:
         return picked
 
     async def update_kv(self, key: str, value: Any, urgency: str = "low"):
-        """Updates a Key-Value pair using LWWRegister."""
+        """Updates a Key-Value pair using Register."""
         self._increment_clock()
         timestamp = time.time()
 
         current = self.kv_store.get(key)
 
-        if current and not isinstance(current, LWWRegister):
+        if current and not isinstance(current, Register):
             # If it was another CRDT type, we are overwriting it with a Register
             pass
 
-        new_register = LWWRegister(
+        new_register = Register(
             value, timestamp, self.node_id, self.vector_clock.copy()
         )
 
-        # If we had a previous LWWRegister, we might want to merge just to be safe (idempotency),
+        # If we had a previous Register, we might want to merge just to be safe (idempotency),
         # but here we are originating a new value, so we just set it.
-        # Actually, if we want to preserve history? LWWRegister doesn't preserve history, just latest.
+        # Actually, if we want to preserve history? Register doesn't preserve history, just latest.
 
         self.kv_store[key] = new_register
         self._save_kv(key, new_register)
