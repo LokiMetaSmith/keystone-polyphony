@@ -66,11 +66,11 @@ def compare_vcs(vc1: Dict[str, int], vc2: Dict[str, int]) -> int:
 
 
 class Register(CRDT):
-    """Register CRDT with pluggable tiebreaker logic."""
     """
-    Last-Write-Wins Register.
-    Uses Vector Clocks for causal ordering, timestamps for concurrency resolution,
-    and Origin Node ID as a final tie-breaker.
+    Register CRDT with pluggable tiebreaker logic.
+    Uses Vector Clocks for causal ordering.
+    If concurrent, uses a provided resolve function, or falls back to
+    timestamps for concurrency resolution, and Origin Node ID as a final tie-breaker.
     """
 
     def __init__(self, value: Any, timestamp: float, origin: str, vc: Dict[str, int]):
