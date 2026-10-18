@@ -288,7 +288,7 @@ class LiminalMesh:
         """Helper to deserialize JSON data into a CRDT object."""
         if isinstance(data, dict):
             crdt_type = data.get("type")
-            if crdt_type == "register":
+            if crdt_type in ["register", "lww-register"]:
                 return Register.from_dict(data)
             elif crdt_type == "pn-counter":
                 return PNCounter.from_dict(data)
