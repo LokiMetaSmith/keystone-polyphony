@@ -88,3 +88,10 @@ The same explicit opt-in is available locally when the key is in the environment
 ```bash
 .venv/bin/python scripts/demo-decision-ensemble.py --live
 ```
+
+Verified on 2026-11-08 in
+[GitHub Actions run 42519161170](https://github.com/niklas-olsson/keystone-polyphony/actions/runs/42519161170):
+`parallel/decisions-fast:free` returned `continue` with confidence
+`0.8730451408732367`; production Pulse accepted the decision. This was one real
+decision-model call; the Architect and role nodes remained scripted and the
+transport remained loopback.

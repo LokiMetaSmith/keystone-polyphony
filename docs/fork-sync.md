@@ -37,7 +37,11 @@ The full Python suite, repository lint script, and three-node local demo are the
 integration checks. The demo uses production signed/encrypted mesh envelopes
 over loopback and explicitly scripted role/model fixtures. It does not establish
 live DHT discovery, broker delivery, BLE hardware behavior, or model-provider
-availability. No OpenRouter credential was available for a live decision call.
+availability. A subsequent
+[live decision smoke test](https://github.com/niklas-olsson/keystone-polyphony/actions/runs/42519161170)
+used the repository's OpenRouter secret through GitHub Actions and accepted a
+real `continue` decision from `parallel/decisions-fast:free` with 0.873 confidence.
+The Architect and role nodes remained scripted, with loopback transport.
 
 The test suite has an existing asynchronous subprocess-cleanup warning, tracked
 in `.github/issues/async-test-resource-cleanup.md`. MQTT/BLE delivery to mixed
