@@ -165,7 +165,40 @@ CLI selection precedence is:
 2. Repository variable (`REVIEW_AGENT_CLI`, then fallback `AGENT_CLI`)
 3. PR label tag (`review-cli:<cli>` or `review-agent:<cli>`)
 
-Model override uses the same pattern (`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> review-model:<model>`). For custom tooling, install and argument behavior can be customized with repository variables such as `REVIEW_AGENT_INSTALL_CMD`, `REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`, and `REVIEW_AGENT_PROMPT_MODE`.
+Both review runners (`opencode.yml` and `workflow-review-dispatch.yml`) default to
+`openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`. The `openrouter/` prefix is
+the CLI provider ID; the OpenRouter API model ID is
+`nvidia/nemotron-3-ultra-550b-a55b:free`.
+
+This choice was checked against the [live OpenRouter catalog](https://openrouter.ai/api/v1/models)
+on 2026-11-08: [Nemotron 3 Ultra](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free)
+has 550B total parameters (55B active), a 1M-token context window, text output,
+tool calling, and zero prompt/completion prices. It is the largest disclosed
+parameter count among the free text/tool models meeting our 256k+ context
+preference. This is a capacity-first choice, not a measured review-quality
+ranking; newer smaller models exist. The model is pinned explicitly rather than
+using a router that could choose a paid model. Free service remains rate limited
+and availability can change; recheck the catalog before changing this default.
+
+Model selection in `opencode.yml` follows
+`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> nonempty manual model input -> review-model:<model>`.
+The manual input defaults to empty so it does not mask repository settings.
+`workflow-review-dispatch.yml` uses `REVIEW_AGENT_MODEL`, then `AGENT_MODEL`,
+then the same default; it also honors `REVIEW_AGENT_CLI` before `AGENT_CLI`.
+Explicit overrides may select a paid model, so use a `:free` model ID when
+zero-cost inference is required.
+
+For custom tooling, install and argument behavior can be customized in
+`opencode.yml` with repository variables such as `REVIEW_AGENT_INSTALL_CMD`,
+`REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`,
+and `REVIEW_AGENT_PROMPT_MODE`.
+
+Configure the repository secret `OPENROUTER_API_KEY` for the default model.
+The dispatch runner prefers that key for `openrouter/` models, with
+`AGENT_API_KEY` as a legacy fallback; other providers continue to use
+`AGENT_API_KEY`. The router key is scoped to credential validation and agent
+execution. OpenCode is invoked as `opencode run --model <model> <prompt>`.
+When selecting another CLI, set a model override that the selected CLI supports.
 
 Security hardening notes:
 - `/oc` and `/opencode` comment-triggered reviews only run for trusted associations (`OWNER`, `MEMBER`, `COLLABORATOR`).

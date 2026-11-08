@@ -29,12 +29,12 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
       AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
-      AGENT_CLI: ${{ vars.AGENT_CLI || 'opencode' }}
+      AGENT_CLI: ${{ vars.REVIEW_AGENT_CLI || vars.AGENT_CLI || 'opencode' }}
       AGENT_OPENCODE_NPM_PACKAGE: ${{ vars.AGENT_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
       AGENT_OPENCLAW_NPM_PACKAGE: ${{ vars.AGENT_OPENCLAW_NPM_PACKAGE || 'openclaw@2026.2.23' }}
       AGENT_CLAUDE_NPM_PACKAGE: ${{ vars.AGENT_CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code@2.1.52' }}
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
-      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || 'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free' }}
       REPO: ${{ github.repository }}
     steps:
       - name: Checkout repository
@@ -69,10 +69,15 @@ jobs:
 
       - name: Validate Agent Credentials
         id: creds
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
+          if [[ "$AGENT_MODEL" == openrouter/* ]]; then
+            AGENT_API_KEY="${OPENROUTER_API_KEY:-${AGENT_API_KEY:-}}"
+          fi
           if [ -z "${AGENT_API_KEY:-}" ]; then
-            echo "::notice::AGENT_API_KEY is not configured. Skipping automated agent review dispatch."
+            echo "::notice::No API key configured for the selected model. Set OPENROUTER_API_KEY for OpenRouter or AGENT_API_KEY for other providers. Skipping automated agent review dispatch."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -237,8 +242,14 @@ jobs:
 
       - name: Run Agent
         if: steps.identify.outputs.pr_number != '' && steps.creds.outputs.skip != 'true' && steps.quota.outputs.skip == 'false'
+        timeout-minutes: 15
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
+          if [[ "$AGENT_MODEL" == openrouter/* ]]; then
+            AGENT_API_KEY="${OPENROUTER_API_KEY:-${AGENT_API_KEY:-}}"
+          fi
 
           CMD=("$AGENT_CLI")
           if [ -n "$AGENT_CLI_FLAGS" ]; then
@@ -247,7 +258,7 @@ jobs:
           fi
 
           if [[ "$AGENT_CLI" == "opencode" ]]; then
-            CMD+=("--non-interactive")
+            CMD+=("run")
           elif [[ "$AGENT_CLI" == "openclaw" ]]; then
             CMD+=("--yolo")
           elif [[ "$AGENT_CLI" == "claude" ]]; then
@@ -260,7 +271,11 @@ jobs:
 
           # Read prompt from file
           PROMPT_CONTENT=$(cat agent_prompt.txt)
-          CMD+=("--prompt" "$PROMPT_CONTENT")
+          if [[ "$AGENT_CLI" == "opencode" ]]; then
+            CMD+=("$PROMPT_CONTENT")
+          else
+            CMD+=("--prompt" "$PROMPT_CONTENT")
+          fi
 
           echo "Running agent: ${CMD[0]} ... (redacted prompt)"
 

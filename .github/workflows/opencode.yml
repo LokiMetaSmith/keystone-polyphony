@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model to use"
+        description: "Optional model override (defaults to free Nemotron 3 Ultra)"
         required: false
-        default: "opencode/big-pickle"
+        default: ""
       prompt:
         description: "Custom prompt"
         required: true
@@ -51,7 +51,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
       DEFAULT_AGENT_CLI: opencode
-      DEFAULT_AGENT_MODEL: opencode/big-pickle
+      DEFAULT_AGENT_MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
       AGENT_CLI_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI || vars.AGENT_CLI || '' }}
       AGENT_CLI_FLAGS_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI_FLAGS || vars.AGENT_CLI_FLAGS || '' }}
       AGENT_MODEL_FROM_VAR: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || '' }}
