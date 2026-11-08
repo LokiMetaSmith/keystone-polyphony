@@ -34,19 +34,26 @@ its commits eventually reach the target branch through normal promotion.
    failures. `pr-validation` must succeed by default. Successful reviewer/control
    jobs alone cannot satisfy test readiness. Checks on both the head and current
    synthetic merge commit are considered.
-5. Only after the automatic review passes does the decision model receive the
-   full bounded diff and substantive review. Large diffs are partitioned into
-   ordered requests of at most 20,000 UTF-8 bytes, preferring file boundaries.
-   Every request includes the full independent review, CI results, exact SHAs,
-   full file manifest and hashes, full-diff hash, and chunk index/count. Every
-   chunk must **separately** approve; one hold, refusal, or failure stops the
-   sequence without staging any part of the PR. Only
-   a typed `approve` choice with confidence at least **0.95** by default allows admission. Administrators
-   may explicitly configure another threshold from **0.80** through **1.00**;
-   this never permits a `hold` or refusal to approve.
-   A refusal, hold, low confidence, malformed response, missing key, or error
-   leaves the PR out of staging. The decision model cannot override a failed
-   automatic review. Confidence is model output, not a proof of safety.
+5. Only after the automatic review passes does the decision model classify the
+   **complete independent review**, its reviewed file names, and verified CI and
+   revision facts. The reviewer already examined the entire patch; this second
+   stage interprets review findings for **staging admission**, rather than
+   attempting another code audit from fragments of a patch. Five separate binary
+   Decisions API questions estimate the probability that the review supports
+   admission in correctness, security, test coverage, architecture, and compatibility.
+   The repository computes the policy from these probabilities:
+
+   - At least **four of five** areas must reach **80%** by default.
+   - **Correctness and security must both pass**; other areas cannot offset them.
+   - An **80% or higher** probability that the review contains an unresolved
+     blocking finding vetoes admission independently of the five areas.
+
+   The model classifies these questions; repository code decides whether this
+   policy passes. It does not supply one global approval confidence. Refusal,
+   malformed or missing probabilities, errors, and unmet policy hold admission.
+   Model classifications are not measured probabilities of software correctness.
+   The decision stage cannot override failed CI, an automatic review FAIL, stale
+   revision evidence, unresolved threads, or change requests.
 6. The gate rechecks current state, prepares a normal merge of the exact reviewed
    SHA, submits an approval tied to that commit, checks again, and pushes staging.
    It does not resolve conflicts with a preferred side or force-push. A conflicting
@@ -62,7 +69,7 @@ Adding the label after a PR is already staged cannot retroactively gate it.
 | --- | --- |
 | Repository secret `OPENROUTER_API_KEY` | Required for the decision request. |
 | Repository variable `DECISION_MERGE_MODEL` | `auto`; ranked free Decisions API models with availability fallback. An explicit compatible model ID pins one model. |
-| Repository variable `DECISION_MERGE_MIN_CONFIDENCE` | `0.95`; administrator confidence threshold, finite numeric value from `0.80` through `1.00`. Invalid values hold before any network request. |
+| Repository variable `DECISION_MERGE_AREA_THRESHOLD` | `0.80`; threshold for each area, finite numeric value from `0.80` through `1.00`. Invalid values hold before any network request. The blocker veto remains fixed at `0.80`. |
 | Repository variable `DECISION_MERGE_REQUIRED_CHECKS` | `pr-validation`; comma-separated successful check/status names. Other reported failures still block. |
 | Repository secret `UPSTREAM_PR_TOKEN` | Optional staging push token, falling back to `GITHUB_TOKEN`. |
 | Actions setting “Allow GitHub Actions to create and approve pull requests” | Required for the bot's native approval. Default workflow permissions can remain read-only. |
@@ -74,6 +81,10 @@ or operational secrets. The privileged gate instead checks out the default branc
 The gate calls OpenRouter's typed
 [Decisions API](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request),
 not chat completions. CLI review retains the separate free Nemotron model default.
+The former `DECISION_MERGE_MIN_CONFIDENCE` variable is obsolete. Remove it before
+using area policy; a nonempty old setting holds with a migration message rather
+than silently treating global confidence as an area threshold.
+
 Approval policy and code execute in this repository; a remote model never supplies
 commands. GitHub branch rules and repository permissions remain in force.
 
@@ -113,8 +124,8 @@ The admin-owned `DECISION_GATE_BOOTSTRAP_SHA` variable must pin the exact audite
 feature commit before an owner push. Both reviewer checkout and provenance
 checks restrict this path to that SHA, PR #86, the integration branch, the same
 repository, the owner actor, and the original `main` base SHA. It still requires
-a full independent reviewer PASS, passing PR validation, and approval of every
-diff partition by the decision model. The waiting job holds no staging lock;
+a full independent reviewer PASS, passing PR validation, and passage of the
+area policy by the decision model. The waiting job holds no staging lock;
 only admission acquires the shared staging lock. Remove the bootstrap pin after
 admission. Other PRs and later revisions retain normal trusted-base checks.
 
@@ -127,20 +138,31 @@ A normal merge preserves PR ancestry so GitHub marks the original PR merged
 when its commits reach `main`; native self-approval is not required.
 
 The gate requires a complete text diff (at most 1,000,000 UTF-8 bytes) and review
-text of at most 60,000 UTF-8 bytes. It partitions rather than truncates large
-diffs, including oversized lines without splitting UTF-8 characters. Small PRs
-need one decision request. Results record every evaluated chunk, its actual
-model, and the minimum confidence across decisions. It holds binary, omitted,
-larger, stale, or workflow-only evidence for application changes rather than silently truncating
-the decision input. The provider can impose a smaller context budget, in which
-case its error also holds admission. Missing or pending checks hold the PR until
-the next retry; unresolved findings require a new review or explicit resolution.
+text of at most 60,000 UTF-8 bytes. It retains the full-diff SHA-256 hash, byte
+count, per-file manifest and hashes in the result as an audit binding to the
+verified head/base revisions. The decision request contains the full review
+without truncation, verified readiness facts, CI names/results, review model,
+scope, changed file names, and the staging purpose. Raw patch text and crypto
+identifiers are omitted from the classification request. Binary, omitted,
+oversized, stale, or insufficiently scoped evidence holds before classification.
+
+The previous implementation asked for a global decision on each 20 KB patch
+partition, repeating the full review and hashes each time. Its observed 42%
+first-partition hold did not include a rationale, so its exact cause is unknown.
+That fragmented input mixed a second code audit with review interpretation and
+made the score hard to diagnose. Area classification replaces that integration;
+it does not guarantee that a particular PR passes. The workflow summary and
+JSON artifact expose each area's probability, threshold, pass status, critical
+status, blocker-veto probability, and final repository policy verdict.
+
+Missing or pending checks hold the PR until the next retry; unresolved findings
+require a new review or explicit resolution.
 
 The decision picker uses only typed Decisions API models with zero prices for every advertised pricing component, never general
 chat or paid fallbacks. Catalog lookup and up
 to three ranked attempts share the gate's timeout. Availability, rate-limit,
 transport, and malformed-response failures can try the next model. A valid
-`hold`, low-confidence decision, or refusal ends selection and holds admission;
+policy hold or refusal ends selection and holds admission;
 it never retries to obtain an approval. The final decision records the actual
 selected model. An explicit `DECISION_MERGE_MODEL` bypasses catalog selection and
 fallback. See [model selection](model-picker.md) for ranking and catalog-outage behavior.

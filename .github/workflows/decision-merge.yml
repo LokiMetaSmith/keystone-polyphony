@@ -128,7 +128,8 @@ jobs:
           STAGING_PUSH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           DECISION_MERGE_MODEL: ${{ vars.DECISION_MERGE_MODEL || 'auto' }}
-          DECISION_MERGE_MIN_CONFIDENCE: ${{ vars.DECISION_MERGE_MIN_CONFIDENCE || '0.95' }}
+          DECISION_MERGE_AREA_THRESHOLD: ${{ vars.DECISION_MERGE_AREA_THRESHOLD || '0.8' }}
+          DECISION_MERGE_MIN_CONFIDENCE: ${{ vars.DECISION_MERGE_MIN_CONFIDENCE }}
           DECISION_MERGE_REQUIRED_CHECKS: ${{ vars.DECISION_MERGE_REQUIRED_CHECKS || 'pr-validation' }}
           REVIEW_RUN_ID: ${{ needs.installation-review.outputs.run_id || github.event.workflow_run.id || inputs.review_run_id }}
           EXPECTED_PR: ${{ github.event_name == 'push' && '86' || inputs.pr_number }}

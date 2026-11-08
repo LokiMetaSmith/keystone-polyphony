@@ -26,12 +26,33 @@ def client(request, monkeypatch):
         return await DecisionAdvisor(enabled=True, api_key="key", **kwargs).evaluate({})
 
     def answer(choice=None, confidence=0.99, refusal=False):
+        if kind == "staging":
+            names = (
+                "correctness",
+                "security",
+                "test_coverage",
+                "architecture",
+                "compatibility",
+                "unresolved_blocker",
+            )
+            values = {name: confidence for name in names}
+            values["unresolved_blocker"] = 0.99 if choice == "hold" else 0.1
+            return {
+                "answers": {
+                    name: (
+                        {"type": "refusal"}
+                        if refusal
+                        else {"type": "noul", "noul": values[name]}
+                    )
+                    for name in names
+                }
+            }
         value = (
             {"type": "refusal"}
             if refusal
             else {
                 "type": "choice",
-                "choice": choice or ("approve" if kind == "staging" else "continue"),
+                "choice": choice or "continue",
                 "confidence": confidence,
             }
         )
@@ -175,3 +196,33 @@ async def test_auto_spelling_matches_picker(client):
     session.post.return_value = response(answer())
     result = await evaluate(model=" AUTO ")
     assert result["model"] == "best:free"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload,status",
+    [
+        ({"answers": {}}, "invalid_area_response"),
+        (
+            {"answers": {"correctness": {"type": "noul", "noul": 0.99}}},
+            "invalid_area_response",
+        ),
+        (
+            {"answers": {"correctness": {"type": "noul", "noul": True}}},
+            "invalid_area_response",
+        ),
+        ({"answers": {"correctness": {"type": "refusal"}}}, "refused"),
+    ],
+)
+async def test_invalid_area_evidence_never_shops_for_another_model(
+    client, payload, status
+):
+    kind, evaluate, _, response, session = client
+    if kind != "staging":
+        return
+    session.post.return_value = response(payload)
+    result = await evaluate()
+    assert result["approved"] is False
+    assert result["status"] == status
+    assert result["model"] == "best:free"
+    assert session.post.call_count == 1

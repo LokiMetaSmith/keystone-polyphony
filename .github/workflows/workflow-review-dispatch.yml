@@ -242,6 +242,7 @@ jobs:
             echo '- End with an explicit go/no-go recommendation and explain any blockers.'
             if [ "$DECISION_MERGE" = true ]; then
               echo '- Review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior workflow-specific scope instructions do not limit this review. Give a GO/no-go recommendation covering all changed files.'
+              echo '- Include separate Correctness, Security, Test coverage, Architecture, and Compatibility sections. Explain the evidence and unresolved findings in each; distinguish resolved issues from current blockers.'
               echo '- End with exactly one REVIEW_RESULT marker as the final nonempty, unfenced line: REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}'
               echo '- Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and a nonnegative integer blocking count, for example: REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}'
               echo '- Never return PASS merely to satisfy the requested format.'

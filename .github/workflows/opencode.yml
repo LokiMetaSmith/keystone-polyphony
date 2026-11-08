@@ -361,6 +361,8 @@ jobs:
           if [ -f review_pr.json ] && jq -e '[.labels[].name] | index("decision-merge") != null' review_pr.json >/dev/null; then
             printf '\nDecision admission review: review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior specialized scope instructions do not limit this review. Return a clear GO/no-go recommendation covering all changed files. Analysis only; do not mutate the PR.\n' >> "$PROMPT_FILE"
             cat >> "$PROMPT_FILE" <<'RESULT_INSTRUCTIONS'
+          Include separate Correctness, Security, Test coverage, Architecture, and Compatibility sections.
+          In each section, explain the evidence and any unresolved findings. Distinguish resolved issues from current blockers.
           End with exactly one REVIEW_RESULT marker as the final nonempty, unfenced line:
           REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}
           Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and the nonnegative integer count of blocking findings, for example:

@@ -403,64 +403,7 @@ def test_scan_respects_explicit_pr_number(monkeypatch):
     assert github.api.call_args.args[0] == "pulls/8"
 
 
-@pytest.mark.parametrize(
-    "diff",
-    [
-        "diff --git a/one b/one\n+" + "é🐦" * 20000,
-        "diff --git a/one b/one\n"
-        + "+line\n" * 7000
-        + "diff --git a/two b/two\n"
-        + "+more\n" * 7000,
-    ],
-)
-def test_chunking_covers_every_utf8_byte_once(diff):
-    chunks = gate.split_diff(diff)
-    assert len(chunks) > 1
-    assert "".join(chunks).encode("utf-8") == diff.encode("utf-8")
-    assert all(
-        0 < len(chunk.encode("utf-8")) <= gate.MAX_DIFF_CHUNK for chunk in chunks
-    )
-
-
-def test_chunks_prefer_complete_file_boundaries():
-    first = "diff --git a/one b/one\n+one\n"
-    second = "diff --git a/two b/two\n+two\n"
-    assert gate.split_diff(first + second, len(first) + 5) == [first, second]
-
-
-def test_chunking_rejects_oversized_complete_diff():
-    with pytest.raises(gate.Hold, match="budget"):
-        gate.split_diff("é" * (gate.MAX_DIFF // 2 + 1))
-
-
-def test_last_chunk_hold_blocks_staging(evaluate_ready, monkeypatch):
-    diff = "diff --git a/test b/test\n" + "+test\n" * 14000
-    monkeypatch.setattr(gate, "fetch_diff", lambda *args: diff)
-    count = len(gate.split_diff(diff))
-    gate.evaluate_review.side_effect = [
-        {"approved": True, "confidence": 0.99, "model": "first"}
-        for _ in range(count - 1)
-    ] + [{"approved": False, "confidence": 0.98, "model": "last"}]
-    result = gate.evaluate(evaluate_ready, 90, dry_run=False)
-    assert result["status"] == "held"
-    assert len(result["decision"]["chunks"]) == count
-    assert gate.evaluate_review.await_count == count
-    gate.approve_and_stage.assert_not_called()
-
-
-def test_first_chunk_hold_stops_decision_requests(evaluate_ready, monkeypatch):
-    monkeypatch.setattr(gate, "fetch_diff", lambda *args: "é" * 60000)
-    gate.evaluate_review.return_value = {
-        "approved": False,
-        "confidence": None,
-        "status": "refused",
-    }
-    assert gate.evaluate(evaluate_ready, 90, dry_run=False)["status"] == "held"
-    assert gate.evaluate_review.await_count == 1
-    gate.approve_and_stage.assert_not_called()
-
-
-def test_chunk_requests_preserve_full_shared_evidence_and_manifest(
+def test_single_decision_preserves_complete_review_and_patch_audit(
     evaluate_ready, monkeypatch, evidence
 ):
     import hashlib
@@ -469,49 +412,52 @@ def test_chunk_requests_preserve_full_shared_evidence_and_manifest(
     diff += "\ndiff --git a/two b/two\n+" + "🐦" * 15000
     monkeypatch.setattr(gate, "fetch_diff", lambda *args: diff)
     result = gate.evaluate(evaluate_ready, 90)
-    requests = [call.args[0] for call in gate.evaluate_review.await_args_list]
-    assert "".join(item["diff"] for item in requests) == diff
-    assert len(requests) == result["decision"]["chunk_count"]
-    for index, request in enumerate(requests, 1):
-        assert request["review"] == evidence["review_text"]
-        assert request["automatic_review"] == {
-            "verdict": "PASS",
-            "blocking_findings": 0,
-        }
-        assert request["head_sha"] == HEAD and request["base_sha"] == BASE
-        assert request["checks"] == [{"name": "test", "conclusion": "success"}]
-        assert request["chunk"] == {"index": index, "count": len(requests)}
-        assert request["diff_sha256"] == hashlib.sha256(diff.encode()).hexdigest()
-        assert request["diff_manifest"] == gate.diff_manifest(diff)
-    assert len(requests[0]["diff_manifest"]) == 2
+    gate.evaluate_review.assert_awaited_once()
+    request = gate.evaluate_review.await_args.args[0]
+    assert request["review"] == evidence["review_text"]
+    assert request["automatic_review"] == {"verdict": "PASS", "blocking_findings": 0}
+    assert request["checks"] == [{"name": "test", "conclusion": "success"}]
+    assert request["verified_facts"]["exact_revision_verified"]
+    assert request["verified_facts"]["required_ci_passed"]
+    assert len(request["changed_files"]) == 2
+    for key in ("diff", "head_sha", "base_sha", "diff_sha256", "diff_manifest"):
+        assert key not in request
+    assert "é" * 100 not in json.dumps(request, ensure_ascii=False)
+    decision = result["decision"]
+    assert decision["diff_sha256"] == hashlib.sha256(diff.encode()).hexdigest()
+    assert decision["diff_bytes"] == len(diff.encode())
+    assert decision["diff_manifest"] == gate.diff_manifest(diff)
 
 
-def test_chunk_state_is_not_mutated_or_shared(monkeypatch):
+def test_oversized_complete_diff_holds_before_decision(evaluate_ready, monkeypatch):
+    monkeypatch.setattr(
+        gate, "fetch_diff", lambda *args: "é" * (gate.MAX_DIFF // 2 + 1)
+    )
+    with pytest.raises(gate.Hold, match="budget"):
+        gate.evaluate(evaluate_ready, 90)
+    gate.evaluate_review.assert_not_awaited()
+    gate.approve_and_stage.assert_not_called()
+
+
+def test_area_request_does_not_mutate_source_state(monkeypatch):
     import asyncio
     import copy
 
     state = {
-        "diff": "é" * 60000,
+        "diff": "diff --git a/test b/test\n+" + "é" * 60000,
         "automatic_review": {"verdict": "PASS", "blocking_findings": 0},
         "checks": [{"name": "test", "conclusion": "success"}],
     }
     initial = copy.deepcopy(state)
-    seen = []
 
     async def decide(request, **kwargs):
-        seen.append(copy.deepcopy(request))
         request["automatic_review"]["verdict"] = "FAIL"
         request["checks"].clear()
-        request["diff_manifest"].clear()
-        return {"approved": True, "confidence": 0.96, "model": "test"}
+        return {"approved": True, "model": "test"}
 
     monkeypatch.setattr(gate, "evaluate_review", decide)
-    result = asyncio.run(gate.evaluate_diff(state))
-    assert result["approved"]
-    assert result["confidence"] == 0.96
+    assert asyncio.run(gate.evaluate_diff(state))["approved"]
     assert state == initial
-    assert all(item["automatic_review"]["verdict"] == "PASS" for item in seen)
-    assert all(item["checks"] and item["diff_manifest"] for item in seen)
 
 
 def action_run(identifier, workflow=10, event="pull_request", **kwargs):
@@ -613,47 +559,56 @@ def test_new_workflow_waiting_for_jobs_still_blocks():
 def test_invalid_admin_threshold_holds_before_any_network(
     evaluate_ready, monkeypatch, value
 ):
-    monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", value)
+    monkeypatch.setenv("DECISION_MERGE_AREA_THRESHOLD", value)
     read = Mock()
     monkeypatch.setattr(gate, "read_evidence", read)
-    with pytest.raises(gate.Hold, match="confidence policy"):
+    with pytest.raises(gate.Hold, match="area policy"):
         gate.evaluate(evaluate_ready, 90)
     read.assert_not_called()
     gate.evaluate_review.assert_not_awaited()
 
 
-def test_admin_threshold_is_read_once_and_passed_to_each_chunk(
-    evaluate_ready, monkeypatch
-):
-    monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", "0.8")
-    monkeypatch.setattr(gate, "fetch_diff", lambda *args: "é" * 21000)
+def test_admin_area_threshold_is_read_once(evaluate_ready, monkeypatch):
+    monkeypatch.setenv("DECISION_MERGE_AREA_THRESHOLD", "0.8")
 
     async def choose(state, **kwargs):
-        assert kwargs["minconfidence"] == 0.8
-        monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", "0.99")
-        return {"approved": True, "confidence": 0.87, "model": "test"}
+        assert kwargs["area_threshold"] == 0.8
+        monkeypatch.setenv("DECISION_MERGE_AREA_THRESHOLD", "0.99")
+        return {"approved": True, "model": "test"}
 
     gate.evaluate_review.side_effect = choose
     assert gate.evaluate(evaluate_ready, 90)["status"] == "would_stage"
-    assert gate.evaluate_review.await_count > 1
+    gate.evaluate_review.assert_awaited_once()
 
 
-def test_readable_summary_shows_score_choice_and_policy():
+def test_old_confidence_variable_requires_explicit_migration(
+    evaluate_ready, monkeypatch
+):
+    monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", "0.95")
+    read = Mock()
+    monkeypatch.setattr(gate, "read_evidence", read)
+    with pytest.raises(gate.Hold, match="obsolete"):
+        gate.evaluate(evaluate_ready, 90)
+    read.assert_not_called()
+
+
+def test_readable_summary_exposes_area_policy_and_blocker_veto():
     decision = {
-        "model_choice": "approve",
-        "confidence": 0.87304,
-        "required_confidence": 0.95,
-        "chunks": [
-            {
-                "chunk_index": 1,
-                "model": "decision-model",
-                "model_choice": "approve",
-                "confidence": 0.87304,
-                "required_confidence": 0.95,
-            }
-        ],
+        "model": "decision-model",
+        "policy_verdict": "approve",
+        "area_threshold": 0.8,
+        "passed_area_count": 4,
+        "required_area_count": 4,
+        "blocker_probability": 0.06,
+        "areas": {
+            "correctness": {"probability": 0.87304, "passed": True, "critical": True},
+            "architecture": {"probability": 0.65, "passed": False, "critical": False},
+        },
+        "reasons": ["Four areas pass and both critical areas pass."],
     }
-    summary = gate.readable_summary({"status": "held", "decision": decision})
-    assert "87.30%" in summary and "95.00%" in summary
-    assert "Model choice: **approve**" in summary and "decision-model" in summary
+    summary = gate.readable_summary({"status": "would_stage", "decision": decision})
+    assert "87.30%" in summary and "80.00%" in summary and "65.00%" in summary
+    assert "6.00%" in summary and "vetoes admission" in summary
+    assert "Policy verdict: **approve**" in summary and "decision-model" in summary
+    assert "4 / 5" in summary and "Correctness and security must both pass" in summary
     assert "not measured accuracy" in summary

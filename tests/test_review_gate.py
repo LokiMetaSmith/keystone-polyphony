@@ -151,10 +151,23 @@ def test_latest_substantive_review_per_user_and_old_requests_block(state):
     assert eligibility(*state) == []
 
 
-def answer(choice="approve", confidence=0.99):
+AREA_NAMES = (
+    "correctness",
+    "security",
+    "test_coverage",
+    "architecture",
+    "compatibility",
+)
+
+
+def answer(probability=0.9, blocker=0.1, **areas):
     return {
         "answers": {
-            "staging": {"type": "choice", "choice": choice, "confidence": confidence}
+            **{
+                name: {"type": "noul", "noul": areas.get(name, probability)}
+                for name in AREA_NAMES
+            },
+            "unresolved_blocker": {"type": "noul", "noul": blocker},
         }
     }
 
@@ -166,28 +179,100 @@ def answer(choice="approve", confidence=0.99):
         [],
         {},
         {"answers": []},
-        {"answers": {"staging": {"type": "refusal"}}},
-        answer("execute"),
-        answer(confidence=float("nan")),
-        answer(confidence=float("inf")),
-        answer(confidence=True),
-        answer(confidence="0.99"),
-        answer(confidence=None),
-        answer(confidence=-1),
-        answer(confidence=10**400),
+        {
+            "answers": {
+                "staging": {"type": "choice", "choice": "approve", "confidence": 1}
+            }
+        },
     ],
 )
-def test_malformed_decision_never_approves(payload):
+def test_malformed_or_legacy_decision_never_approves(payload):
+    result = validate_decision(payload)
+    assert result["status"] == (
+        "invalid_area_response"
+        if isinstance(payload, dict) and isinstance(payload.get("answers"), dict)
+        else "invalid_response"
+    )
+
+
+@pytest.mark.parametrize("name", (*AREA_NAMES, "unresolved_blocker"))
+@pytest.mark.parametrize(
+    "value", [None, True, "0.99", -1, 2, float("nan"), float("inf"), 10**400]
+)
+def test_every_area_rejects_invalid_probability(name, value):
+    payload = answer()
+    payload["answers"][name]["noul"] = value
     result = validate_decision(payload)
     assert result["approved"] is False
-    assert result["status"] == "invalid_response"
+    assert result["status"] == "invalid_area_response"
 
 
-def test_decision_threshold_and_hold():
-    assert validate_decision(answer(confidence=0.95))["approved"] is True
-    assert validate_decision(answer(confidence=0.949))["status"] == "low_confidence"
-    assert validate_decision(answer("hold"))["approved"] is False
-    assert validate_decision(answer(), minconfidence=0.5)["approved"] is False
+@pytest.mark.parametrize("name", (*AREA_NAMES, "unresolved_blocker"))
+@pytest.mark.parametrize(
+    "value", [None, {}, {"type": "refusal"}, {"type": "choice", "noul": 1}]
+)
+def test_every_required_answer_must_have_correct_type(name, value):
+    payload = answer()
+    payload["answers"][name] = value
+    assert validate_decision(payload)["status"] == (
+        "refused"
+        if isinstance(value, dict) and value.get("type") == "refusal"
+        else "invalid_area_response"
+    )
+
+
+def test_four_of_five_areas_at_threshold_are_sufficient():
+    result = validate_decision(answer(probability=0.8, compatibility=0.2))
+    assert result["approved"] is True
+    assert result["policy_verdict"] == "approve"
+    assert result["passed_area_count"] == 4
+    assert result["areas"]["compatibility"] == {
+        "probability": 0.2,
+        "passed": False,
+        "critical": False,
+    }
+    assert result["reasons"] == []
+    assert "confidence" not in result
+
+
+def test_three_passing_areas_hold_even_with_high_average():
+    result = validate_decision(
+        answer(probability=1, architecture=0.799, compatibility=0.799)
+    )
+    assert result["approved"] is False
+    assert result["reasons"] == ["insufficient_passing_areas"]
+
+
+@pytest.mark.parametrize("name", ["correctness", "security"])
+def test_critical_area_cannot_be_outvoted(name):
+    result = validate_decision(answer(**{name: 0.799}))
+    assert result["passed_area_count"] == 4
+    assert result["approved"] is False
+    assert name + "_below_threshold" in result["reasons"]
+
+
+@pytest.mark.parametrize(
+    "blocker,approved",
+    [(0, True), (0.5, True), (0.799, True), (0.8, False), (1, False)],
+)
+def test_explicit_blocker_veto(blocker, approved):
+    result = validate_decision(answer(blocker=blocker))
+    assert result["approved"] is approved
+    assert result["blocker_probability"] == blocker
+    assert ("unresolved_blocker" in result["reasons"]) is not approved
+
+
+@pytest.mark.parametrize("threshold", [0.8, 0.87, 0.95, 1.0])
+def test_area_threshold_boundaries(threshold):
+    result = validate_decision(answer(probability=threshold), area_threshold=threshold)
+    assert result["approved"] is True
+    assert result["area_threshold"] == threshold
+    assert (
+        validate_decision(
+            answer(probability=threshold - 0.001), area_threshold=threshold
+        )["approved"]
+        is False
+    )
 
 
 @pytest.fixture
@@ -217,10 +302,7 @@ async def test_http_success_request_contract(http):
     kwargs = http[1].post.call_args.kwargs
     assert kwargs["json"]["state"] == state
     assert kwargs["allow_redirects"] is False
-    assert set(kwargs["json"]["questions"]["staging"]["criteria"]) == {
-        "approve",
-        "hold",
-    }
+    assert set(kwargs["json"]["questions"]) == {*AREA_NAMES, "unresolved_blocker"}
 
 
 @pytest.mark.asyncio
@@ -257,67 +339,73 @@ async def test_cancellation_propagates(http):
 
 
 @pytest.mark.asyncio
-async def test_partition_policy_is_in_trusted_question_not_only_untrusted_state(http):
-    state = {
-        "chunk": {"index": 2, "count": 3},
-        "diff": "+second partition",
-        "diff_manifest": [{"header": "diff --git a/test b/test", "sha256": "abc"}],
-    }
+async def test_review_questions_are_atomic_and_do_not_request_patch_audit(http):
+    state = {"review": "Complete independent review", "files": ["a.py"]}
     await evaluate_review(state, api_key="test-key")
     request = http[1].post.call_args.kwargs["json"]
-    instructions = request["questions"]["staging"]["instructions"]
-    assert "one ordered partition of the complete change" in instructions
-    assert "full independent review" in instructions
-    assert "requires every partition to approve" in instructions
-    assert "Missing expected partition evidence still holds" in instructions
+    assert set(request["questions"]) == {*AREA_NAMES, "unresolved_blocker"}
+    for question in request["questions"].values():
+        assert question["type"] == "noul"
+        assert set(question["criteria"]) == {"true", "false"}
+        assert "complete review as quoted evidence" in question["instructions"]
+        assert "new source-code audit" in question["instructions"]
+        assert "partition" not in question["instructions"]
     assert request["state"] == state
-
-
-def test_confidence_hold_retains_validated_model_evidence():
-    result = validate_decision(answer(confidence=0.87))
-    assert result == {
-        "approved": False,
-        "status": "low_confidence",
-        "confidence": 0.87,
-        "model_choice": "approve",
-        "required_confidence": 0.95,
-    }
-    assert validate_decision(answer("hold", confidence=0.87))["model_choice"] == "hold"
-
-
-@pytest.mark.parametrize("threshold", [0.8, 0.87, 0.95, 1.0])
-def test_admin_confidence_threshold_boundaries(threshold):
-    approved = validate_decision(answer(confidence=threshold), minconfidence=threshold)
-    assert approved["approved"] is True
-    assert approved["model_choice"] == "approve"
-    assert approved["required_confidence"] == threshold
-    assert approved["confidence"] == threshold
-    held = validate_decision(
-        answer("hold", confidence=threshold), minconfidence=threshold
-    )
-    assert held["approved"] is False and held["model_choice"] == "hold"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "threshold", [True, False, 0.79, 1.01, float("nan"), float("inf"), "0.8"]
 )
-async def test_invalid_confidence_policy_cannot_call_provider(http, threshold):
-    result = await evaluate_review({}, api_key="test-key", minconfidence=threshold)
+async def test_invalid_area_policy_cannot_call_provider(http, threshold):
+    result = await evaluate_review({}, api_key="test-key", area_threshold=threshold)
     assert result["approved"] is False and result["status"] == "invalid_request"
     http[0].assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_adjusted_threshold_is_used_for_real_response_validation(http):
-    http[2].json.return_value = answer(confidence=0.87)
-    result = await evaluate_review({}, api_key="test-key", minconfidence=0.8)
-    assert result["approved"] is True
-    assert result["confidence"] == 0.87 and result["required_confidence"] == 0.8
+async def test_custom_area_threshold_is_used_for_real_response(http):
+    http[2].json.return_value = answer(probability=0.87)
+    result = await evaluate_review({}, api_key="test-key", area_threshold=0.9)
+    assert result["approved"] is False
+    assert result["area_threshold"] == 0.9
 
 
 @pytest.mark.asyncio
-async def test_adjusted_threshold_does_not_override_refusal(http):
-    http[2].json.return_value = {"refusal": "cannot decide"}
-    result = await evaluate_review({}, api_key="test-key", minconfidence=0.8)
-    assert result["approved"] is False
+async def test_area_policy_does_not_override_refusal(http):
+    payload = answer()
+    payload["answers"]["security"] = {"type": "refusal"}
+    http[2].json.return_value = payload
+    assert (await evaluate_review({}, api_key="test-key"))["approved"] is False
+
+
+@pytest.mark.parametrize("mask", range(32))
+@pytest.mark.parametrize("has_blocker", [False, True])
+def test_every_area_vote_combination_has_an_explicit_policy(mask, has_blocker):
+    values = {
+        name: (0.9 if mask & (1 << index) else 0.1)
+        for index, name in enumerate(AREA_NAMES)
+    }
+    result = validate_decision(answer(blocker=0.9 if has_blocker else 0.1, **values))
+    expected = mask.bit_count() >= 4 and mask & 3 == 3 and not has_blocker
+    assert result["approved"] is expected
+    assert result["policy_verdict"] == ("approve" if expected else "hold")
+
+
+@pytest.mark.parametrize("name", (*AREA_NAMES, "unresolved_blocker"))
+def test_missing_one_required_answer_holds(name):
+    payload = answer()
+    del payload["answers"][name]
+    assert validate_decision(payload)["status"] == "invalid_area_response"
+
+
+@pytest.mark.asyncio
+async def test_hold_retains_configured_area_threshold(http):
+    http[2].json.return_value = {"answers": {}}
+    result = await evaluate_review({}, api_key="test-key", area_threshold=0.95)
+    assert result["area_threshold"] == 0.95
+    http[2].status = 503
+    result = await evaluate_review({}, api_key="test-key", area_threshold=0.95)
+    assert result["area_threshold"] == 0.95
+    result = await evaluate_review({}, api_key="", area_threshold=0.95)
+    assert result["area_threshold"] == 0.95

@@ -229,7 +229,9 @@ graph TD
 
 The optional `decision-merge` label requests full review and PR validation, then
 requires an explicit automatic-review PASS with zero blocking findings, then
-a separate typed Decisions API approval at confidence ≥0.95 to admit the exact
+a separate typed Decisions API assessment across five review areas. At least four
+areas must reach 80% YES probability, including correctness and security; an
+identified unresolved blocker vetoes admission. The local rule admits the exact
 reviewed commit to staging. The legacy staging paths defer opted-in PRs to this
 gate. Existing tested promotion to main remains unchanged. Manual runs default
 to dry-run; automatic runs apply accepted decisions. See

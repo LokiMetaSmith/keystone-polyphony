@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -25,7 +26,6 @@ SOURCES = {
 GATE_PATH = ".github/workflows/decision-merge.yml"
 MAX_ARTIFACT = 512000
 MAX_DIFF = 1000000
-MAX_DIFF_CHUNK = 20000
 CONTROL_CHECKS = {
     "review",
     "dispatch-review",
@@ -387,32 +387,8 @@ def fetch_diff(github, pr, evidence):
         raise Hold("PR diff is not text") from None
 
 
-def split_diff(diff, limit=MAX_DIFF_CHUNK):
-    """Partition complete UTF-8 text, preferring file and then line boundaries."""
-    raw = diff.encode("utf-8")
-    if not raw or len(raw) > MAX_DIFF or limit < 4:
-        raise Hold("Complete PR diff exceeds decision context budget")
-    chunks = []
-    remaining = raw
-    while remaining:
-        if len(remaining) <= limit:
-            chunks.append(remaining.decode("utf-8"))
-            break
-        boundary = remaining.rfind(b"\ndiff --git ", 0, limit)
-        if boundary >= 0:
-            end = boundary + 1
-        else:
-            boundary = remaining.rfind(b"\n", 0, limit)
-            end = boundary + 1 if boundary >= 0 else limit
-        while end and end < len(remaining) and remaining[end] & 0xC0 == 0x80:
-            end -= 1
-        chunks.append(remaining[:end].decode("utf-8"))
-        remaining = remaining[end:]
-    return chunks
-
-
 def diff_manifest(diff):
-    """Describe every complete file section, independent of request chunks."""
+    """Describe every complete file section for the audit record."""
     sections = re.split(r"(?m)(?=^diff --git )", diff)
     return [
         {
@@ -426,73 +402,59 @@ def diff_manifest(diff):
 
 
 def decision_threshold():
-    """Read an administrator policy once, before fetching or evaluating evidence."""
-    try:
-        value = float(os.getenv("DECISION_MERGE_MIN_CONFIDENCE", "0.95"))
-    except (TypeError, ValueError):
+    """Read the area policy before fetching or evaluating evidence."""
+    if os.getenv("DECISION_MERGE_MIN_CONFIDENCE"):
         raise Hold(
-            "Invalid decision confidence policy; expected 0.8 through 1"
-        ) from None
+            "DECISION_MERGE_MIN_CONFIDENCE is obsolete; configure DECISION_MERGE_AREA_THRESHOLD explicitly"
+        )
+    try:
+        value = float(os.getenv("DECISION_MERGE_AREA_THRESHOLD", "0.8"))
+    except (TypeError, ValueError):
+        raise Hold("Invalid decision area policy; expected 0.8 through 1") from None
     if not math.isfinite(value) or not 0.8 <= value <= 1:
-        raise Hold("Invalid decision confidence policy; expected 0.8 through 1")
+        raise Hold("Invalid decision area policy; expected 0.8 through 1")
     return value
 
 
-async def evaluate_diff(state, minconfidence=0.95):
-    """Require an affirmative decision for every byte of a bounded full diff."""
+async def evaluate_diff(state, area_threshold=0.8):
+    """Classify the complete independent review once; retain patch audit binding."""
     diff = state["diff"]
-    chunks = split_diff(diff)
+    raw = diff.encode("utf-8")
+    if not raw or len(raw) > MAX_DIFF:
+        raise Hold("Complete PR diff exceeds decision context budget")
     manifest = diff_manifest(diff)
-    digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
-    outcomes = []
-    for index, chunk in enumerate(chunks, 1):
-        request = json.loads(json.dumps(state))
-        request.update(
+    # Patches and crypto identifiers bind the audit record, not decision input.
+    # The independent reviewer already examined the complete bound patch.
+    request = json.loads(
+        json.dumps(
             {
-                "diff": chunk,
-                "diff_manifest": [dict(item) for item in manifest],
-                "diff_sha256": digest,
-                "diff_bytes": len(diff.encode("utf-8")),
-                "chunk": {"index": index, "count": len(chunks)},
-                "chunk_policy": (
-                    "This is one complete, ordered partition of the full diff. "
-                    "Approve this partition only if it is acceptable together with "
-                    "the full independent review and manifest. Every partition "
-                    "must separately approve before staging admission."
-                ),
+                key: value
+                for key, value in state.items()
+                if key not in {"diff", "head_sha", "base_sha"}
             }
         )
-        decision = await evaluate_review(
-            request,
-            api_key=os.getenv("OPENROUTER_API_KEY", ""),
-            model=os.getenv("DECISION_MERGE_MODEL") or "auto",
-            minconfidence=minconfidence,
-        )
-        outcomes.append({**decision, "chunk_index": index})
-        if not decision["approved"]:
-            break
-    final = dict(outcomes[-1])
-    final.pop("chunk_index", None)
-    confidences = [
-        item["confidence"]
-        for item in outcomes
-        if isinstance(item.get("confidence"), (int, float))
-        and not isinstance(item["confidence"], bool)
-    ]
-    final.update(
-        {
-            "approved": len(outcomes) == len(chunks)
-            and all(item["approved"] for item in outcomes),
-            "confidence": min(confidences) if confidences else None,
-            "models": list(
-                dict.fromkeys(item["model"] for item in outcomes if item.get("model"))
-            ),
-            "chunk_count": len(chunks),
-            "chunks": outcomes,
-            "diff_sha256": digest,
-        }
     )
-    return final
+    request["changed_files"] = []
+    for item in manifest:
+        try:
+            paths = shlex.split(item["header"])
+        except ValueError:
+            raise Hold("Invalid complete diff file header") from None
+        if len(paths) != 4 or paths[:2] != ["diff", "--git"]:
+            raise Hold("Invalid complete diff file header")
+        request["changed_files"].append(paths[3].removeprefix("b/"))
+    decision = await evaluate_review(
+        request,
+        api_key=os.getenv("OPENROUTER_API_KEY", ""),
+        model=os.getenv("DECISION_MERGE_MODEL") or "auto",
+        area_threshold=area_threshold,
+    )
+    return {
+        **decision,
+        "diff_sha256": hashlib.sha256(raw).hexdigest(),
+        "diff_bytes": len(raw),
+        "diff_manifest": manifest,
+    }
 
 
 def git_run(directory, *args, env=None):
@@ -555,7 +517,12 @@ def approve_and_stage(github, pr, evidence, decision, required_checks):
         approval = {
             "commit_id": sha,
             "event": "APPROVE",
-            "body": f"[decision-gate] Accepted reviewed commit {sha} for staging. Model: {decision['model']}; confidence: {decision['confidence']:.3f}. Review evidence run: {evidence['run_id']}. Main promotion still requires staging tests.",
+            "body": (
+                f"[decision-gate] Accepted reviewed commit {sha} for staging. "
+                f"Review evidence run: {evidence['run_id']}. "
+                "Main promotion still requires staging tests.\n\n"
+                + readable_summary({"status": "accepted", "decision": decision})
+            ),
         }
         prior = github.pages(f"pulls/{number}/reviews")
         if not any(
@@ -582,7 +549,7 @@ def approve_and_stage(github, pr, evidence, decision, required_checks):
 
 
 def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
-    minconfidence = decision_threshold()
+    area_threshold = decision_threshold()
     run, evidence = read_evidence(github, run_id)
     actual_number = evidence.get("pr_number")
     if (
@@ -603,6 +570,14 @@ def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
             "blocking_findings": evidence["blocking_findings"],
         },
         "review_model": evidence.get("model"),
+        "verified_facts": {
+            "automatic_review_passed": True,
+            "required_ci_passed": True,
+            "exact_revision_verified": True,
+            "no_unresolved_threads": True,
+            "no_change_requests": True,
+            "complete_review_scope": True,
+        },
         "scope": evidence["scope"],
         "diff": diff,
         "head_sha": evidence["head_sha"],
@@ -612,7 +587,7 @@ def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
         ],
         "policy": "Admit this reviewed commit to staging only. Main promotion requires separate tests.",
     }
-    decision = asyncio.run(evaluate_diff(state, minconfidence))
+    decision = asyncio.run(evaluate_diff(state, area_threshold))
     result = {
         "pr_number": actual_number,
         "head_sha": evidence["head_sha"],
@@ -683,10 +658,14 @@ def scan(github, dry_run, required_checks, expected_number=0):
 
 
 def readable_summary(result):
-    """Expose validated confidence evidence without raw provider responses."""
+    """Expose area probabilities and the deterministic admission policy."""
 
     def cell(value):
-        return str(value or "unavailable").replace("|", "/").replace("\n", " ")
+        return (
+            str(value if value is not None else "unavailable")
+            .replace("|", "/")
+            .replace("\n", " ")
+        )
 
     def percent(value):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -699,34 +678,41 @@ def readable_summary(result):
         lines.extend(
             [
                 f"Status: **{cell(item.get('status'))}**. "
-                f"Model choice: **{cell(decision.get('model_choice'))}**. "
-                f"Confidence: **{percent(decision.get('confidence'))}**; "
-                f"required: **{percent(decision.get('required_confidence'))}**.",
+                f"Policy verdict: **{cell(decision.get('policy_verdict'))}**. "
+                f"Model: **{cell(decision.get('model'))}**.",
+                "",
+                f"Passing areas: **{cell(decision.get('passed_area_count'))} / 5**; "
+                f"required: **{cell(decision.get('required_area_count'))}**. "
+                "Correctness and security must both pass.",
+                "",
+                "| Area | Probability | Required | Passed | Critical |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for name, area in decision.get("areas", {}).items():
+            lines.append(
+                f"| {cell(name)} | {percent(area.get('probability'))} "
+                f"| {percent(decision.get('area_threshold'))} "
+                f"| {cell(area.get('passed'))} | {cell(area.get('critical'))} |"
+            )
+        lines.extend(
+            [
+                "",
+                "Unresolved blocking finding probability: "
+                f"**{percent(decision.get('blocker_probability'))}**; "
+                "**80.00% or higher vetoes admission**.",
                 "",
             ]
         )
-        chunks = decision.get("chunks", [])
-        if chunks:
-            lines.extend(
-                [
-                    "| Chunk | Model | Choice | Confidence | Required |",
-                    "| --- | --- | --- | --- | --- |",
-                ]
-            )
-            for chunk in chunks[:25]:
-                lines.append(
-                    f"| {cell(chunk.get('chunk_index'))} | {cell(chunk.get('model'))} "
-                    f"| {cell(chunk.get('model_choice'))} | {percent(chunk.get('confidence'))} "
-                    f"| {percent(chunk.get('required_confidence'))} |"
-                )
-            lines.append("")
-            if len(chunks) > 25:
-                lines.extend(
-                    ["Additional chunk outcomes appear in the JSON artifact.", ""]
-                )
+        for reason in decision.get("reasons", []):
+            lines.append(f"- {cell(reason)}")
+        if item.get("reason"):
+            lines.append(f"- {cell(item['reason'])}")
+        lines.append("")
     lines.extend(
         [
-            "Confidence expresses the model's decision distribution, not measured accuracy.",
+            "Probabilities express model classifications, not measured accuracy. "
+            "CI, independent reviewer PASS, freshness, and unresolved-thread checks remain mandatory.",
             "",
         ]
     )
