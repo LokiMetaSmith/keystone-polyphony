@@ -271,3 +271,15 @@ async def test_partition_policy_is_in_trusted_question_not_only_untrusted_state(
     assert "requires every partition to approve" in instructions
     assert "Missing expected partition evidence still holds" in instructions
     assert request["state"] == state
+
+
+def test_confidence_hold_retains_validated_model_evidence():
+    result = validate_decision(answer(confidence=0.87))
+    assert result == {
+        "approved": False,
+        "status": "low_confidence",
+        "confidence": 0.87,
+        "model_choice": "approve",
+        "required_confidence": 0.95,
+    }
+    assert validate_decision(answer("hold", confidence=0.87))["model_choice"] == "hold"

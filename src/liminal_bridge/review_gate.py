@@ -182,7 +182,12 @@ def validate_decision(response, minconfidence=0.95):
     ):
         return _hold("invalid_response")
     if confidence < minconfidence:
-        return _hold("low_confidence")
+        return {
+            **_hold("low_confidence"),
+            "confidence": confidence,
+            "model_choice": answer["choice"],
+            "required_confidence": minconfidence,
+        }
     return {
         "approved": answer["choice"] == "approve",
         "status": "decision",
