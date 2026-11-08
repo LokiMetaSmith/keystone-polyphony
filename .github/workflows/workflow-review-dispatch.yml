@@ -40,15 +40,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.base_ref || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Identify PR
         id: identify
+        env:
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "${{ inputs.pr_number }}" ]; then
-              PR_NUMBER="${{ inputs.pr_number }}"
+            if [ -n "$INPUT_PR_NUMBER" ]; then
+              PR_NUMBER="$INPUT_PR_NUMBER"
             else
               # Find first PR with workflow-review label
               PR_NUMBER=$(gh pr list --label "workflow-review" --limit 1 --json number --jq '.[0].number')
@@ -61,6 +65,11 @@ jobs:
             echo "No eligible PR found."
             echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid PR number."
+            exit 1
           fi
 
           # Check if already reviewed (optional optimization, but we can re-review)
@@ -192,18 +201,15 @@ jobs:
           REVIEWER_NAME="${{ steps.quota.outputs.reviewer_name }}"
           REVIEWER_HANDLE="${{ steps.quota.outputs.reviewer_handle }}"
 
-          PR_DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json title,body,baseRefName,headRefName)
-          TITLE=$(echo "$PR_DATA" | jq -r .title)
-          BODY=$(echo "$PR_DATA" | jq -r .body)
-          BASE=$(echo "$PR_DATA" | jq -r .baseRefName)
-          HEAD=$(echo "$PR_DATA" | jq -r .headRefName)
-
-          # Generate Diff for workflow files only
-          # We need to fetch the PR head
-          git fetch origin pull/$PR_NUMBER/head:pr-$PR_NUMBER
-
-          echo "Generating diff for .github/workflows/..."
-          DIFF_CONTENT=$(git diff origin/$BASE...pr-$PR_NUMBER -- .github/workflows/ || echo "No workflow changes found or diff failed.")
+          gh api "/repos/$REPO/pulls/$PR_NUMBER" > review_pr.json
+          TITLE=$(jq -r .title review_pr.json)
+          BODY=$(jq -r .body review_pr.json)
+          BASE_SHA=$(jq -r '.base.sha' review_pr.json)
+          HEAD_SHA=$(jq -r '.head.sha' review_pr.json)
+          gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" -H 'Accept: application/vnd.github.diff' > pr_patch.diff
+          DIFF_CONTENT=$(cat pr_patch.diff)
+          DECISION_MERGE=$(jq '[.labels[].name] | index("decision-merge") != null' review_pr.json)
+          echo "decision_merge=$DECISION_MERGE" >> "$GITHUB_OUTPUT"
 
           {
             echo "You are acting as **$REVIEWER_NAME** ($REVIEWER_HANDLE)."
@@ -214,7 +220,7 @@ jobs:
             echo "Description:"
             echo "$BODY"
             echo ""
-            echo "## Changes to Workflow Files (.github/workflows/)"
+            echo "## PR Diff (review workflow changes in context)"
             echo "\`\`\`diff"
             echo "$DIFF_CONTENT"
             echo "\`\`\`"
@@ -231,16 +237,21 @@ jobs:
             echo ""
             echo "## Instructions"
             echo "- Analyze the diff carefully."
-            echo "- If the changes are benign and safe, APPROVE the PR."
-            echo "- If there are concerns, REQUEST CHANGES with a detailed explanation."
-            echo "- **CRITICAL**: You MUST execute the GitHub CLI command to submit your review."
-            echo "  - To Approve: \`gh pr review $PR_NUMBER --approve --body \"LGTM\"\`"
-            echo "  - To Request Changes: \`gh pr review $PR_NUMBER --request-changes --body \"[Detailed Reason]\"\`"
+            echo '- Return GitHub-flavored Markdown with ## Summary, ## Findings, and ## Recommendation sections.'
+            echo '- End with an explicit go/no-go recommendation and explain any blockers.'
+            if [ "$DECISION_MERGE" = true ]; then
+              echo '- Review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior workflow-specific scope instructions do not limit this review. Give a GO/no-go recommendation covering all changed files.'
+              echo '- Analysis only: do not approve, merge, comment, edit, or otherwise mutate the PR. The separate decision gate handles admission to staging.'
+            else
+              echo "- If safe, submit approval with gh pr review $PR_NUMBER --approve."
+              echo "- If there are concerns, submit a detailed review with gh pr review $PR_NUMBER --request-changes."
+            fi
           } > agent_prompt.txt
 
           echo "Prompt prepared."
 
       - name: Run Agent
+        id: run_agent
         if: steps.identify.outputs.pr_number != '' && steps.creds.outputs.skip != 'true' && steps.quota.outputs.skip == 'false'
         timeout-minutes: 15
         env:
@@ -289,11 +300,33 @@ jobs:
             GEMINI_API_KEY="$AGENT_API_KEY" \
             DEEPSEEK_API_KEY="$AGENT_API_KEY" \
             OPENAI_API_BASE="https://openrouter.ai/api/v1" \
-            "${CMD[@]}"
-          EXIT_CODE=$?
+            "${CMD[@]}" 2>&1 | tee review_output_raw.txt
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
+          perl -pe 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g; s/\r//g' review_output_raw.txt > review_output.txt
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             echo "Agent failed with exit code $EXIT_CODE"
             exit $EXIT_CODE
           fi
+
+      - name: Validate immutable review evidence
+        if: steps.run_agent.outputs.exit_code == '0' && steps.prompt.outputs.decision_merge == 'true'
+        run: |
+          SCOPE=workflow
+          if jq -e '[.labels[].name] | index("decision-merge") != null' review_pr.json >/dev/null; then
+            SCOPE=general
+          fi
+          python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output.txt \
+            --output review-evidence.json --scope "$SCOPE" --model "$AGENT_MODEL" \
+            --workflow-path .github/workflows/workflow-review-dispatch.yml --exit-code 0
+
+      - name: Publish immutable review evidence
+        if: success() && steps.run_agent.outputs.exit_code == '0' && steps.prompt.outputs.decision_merge == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: decision-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: review-evidence.json
+          if-no-files-found: error
+          retention-days: 7

@@ -42,6 +42,7 @@ jobs:
         ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
          (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
         (contains(github.event.label.name, '-review') ||
+         contains(github.event.pull_request.labels.*.name, 'decision-merge') ||
          contains(github.event.pull_request.labels.*.name, 'workflow-review') ||
          contains(github.event.pull_request.labels.*.name, 'arch-review') ||
          contains(github.event.pull_request.labels.*.name, 'security-review'))) ||
@@ -70,19 +71,22 @@ jobs:
       - name: Checkout trusted base repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.base_ref || github.event.pull_request.base.ref }}
+          ref: ${{ github.base_ref || github.event.pull_request.base.ref || github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Handle Label-Triggered Review
         id: label_prompt
-        if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
+        if: (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.pull_request.labels.*.name, 'decision-merge') || contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
         run: |
           set -euo pipefail
-          LABEL="${{ github.event.label.name || '' }}"
+          LABEL="$EVENT_LABEL"
+          if [ "$DECISION_MERGE" = true ]; then
+            LABEL=decision-merge
+          fi
           if [ -z "$LABEL" ]; then
             # Try to find a review label in the PR labels array
-            LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
+            LABEL=$(printf '%s\n' "$EVENT_LABELS" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
           fi
 
           if [ -z "$LABEL" ]; then
@@ -96,6 +100,11 @@ jobs:
           CHANGED_FILES=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json files --jq '.files[].path' || echo "")
 
           case "$LABEL" in
+            "decision-merge")
+              FILES="$CHANGED_FILES"
+              COMMAND="/oc review"
+              DESC="Review the entire PR for correctness, security, architecture, tests, and compatibility. Give a clear GO/no-go recommendation covering all changed files. Analysis only; the decision gate handles staging admission."
+              ;;
             "workflow-review")
               FILES=$(echo "$CHANGED_FILES" | grep -E "^\.github/workflows/|^docs/ci-cd\.md" || echo "")
               GUIDE="docs/ci-cd.md"
@@ -134,21 +143,28 @@ jobs:
 
           PROMPT="$COMMAND: $DESC"$'\n\n'"**Target Files:**"$'\n'"$FILE_LIST"
 
-          echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$PROMPT" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          DELIMITER="prompt_$(cat /proc/sys/kernel/random/uuid)"
+          echo "prompt<<$DELIMITER" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "$DELIMITER" >> "$GITHUB_OUTPUT"
 
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$PROMPT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_LABEL: ${{ github.event.label.name || '' }}
+          DECISION_MERGE: ${{ contains(github.event.pull_request.labels.*.name, 'decision-merge') }}
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
 
       - name: Prepare Environment
         id: prep
+        env:
+          REVIEW_PROMPT: ${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}
+          REQUESTED_MODEL: ${{ github.event.inputs.model || '' }}
         run: |
           set -euo pipefail
 
-          PROMPT="${{ github.event.inputs.prompt || steps.label_prompt.outputs.prompt || github.event.comment.body }}"
-          MODEL_INPUT="${{ github.event.inputs.model || '' }}"
+          PROMPT="$REVIEW_PROMPT"
+          MODEL_INPUT="$REQUESTED_MODEL"
           PR_NUMBER=""
           FORMAT_GUIDANCE=$'Response format requirements:\n- Use GitHub-flavored Markdown (no ANSI/control characters).\n- Start with "## Summary".\n- Include "## Findings" with severity and file references when applicable.\n- Apply repository context: this is a public repo and repo vars/secrets are non-sensitive operational tokens by default.\n- Escalate to high severity only with concrete evidence of real sensitive data exposure, privilege escalation, or malicious behavior.\n- End with "## Recommendation" and a clear go/no-go.'
 
@@ -171,20 +187,28 @@ jobs:
               ;;
           esac
 
-          PROMPT="$PROMPT"$'\n\n'"$FORMAT_GUIDANCE"
+          PROMPT="$PROMPT"$'\n\n'"$FORMAT_GUIDANCE"$'\nAnalysis only: do not approve, merge, or edit the PR. A separate decision gate handles staging admission.'
 
-          echo "prompt<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$PROMPT" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          DELIMITER="prompt_$(cat /proc/sys/kernel/random/uuid)"
+          echo "prompt<<$DELIMITER" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "$DELIMITER" >> "$GITHUB_OUTPUT"
           echo "model_input=$MODEL_INPUT" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-      - name: Extract PR diff securely
+      - name: Snapshot PR and extract exact revision diff
+        id: revision
         if: steps.prep.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.prep.outputs.pr_number }}
         run: |
-          gh pr diff ${{ steps.prep.outputs.pr_number }} > pr_patch.diff
+          set -euo pipefail
+          gh api "/repos/$REPO/pulls/$PR_NUMBER" > review_pr.json
+          echo "decision_merge=$(jq '[.labels[].name] | index("decision-merge") != null' review_pr.json)" >> "$GITHUB_OUTPUT"
+          BASE_SHA=$(jq -r '.base.sha' review_pr.json)
+          HEAD_SHA=$(jq -r '.head.sha' review_pr.json)
+          gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" -H 'Accept: application/vnd.github.diff' > pr_patch.diff
 
       - name: Resolve Review CLI Config
         id: resolve
@@ -200,8 +224,8 @@ jobs:
           if [ -n "$AGENT_MODEL_FROM_VAR" ]; then
             MODEL="$AGENT_MODEL_FROM_VAR"
           fi
-          if [ -n "${{ steps.prep.outputs.model_input }}" ]; then
-            MODEL="${{ steps.prep.outputs.model_input }}"
+          if [ -n "$REQUESTED_MODEL" ]; then
+            MODEL="$REQUESTED_MODEL"
           fi
 
           PR_NUMBER="${{ steps.prep.outputs.pr_number }}"
@@ -244,6 +268,7 @@ jobs:
           echo "selection_source=$SOURCE" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_MODEL: ${{ steps.prep.outputs.model_input }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -293,12 +318,14 @@ jobs:
       - name: Run Review CLI
         id: run_cli
         timeout-minutes: 15
+        env:
+          REVIEW_PROMPT: ${{ steps.prep.outputs.prompt }}
+          MODEL: ${{ steps.resolve.outputs.agent_model }}
         run: |
           set -euo pipefail
           CLI="${{ steps.install.outputs.cli_binary }}"
           CLI_LOWER="${{ steps.resolve.outputs.agent_cli_lower }}"
           FLAGS="${{ steps.resolve.outputs.agent_cli_flags }}"
-          MODEL="${{ steps.resolve.outputs.agent_model }}"
           MODEL_FLAG="${{ steps.resolve.outputs.agent_model_flag }}"
           PROMPT_FLAG="${{ steps.resolve.outputs.agent_prompt_flag }}"
           PROMPT_MODE="${{ steps.resolve.outputs.agent_prompt_mode }}"
@@ -315,9 +342,12 @@ jobs:
             esac
           fi
 
-          printf "%s\n" "${{ steps.prep.outputs.prompt }}" > "$PROMPT_FILE"
+          printf "%s\n" "$REVIEW_PROMPT" > "$PROMPT_FILE"
           if [ -f pr_patch.diff ]; then
             printf "\n\nReview the following patch:\n\`\`\`diff\n%s\n\`\`\`\n" "$(cat pr_patch.diff)" >> "$PROMPT_FILE"
+          fi
+          if [ -f review_pr.json ] && jq -e '[.labels[].name] | index("decision-merge") != null' review_pr.json >/dev/null; then
+            printf '\nDecision admission review: review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior specialized scope instructions do not limit this review. Return a clear GO/no-go recommendation covering all changed files. Analysis only; do not mutate the PR.\n' >> "$PROMPT_FILE"
           fi
           PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
@@ -440,13 +470,31 @@ jobs:
 
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
+      - name: Validate immutable review evidence
+        if: steps.run_cli.outputs.exit_code == '0' && steps.revision.outputs.decision_merge == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_MODEL: ${{ steps.resolve.outputs.agent_model }}
+        run: |
+          python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output.txt \
+            --output review-evidence.json --scope general --model "$REVIEW_MODEL" \
+            --workflow-path .github/workflows/opencode.yml --exit-code 0
+
+      - name: Publish immutable review evidence
+        if: success() && steps.run_cli.outputs.exit_code == '0' && steps.revision.outputs.decision_merge == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: decision-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: review-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Post Review Result
         if: always() && steps.prep.outputs.pr_number != ''
         run: |
           set -euo pipefail
           PR_NUMBER="${{ steps.prep.outputs.pr_number }}"
           CLI="${{ steps.resolve.outputs.agent_cli }}"
-          MODEL="${{ steps.resolve.outputs.agent_model }}"
           SOURCE="${{ steps.resolve.outputs.selection_source }}"
           EXIT_CODE="${{ steps.run_cli.outputs.exit_code }}"
           MAX_LEN=60000
@@ -475,6 +523,7 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODEL: ${{ steps.resolve.outputs.agent_model }}
 
       - name: Ensure Reviewed Label
         if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
@@ -490,15 +539,21 @@ jobs:
         if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))
         run: |
           PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number }}"
-          LABEL="${{ github.event.label.name || '' }}"
+          LABEL="$EVENT_LABEL"
+          # The opt-in decision-merge label must survive review completion.
+          if [[ "$LABEL" != *-review ]]; then
+            LABEL=""
+          fi
           if [ -z "$LABEL" ]; then
-            LABEL=$(echo "${{ join(github.event.pull_request.labels.*.name, ' ') }}" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
+            LABEL=$(printf '%s\n' "$EVENT_LABELS" | tr ' ' '\n' | grep -E ".*-review$" | head -n 1 || echo "")
           fi
           if [ -n "$LABEL" ]; then
             gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" --add-label "reviewed"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_LABEL: ${{ github.event.label.name || '' }}
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
 
       - name: Post Workflow Failure Link
         if: steps.run_cli.outputs.exit_code != '0' && steps.prep.outputs.pr_number != ''
