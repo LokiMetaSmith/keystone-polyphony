@@ -1,0 +1,86 @@
+name: Decision-Gated Staging Admission
+
+on:
+  workflow_run:
+    workflows: [opencode, Agent PR Review Dispatch]
+    types: [completed]
+  schedule:
+    # Retry fresh reviews that were held while tests were still running.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      review_run_id:
+        description: Successful review workflow run ID (empty scans opted-in PRs)
+        type: string
+      pr_number:
+        description: Optional expected PR number
+        type: string
+      dry_run:
+        description: Evaluate only; do not approve or push staging
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  checks: read
+  statuses: read
+  contents: write
+  pull-requests: write
+  issues: read
+
+concurrency:
+  # Shared with both existing staging writers, including manual approvals.
+  group: auto-merge-staging
+  cancel-in-progress: false
+
+jobs:
+  decision-gate:
+    if: >-
+      github.repository == 'niklas-olsson/keystone-polyphony' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install decision client dependency
+        run: python -m pip install aiohttp
+      - name: Evaluate reviewed commit and admit to staging
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STAGING_PUSH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DECISION_MERGE_MODEL: ${{ vars.DECISION_MERGE_MODEL || 'parallel/decisions-fast:free' }}
+          DECISION_MERGE_REQUIRED_CHECKS: ${{ vars.DECISION_MERGE_REQUIRED_CHECKS || 'pr-validation' }}
+          REVIEW_RUN_ID: ${{ github.event.workflow_run.id || inputs.review_run_id }}
+          EXPECTED_PR: ${{ inputs.pr_number }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "$REVIEW_RUN_ID" ]; then
+            ARGS+=(--run-id "$REVIEW_RUN_ID")
+          else
+            ARGS+=(--scan)
+          fi
+          if [ -n "$EXPECTED_PR" ]; then
+            ARGS+=(--pr-number "$EXPECTED_PR")
+          fi
+          if [ "$DRY_RUN" != 'true' ]; then
+            ARGS+=(--apply)
+          fi
+          python scripts/decision-merge.py "${ARGS[@]}"
+      - name: Preserve decision summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-decision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: decision-result.json
+          if-no-files-found: warn
+          retention-days: 7

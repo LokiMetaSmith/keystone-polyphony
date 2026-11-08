@@ -222,6 +222,16 @@ graph TD
     F -- Yes --> H[Remove Trigger Label & Add 'reviewed']
 ```
 
+### 9. Decision-Gated Staging Admission
+
+The optional `decision-merge` label requests full review and PR validation, then
+uses a typed Decisions API approval at confidence ≥0.95 to admit the exact
+reviewed commit to staging. The legacy staging paths defer opted-in PRs to this
+gate. Existing tested promotion to main remains unchanged. Manual runs default
+to dry-run; automatic runs apply accepted decisions. See
+[`decision-merge.md`](decision-merge.md) for configuration, provenance checks,
+retry behavior, and bootstrap requirements.
+
 ---
 
 ## Issue Lifecycle

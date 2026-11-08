@@ -81,7 +81,7 @@ jobs:
           # Post comment tagging reviewers
           COMMENT="PR #$PR_NUMBER modifies workflow files in \`.github/workflows/\`.
 
-          Automatic merge is disabled for security. @$REVIEWERS please review and approve these changes. Once approved, the PR will be merged to staging automatically."
+          @$REVIEWERS please review these changes. With the decision-merge label, completed review evidence and passing tests go through the decision gate before staging admission. Other PRs use the existing approval gate."
 
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$COMMENT"
 
@@ -89,7 +89,9 @@ jobs:
     # Open-by-default policy: any non-draft PR to main can flow into staging,
     # UNLESS it modifies .github/workflows/ files (those need review first).
     needs: check-workflow-changes
-    if: needs.check-workflow-changes.outputs.has_workflow_changes == 'false'
+    if: >-
+      needs.check-workflow-changes.outputs.has_workflow_changes == 'false' &&
+      !contains(github.event.pull_request.labels.*.name, 'decision-merge')
     runs-on: ubuntu-latest
     steps:
       - name: Configure Git default branch
@@ -117,10 +119,24 @@ jobs:
           fi
 
       - name: Merge PR into staging
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          set -euo pipefail
+          CURRENT_LABELS=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$CURRENT_LABELS" | grep -qx 'decision-merge'; then
+            echo "Decision gate owns staging admission for this PR."
+            exit 0
+          fi
           # Fetch the PR branch into a local ref
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
           # Merge it into staging
           git merge pr-branch -X theirs --no-edit
           # Push back to origin
+          CURRENT_LABELS=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$CURRENT_LABELS" | grep -qx 'decision-merge'; then
+            echo "PR opted into decision gate during integration; skipping push."
+            exit 0
+          fi
           git push origin staging

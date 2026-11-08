@@ -205,6 +205,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
 - Hybrid WASM LLM Engine: [`docs/hybrid-wasm-llm.md`](docs/hybrid-wasm-llm.md)
 - Optional decision models and local ensemble demo: [`docs/decision-models.md`](docs/decision-models.md)
+- Decision-gated PR admission to staging: [`docs/decision-merge.md`](docs/decision-merge.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
