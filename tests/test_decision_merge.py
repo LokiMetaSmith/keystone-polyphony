@@ -512,3 +512,96 @@ def test_chunk_state_is_not_mutated_or_shared(monkeypatch):
     assert state == initial
     assert all(item["automatic_review"]["verdict"] == "PASS" for item in seen)
     assert all(item["checks"] and item["diff_manifest"] for item in seen)
+
+
+def action_run(identifier, workflow=10, event="pull_request", **kwargs):
+    return {
+        "id": identifier,
+        "workflow_id": workflow,
+        "event": event,
+        "head_sha": HEAD,
+        "status": "completed",
+        "conclusion": "success",
+        **kwargs,
+    }
+
+
+def action_check(identifier, run, conclusion="success", **kwargs):
+    return {
+        "id": identifier,
+        "name": "test",
+        "status": "completed",
+        "conclusion": conclusion,
+        "app": {"slug": "github-actions"},
+        "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/1",
+        **kwargs,
+    }
+
+
+def test_old_cancelled_run_superseded_by_same_workflow_event_success():
+    github = Mock(repository=REPO)
+    github.pages.return_value = [action_run(1), action_run(2)]
+    current = action_check(20, 2)
+    assert gate.current_run_checks(
+        github,
+        HEAD,
+        [
+            action_check(10, 1, "cancelled"),
+            current,
+        ],
+    ) == [current]
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        {"workflow": 11},
+        {"event": "push"},
+    ],
+)
+def test_different_workflow_or_event_cannot_hide_failure(other):
+    github = Mock(repository=REPO)
+    github.pages.return_value = [action_run(1, **other), action_run(2)]
+    failure = action_check(10, 1, "failure")
+    assert failure in gate.current_run_checks(
+        github, HEAD, [failure, action_check(20, 2)]
+    )
+
+
+def test_newer_pending_run_blocks_even_before_its_jobs_appear():
+    github = Mock(repository=REPO)
+    github.pages.return_value = [
+        action_run(1),
+        action_run(2, status="queued", conclusion=None),
+    ]
+    result = gate.current_run_checks(github, HEAD, [action_check(10, 1, "cancelled")])
+    assert len(result) == 1
+    assert result[0]["status"] == "queued" and result[0]["conclusion"] is None
+
+
+def test_latest_job_attempt_only_within_same_run_and_job_name():
+    github = Mock(repository=REPO)
+    github.pages.return_value = [action_run(1)]
+    newer = action_check(11, 1)
+    assert gate.current_run_checks(
+        github, HEAD, [action_check(10, 1, "failure"), newer]
+    ) == [newer]
+
+
+def test_unknown_or_non_actions_check_is_preserved():
+    github = Mock(repository=REPO)
+    github.pages.return_value = [action_run(1), action_run(2)]
+    unknown = action_check(1, 99, "failure")
+    other_app = action_check(2, 1, "failure", app={"slug": "external-ci"})
+    assert gate.current_run_checks(github, HEAD, [unknown, other_app]) == [
+        unknown,
+        other_app,
+    ]
+
+
+def test_new_workflow_waiting_for_jobs_still_blocks():
+    github = Mock(repository=REPO)
+    github.pages.return_value = [action_run(1, status="queued", conclusion=None)]
+    result = gate.current_run_checks(github, HEAD, [])
+    assert len(result) == 1
+    assert result[0]["status"] == "queued"

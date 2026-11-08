@@ -90,3 +90,34 @@ def test_pin_does_not_authorize_other_prs_or_evidence(installation, mutation):
         evidence["workflow_path"] = ".github/workflows/workflow-review-dispatch.yml"
     with pytest.raises(gate.Hold):
         gate.verify_workflow(github, run, evidence, pr)
+
+
+def test_trusted_target_event_can_review_changed_pr_workflow(installation):
+    github, run, evidence, pr, _ = installation
+    pr["base"].update(ref="main", repo={"id": 123})
+    run.update(
+        event="pull_request_target",
+        pull_requests=[
+            {"number": 86, "base": {"sha": BASE, "ref": "main", "repo": {"id": 123}}}
+        ],
+    )
+    gate.verify_workflow(github, run, evidence, pr)
+    assert github.api.call_count == 1
+
+
+@pytest.mark.parametrize("mutation", ["number", "sha", "repo", "ref"])
+def test_target_event_must_bind_to_same_pr_base(installation, mutation):
+    github, run, evidence, pr, _ = installation
+    pr["base"].update(ref="main", repo={"id": 123})
+    target = {"number": 86, "base": {"sha": BASE, "ref": "main", "repo": {"id": 123}}}
+    run.update(event="pull_request_target", pull_requests=[target])
+    if mutation == "number":
+        target["number"] = 87
+    elif mutation == "sha":
+        target["base"]["sha"] = "e" * 40
+    elif mutation == "repo":
+        target["base"]["repo"]["id"] = 456
+    else:
+        target["base"]["ref"] = "staging"
+    with pytest.raises(gate.Hold, match="not bound"):
+        gate.verify_workflow(github, run, evidence, pr)

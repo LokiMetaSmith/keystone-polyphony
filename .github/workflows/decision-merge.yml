@@ -5,7 +5,7 @@ on:
     # One-time installation: the owner must pin this exact audited commit in
     # DECISION_GATE_BOOTSTRAP_SHA before pushing. Remove the pin after admission.
     branches: [feat/lokimetasmith-sync]
-    paths: [.github/workflows/decision-merge.yml]
+    paths: [.github/workflows/decision-merge.yml, scripts/decision-merge.py]
   workflow_run:
     workflows: [opencode, Agent PR Review Dispatch]
     types: [completed]

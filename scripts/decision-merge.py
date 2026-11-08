@@ -140,6 +140,27 @@ def verify_workflow(github, run, evidence, pr):
     # A PR may change its workflow YAML. Such a run cannot certify itself.
     path = evidence["workflow_path"]
     trusted = github.api(f"contents/{path}?ref={pr['base']['sha']}")
+    if run.get("event") == "pull_request_target":
+        # GitHub executes target-event workflow code from the default branch.
+        # The run API may nevertheless report the PR head as head_sha. Bind the
+        # authenticated target event to this PR/base rather than treating that
+        # metadata field as the workflow source revision.
+        if (
+            pr.get("base", {}).get("ref") != "main"
+            or type(pr.get("base", {}).get("repo", {}).get("id")) is not int
+            or not any(
+                item.get("number") == pr.get("number")
+                and item.get("base", {}).get("sha") == pr["base"]["sha"]
+                and item.get("base", {}).get("ref") == "main"
+                and item.get("base", {}).get("repo", {}).get("id")
+                == pr.get("base", {}).get("repo", {}).get("id")
+                for item in run.get("pull_requests", [])
+                if isinstance(item, dict)
+            )
+        ):
+            raise Hold("Target review is not bound to this PR and base")
+        if trusted.get("sha"):
+            return
     executed = github.api(f"contents/{path}?ref={run['head_sha']}")
     if trusted.get("sha") and executed.get("sha") == trusted["sha"]:
         return
@@ -204,6 +225,70 @@ def unresolved_threads(github, number):
     raise Hold("Review threads exceed pagination limit")
 
 
+def current_run_checks(github, commit, checks):
+    """Supersede checks only within one authenticated Actions workflow/event."""
+    runs = github.pages(f"actions/runs?head_sha={commit}", "workflow_runs")
+    known = {}
+    latest = {}
+    for run in runs:
+        if (
+            run.get("head_sha") != commit
+            or type(run.get("id")) is not int
+            or type(run.get("workflow_id")) is not int
+            or not isinstance(run.get("event"), str)
+        ):
+            continue
+        key = (run["workflow_id"], run["event"])
+        known[run["id"]] = run
+        if key not in latest or run["id"] > latest[key]["id"]:
+            latest[key] = run
+    matched = []
+    untouched = []
+    for check in checks:
+        match = re.match(
+            r"^https://github\.com/"
+            + re.escape(github.repository)
+            + r"/actions/runs/([0-9]+)(?:/|$)",
+            check.get("details_url") or "",
+        )
+        run = known.get(int(match[1])) if match else None
+        if check.get("app", {}).get("slug") != "github-actions" or not run:
+            untouched.append(check)
+            continue
+        key = (run["workflow_id"], run["event"])
+        if run["id"] == latest[key]["id"]:
+            matched.append((run["id"], check))
+    # Re-running jobs keeps the run ID. Retain the latest check ID for each
+    # job name within that run, without conflating different workflows/events.
+    jobs = {}
+    for run_id, check in matched:
+        key = (run_id, check.get("name"))
+        previous = jobs.get(key)
+        if previous is None or check.get("id", 0) > previous.get("id", 0):
+            jobs[key] = check
+    result = untouched + list(jobs.values())
+    for key in latest:
+        run = latest[key]
+        # A new run may supersede old checks before creating any new jobs.
+        # Its unfinished/failed state must still prevent admission. The gate
+        # itself is handled by readiness's existing provenance exemption.
+        if run.get("path", "").split("@")[0] == GATE_PATH:
+            continue
+        if run.get("status") != "completed" or run.get("conclusion") not in {
+            "success",
+            "skipped",
+            "neutral",
+        }:
+            result.append(
+                {
+                    "name": f"Actions workflow {run['workflow_id']} ({run['event']})",
+                    "status": run.get("status"),
+                    "conclusion": run.get("conclusion"),
+                }
+            )
+    return result
+
+
 def readiness(github, number, evidence, required_checks):
     pr = github.api(f"pulls/{number}")
     sha = pr["head"]["sha"]
@@ -228,7 +313,13 @@ def readiness(github, number, evidence, required_checks):
             )
         )
         checks.extend(
-            github.pages(f"commits/{commit}/check-runs?filter=latest", "check_runs")
+            current_run_checks(
+                github,
+                commit,
+                github.pages(
+                    f"commits/{commit}/check-runs?filter=latest", "check_runs"
+                ),
+            )
         )
         latest = {}
         for status in github.pages(f"commits/{commit}/statuses"):
