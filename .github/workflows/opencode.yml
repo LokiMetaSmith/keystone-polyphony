@@ -6,8 +6,10 @@ on:
   pull_request_review_comment:
     types: [created]
   pull_request:
+    # Only the owner-pinned installation PR uses its own audited workflow.
     types: [opened, synchronize, reopened, labeled]
   pull_request_target:
+    # Normal own-repository and fork PRs run trusted base workflow code.
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
@@ -39,8 +41,14 @@ jobs:
         (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR') &&
         (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))) ||
        ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
-        ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-         (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)) &&
+        ((github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.number == 86 &&
+          github.event.pull_request.head.ref == 'feat/lokimetasmith-sync' &&
+          github.event.pull_request.base.sha == '8f23c9c7b721ad47ffbf5358a812dac2dba66999' &&
+          vars.DECISION_GATE_BOOTSTRAP_SHA != '' &&
+          github.event.pull_request.head.sha == vars.DECISION_GATE_BOOTSTRAP_SHA) ||
+         github.event_name == 'pull_request_target') &&
         (contains(github.event.label.name, '-review') ||
          contains(github.event.pull_request.labels.*.name, 'decision-merge') ||
          contains(github.event.pull_request.labels.*.name, 'workflow-review') ||
@@ -71,7 +79,9 @@ jobs:
       - name: Checkout trusted base repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.base_ref || github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          # Owner-pinned bootstrap is limited to this installation PR; other
+          # review events continue to use the trusted base checkout.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 86 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/lokimetasmith-sync' && github.event.pull_request.base.sha == '8f23c9c7b721ad47ffbf5358a812dac2dba66999' && vars.DECISION_GATE_BOOTSTRAP_SHA != '' && github.event.pull_request.head.sha == vars.DECISION_GATE_BOOTSTRAP_SHA && vars.DECISION_GATE_BOOTSTRAP_SHA || github.base_ref || github.event.pull_request.base.ref || github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
 

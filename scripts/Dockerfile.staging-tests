@@ -1,0 +1,18 @@
+# Dependencies are prepared with network access; candidate checks run with
+# docker --network none in periodic-merge-main.yml, without workflow tokens.
+FROM node:22-bookworm AS node
+FROM python:3.12-bookworm
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
+COPY requirements.txt /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt
+COPY package.json package-lock.json /opt/sidecar/
+RUN npm ci --prefix /opt/sidecar
+
+RUN apt-get update && apt-get install -y --no-install-recommends jq \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace

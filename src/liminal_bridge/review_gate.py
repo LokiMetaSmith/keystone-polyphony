@@ -217,7 +217,14 @@ async def evaluate_review(state, *, api_key, model=DEFAULT_MODEL, timeout=20):
                     "a review command's successful exit alone do not establish safety. "
                     "Do not speculate about generic secret wiring without concrete "
                     "sensitive exposure or privilege escalation evidence. Hold when "
-                    "review evidence is ambiguous, incomplete or conflicting."
+                    "review evidence is ambiguous, incomplete or conflicting. "
+                    "When chunk metadata is supplied, the diff is one ordered "
+                    "partition of the complete change, not an omitted patch. "
+                    "Evaluate this partition against the full independent review, "
+                    "CI results and complete file manifest. Approve only this "
+                    "partition if acceptable; the local gate independently "
+                    "requires every partition to approve before any staging "
+                    "admission. Missing expected partition evidence still holds."
                 ),
                 "criteria": {
                     "approve": "Explicit GO from substantive review, no outstanding "

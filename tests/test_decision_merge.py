@@ -401,3 +401,114 @@ def test_scan_respects_explicit_pr_number(monkeypatch):
         {"pr_number": 8, "status": "already_staged"}
     ]
     assert github.api.call_args.args[0] == "pulls/8"
+
+
+@pytest.mark.parametrize(
+    "diff",
+    [
+        "diff --git a/one b/one\n+" + "é🐦" * 20000,
+        "diff --git a/one b/one\n"
+        + "+line\n" * 7000
+        + "diff --git a/two b/two\n"
+        + "+more\n" * 7000,
+    ],
+)
+def test_chunking_covers_every_utf8_byte_once(diff):
+    chunks = gate.split_diff(diff)
+    assert len(chunks) > 1
+    assert "".join(chunks).encode("utf-8") == diff.encode("utf-8")
+    assert all(
+        0 < len(chunk.encode("utf-8")) <= gate.MAX_DIFF_CHUNK for chunk in chunks
+    )
+
+
+def test_chunks_prefer_complete_file_boundaries():
+    first = "diff --git a/one b/one\n+one\n"
+    second = "diff --git a/two b/two\n+two\n"
+    assert gate.split_diff(first + second, len(first) + 5) == [first, second]
+
+
+def test_chunking_rejects_oversized_complete_diff():
+    with pytest.raises(gate.Hold, match="budget"):
+        gate.split_diff("é" * (gate.MAX_DIFF // 2 + 1))
+
+
+def test_last_chunk_hold_blocks_staging(evaluate_ready, monkeypatch):
+    diff = "diff --git a/test b/test\n" + "+test\n" * 14000
+    monkeypatch.setattr(gate, "fetch_diff", lambda *args: diff)
+    count = len(gate.split_diff(diff))
+    gate.evaluate_review.side_effect = [
+        {"approved": True, "confidence": 0.99, "model": "first"}
+        for _ in range(count - 1)
+    ] + [{"approved": False, "confidence": 0.98, "model": "last"}]
+    result = gate.evaluate(evaluate_ready, 90, dry_run=False)
+    assert result["status"] == "held"
+    assert len(result["decision"]["chunks"]) == count
+    assert gate.evaluate_review.await_count == count
+    gate.approve_and_stage.assert_not_called()
+
+
+def test_first_chunk_hold_stops_decision_requests(evaluate_ready, monkeypatch):
+    monkeypatch.setattr(gate, "fetch_diff", lambda *args: "é" * 60000)
+    gate.evaluate_review.return_value = {
+        "approved": False,
+        "confidence": None,
+        "status": "refused",
+    }
+    assert gate.evaluate(evaluate_ready, 90, dry_run=False)["status"] == "held"
+    assert gate.evaluate_review.await_count == 1
+    gate.approve_and_stage.assert_not_called()
+
+
+def test_chunk_requests_preserve_full_shared_evidence_and_manifest(
+    evaluate_ready, monkeypatch, evidence
+):
+    import hashlib
+
+    diff = "diff --git a/one b/one\n+" + "é" * 25000
+    diff += "\ndiff --git a/two b/two\n+" + "🐦" * 15000
+    monkeypatch.setattr(gate, "fetch_diff", lambda *args: diff)
+    result = gate.evaluate(evaluate_ready, 90)
+    requests = [call.args[0] for call in gate.evaluate_review.await_args_list]
+    assert "".join(item["diff"] for item in requests) == diff
+    assert len(requests) == result["decision"]["chunk_count"]
+    for index, request in enumerate(requests, 1):
+        assert request["review"] == evidence["review_text"]
+        assert request["automatic_review"] == {
+            "verdict": "PASS",
+            "blocking_findings": 0,
+        }
+        assert request["head_sha"] == HEAD and request["base_sha"] == BASE
+        assert request["checks"] == [{"name": "test", "conclusion": "success"}]
+        assert request["chunk"] == {"index": index, "count": len(requests)}
+        assert request["diff_sha256"] == hashlib.sha256(diff.encode()).hexdigest()
+        assert request["diff_manifest"] == gate.diff_manifest(diff)
+    assert len(requests[0]["diff_manifest"]) == 2
+
+
+def test_chunk_state_is_not_mutated_or_shared(monkeypatch):
+    import asyncio
+    import copy
+
+    state = {
+        "diff": "é" * 60000,
+        "automatic_review": {"verdict": "PASS", "blocking_findings": 0},
+        "checks": [{"name": "test", "conclusion": "success"}],
+    }
+    initial = copy.deepcopy(state)
+    seen = []
+
+    async def decide(request, **kwargs):
+        seen.append(copy.deepcopy(request))
+        request["automatic_review"]["verdict"] = "FAIL"
+        request["checks"].clear()
+        request["diff_manifest"].clear()
+        return {"approved": True, "confidence": 0.96, "model": "test"}
+
+    monkeypatch.setattr(gate, "evaluate_review", decide)
+    result = asyncio.run(gate.evaluate_diff(state))
+    assert result["approved"]
+    assert result["confidence"] == 0.96
+    assert state == initial
+    assert all(item["automatic_review"]["verdict"] == "PASS" for item in seen)
+    assert all(item["checks"] and item["diff_manifest"] for item in seen)

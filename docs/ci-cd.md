@@ -38,14 +38,16 @@ graph TD
 ```
 
 ### 2. Periodic Merge to Main
-**Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
+**Trigger:** `schedule` (every 10 minutes) or `workflow_dispatch`.
 **File:** `periodic-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
+The test job builds a Python 3.12 / Node 22 dependency image from the staged dependency manifests, then runs lint and the complete pytest suite in a container with network access disabled. Missing test tools fail the job. `HOURLY_TEST_COMMAND` and `HOURLY_TEST_IMAGE` no longer override these required checks. Promotion checks that both main and staging still match their selected snapshots before a normal merge and push; concurrent updates cause a retry on the next cycle.
+
 ```mermaid
 graph TD
-    A[Every 20 min or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A[Every 10 min or Manual Dispatch] --> B[detect-staging: Check for changes]
     A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))

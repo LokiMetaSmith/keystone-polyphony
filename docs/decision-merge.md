@@ -35,7 +35,12 @@ its commits eventually reach the target branch through normal promotion.
    jobs alone cannot satisfy test readiness. Checks on both the head and current
    synthetic merge commit are considered.
 5. Only after the automatic review passes does the decision model receive the
-   full bounded diff and substantive review. It must **separately** approve. Only
+   full bounded diff and substantive review. Large diffs are partitioned into
+   ordered requests of at most 20,000 UTF-8 bytes, preferring file boundaries.
+   Every request includes the full independent review, CI results, exact SHAs,
+   full file manifest and hashes, full-diff hash, and chunk index/count. Every
+   chunk must **separately** approve; one hold, refusal, or failure stops the
+   sequence without staging any part of the PR. Only
    a typed `approve` choice with confidence at least **0.95** allows admission.
    A refusal, hold, low confidence, malformed response, missing key, or error
    leaves the PR out of staging. The decision model cannot override a failed
@@ -95,17 +100,35 @@ custom runners remain available, with their platform argument-size limits.
 
 ## Bootstrap and held cases
 
-The workflow and trusted evidence helper must first land on the default branch
-through maintainer review. This initial PR does not certify or merge its own
-installation. Manual source reviewer runs also load trusted base/default code.
+Normal runs execute the default-branch gate and trusted-base evidence helper.
 A fresh review is required after the schema-v2 upgrade; older evidence without
-an explicit reviewer PASS is rejected.
-A PR that modifies the reviewer workflow itself cannot certify that changed
-workflow with its own run; it needs maintainer handling or fresh trusted evidence.
+an explicit reviewer PASS is rejected. A PR changing its reviewer workflow
+cannot normally certify that change with its own run.
 
-The gate requires a complete text diff (at most 80,000 UTF-8 bytes) and review
-text of at most 60,000 UTF-8 bytes. It holds binary, omitted, larger, stale, or
-workflow-only evidence for application changes rather than silently truncating
+The repository owner explicitly authorized a one-time installation for PR #86.
+The admin-owned `DECISION_GATE_BOOTSTRAP_SHA` variable must pin the exact audited
+feature commit before an owner push. Both reviewer checkout and provenance
+checks restrict this path to that SHA, PR #86, the integration branch, the same
+repository, the owner actor, and the original `main` base SHA. It still requires
+a full independent reviewer PASS, passing PR validation, and approval of every
+diff partition by the decision model. The waiting job holds no staging lock;
+only admission acquires the shared staging lock. Remove the bootstrap pin after
+admission. Other PRs and later revisions retain normal trusted-base checks.
+
+After admission, run **Periodic Test and Merge to Main** against the reviewed
+feature revision for initial installation. It builds test dependencies without
+workflow credentials, runs mandatory lint and pytest in a network-isolated
+container, and promotes only the unchanged tested staging snapshot. Old
+`HOURLY_TEST_COMMAND`/`HOURLY_TEST_IMAGE` variables cannot replace these checks.
+A normal merge preserves PR ancestry so GitHub marks the original PR merged
+when its commits reach `main`; native self-approval is not required.
+
+The gate requires a complete text diff (at most 1,000,000 UTF-8 bytes) and review
+text of at most 60,000 UTF-8 bytes. It partitions rather than truncates large
+diffs, including oversized lines without splitting UTF-8 characters. Small PRs
+need one decision request. Results record every evaluated chunk, its actual
+model, and the minimum confidence across decisions. It holds binary, omitted,
+larger, stale, or workflow-only evidence for application changes rather than silently truncating
 the decision input. The provider can impose a smaller context budget, in which
 case its error also holds admission. Missing or pending checks hold the PR until
 the next retry; unresolved findings require a new review or explicit resolution.

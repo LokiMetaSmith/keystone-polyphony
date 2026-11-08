@@ -254,3 +254,20 @@ async def test_cancellation_propagates(http):
     http[2].json.side_effect = asyncio.CancelledError()
     with pytest.raises(asyncio.CancelledError):
         await evaluate_review({}, api_key="test-key")
+
+
+@pytest.mark.asyncio
+async def test_partition_policy_is_in_trusted_question_not_only_untrusted_state(http):
+    state = {
+        "chunk": {"index": 2, "count": 3},
+        "diff": "+second partition",
+        "diff_manifest": [{"header": "diff --git a/test b/test", "sha256": "abc"}],
+    }
+    await evaluate_review(state, api_key="test-key")
+    request = http[1].post.call_args.kwargs["json"]
+    instructions = request["questions"]["staging"]["instructions"]
+    assert "one ordered partition of the complete change" in instructions
+    assert "full independent review" in instructions
+    assert "requires every partition to approve" in instructions
+    assert "Missing expected partition evidence still holds" in instructions
+    assert request["state"] == state
