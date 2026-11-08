@@ -1,3 +1,8 @@
+try:
+    from .coordinator import managed_task
+except ImportError:
+    from coordinator import managed_task
+
 import os
 import uuid
 import sqlite3
@@ -343,8 +348,23 @@ class DashboardServer:
                 if not task_id:
                     return web.json_response({"error": "Missing task_id"}, status=400)
 
-                await self.mesh.release_baton(f"task:{task_id}")
                 backlog = self.mesh.get_kv("swarm_backlog") or []
+                if managed_task({"id": task_id}):
+                    return web.json_response(
+                        {"error": "Coordinator candidate acceptance required"},
+                        status=409,
+                    )
+                for item in backlog:
+                    try:
+                        task = json.loads(item)
+                    except (ValueError, TypeError):
+                        continue
+                    if task.get("id") == task_id and managed_task(task):
+                        return web.json_response(
+                            {"error": "Coordinator candidate acceptance required"},
+                            status=409,
+                        )
+                await self.mesh.release_baton(f"task:{task_id}")
                 for item in backlog:
                     try:
                         t = json.loads(item)

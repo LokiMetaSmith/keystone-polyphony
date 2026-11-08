@@ -166,3 +166,12 @@ policy hold or refusal ends selection and holds admission;
 it never retries to obtain an approval. The final decision records the actual
 selected model. An explicit `DECISION_MERGE_MODEL` bypasses catalog selection and
 fallback. See [model selection](model-picker.md) for ranking and catalog-outage behavior.
+
+## Durable worker candidate records
+
+The opt-in [durable collaboration prototype](durable-collaboration.md) can
+preserve a reviewed patch and its requirements-bound admission packet before a
+PR exists. That packet records local candidate acceptance, not release authority.
+Creating a PR from it still requires this gate's independent workflow evidence
+and CI bound to the PR's actual head/base SHAs. No local receipt substitutes for
+GitHub authorization or the existing staging checks.
