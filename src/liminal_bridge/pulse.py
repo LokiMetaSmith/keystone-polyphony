@@ -4,8 +4,10 @@ from typing import Any
 
 try:
     from .architect import Architect
+    from .decisions import DecisionAdvisor
 except ImportError:
     from architect import Architect
+    from decisions import DecisionAdvisor
 
 
 def _serialize_for_json(obj):
@@ -21,9 +23,13 @@ def _serialize_for_json(obj):
 
 
 class Pulse:
-    def __init__(self, mesh: Any, architect: Architect):
+    def __init__(self, mesh: Any, architect: Architect, decision_advisor=None):
         self.mesh = mesh
         self.architect = architect
+        self.decision_advisor = (
+            decision_advisor if decision_advisor is not None else DecisionAdvisor()
+        )
+        self.last_decision = None
         self.last_consultation = 0.0
         self.cooldown = 300.0  # 5 minutes between automatic consultations
 
@@ -45,6 +51,50 @@ class Pulse:
             "context": context,
         }
         swarm_state = _serialize_for_json(raw_state)
+
+        # Consult only at the coordination boundary, never during CRDT merges.
+        # Send a bounded summary rather than shared thoughts or arbitrary KV values.
+        self.last_decision = None
+        if context != "force":
+            has_master_plan = bool(self.mesh.get_kv("master_plan"))
+            trigger = context.split(":", 1)[0]
+            if trigger not in {
+                "routine_check",
+                "seed_heartbeat",
+                "manual",
+                "baton_released",
+            }:
+                trigger = "other"
+            tasks = []
+            backlog = self.mesh.get_kv("swarm_backlog")
+            if not isinstance(backlog, (list, set, tuple)):
+                backlog = []
+            for item in backlog:
+                try:
+                    task = json.loads(item)
+                    if isinstance(task, dict):
+                        tasks.append(
+                            {
+                                "status": task.get("status"),
+                                "priority": task.get("priority"),
+                            }
+                        )
+                except (TypeError, json.JSONDecodeError):
+                    continue
+            self.last_decision = await self.decision_advisor.evaluate(
+                {
+                    "context": trigger,
+                    "thought_count": len(self.mesh.thoughts),
+                    "active_baton_count": len(self.mesh.batons),
+                    "has_master_plan": has_master_plan,
+                    "tasks": tasks[:100],
+                    "task_count": len(tasks),
+                }
+            )
+            if self.last_decision.get("action") == "continue" and has_master_plan:
+                self.last_consultation = now
+                print("PULSE: Decision advisor recommends continuing the current plan.")
+                return
 
         # Consult
         new_plan_raw = await self.architect.consult(swarm_state)
