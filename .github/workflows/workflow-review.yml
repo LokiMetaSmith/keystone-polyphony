@@ -11,12 +11,17 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: auto-merge-staging
+  cancel-in-progress: false
+
 jobs:
   merge-approved-workflow-pr:
     # Only run when a PR with the 'workflow-review' label receives an approval.
     if: >-
       github.event.review.state == 'approved' &&
-      contains(github.event.pull_request.labels.*.name, 'workflow-review')
+      contains(github.event.pull_request.labels.*.name, 'workflow-review') &&
+      !contains(github.event.pull_request.labels.*.name, 'decision-merge')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
@@ -75,17 +80,30 @@ jobs:
           fi
 
       - name: Merge PR into staging
+        id: staging
         if: steps.verify.outputs.authorized == 'true'
         run: |
+          set -euo pipefail
+          CURRENT_LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$CURRENT_LABELS" | grep -qx 'decision-merge'; then
+            echo "Decision gate owns staging admission for this PR."
+            exit 0
+          fi
           # Fetch the PR branch into a local ref
           git fetch origin pull/$PR_NUMBER/head:pr-branch
           # Merge it into staging
           git merge pr-branch -X theirs --no-edit
           # Push back to origin
+          CURRENT_LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          if printf '%s\n' "$CURRENT_LABELS" | grep -qx 'decision-merge'; then
+            echo "PR opted into decision gate during integration; skipping push."
+            exit 0
+          fi
           git push origin staging
+          echo "admitted=true" >> "$GITHUB_OUTPUT"
 
       - name: Cleanup label and comment
-        if: steps.verify.outputs.authorized == 'true'
+        if: steps.staging.outputs.admitted == 'true'
         run: |
           gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "workflow-review"
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "Workflow changes approved by @$REVIEWER. PR has been merged to staging."

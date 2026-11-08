@@ -38,14 +38,16 @@ graph TD
 ```
 
 ### 2. Periodic Merge to Main
-**Trigger:** `schedule` (every 20 minutes) or `workflow_dispatch`.
+**Trigger:** `schedule` (every 10 minutes) or `workflow_dispatch`.
 **File:** `periodic-merge-main.yml`
 
 This scheduled job acts as the gatekeeper to production (`main`). It periodically checks the `staging` branch, runs all automated tests, and if everything passes cleanly, promotes staging into `main`. It also sweeps for any leftover issue files on `main` and publishes them.
 
+The test job builds a Python 3.12 / Node 22 dependency image from the staged dependency manifests, then runs lint and the complete pytest suite in a container with network access disabled. Missing test tools fail the job. `HOURLY_TEST_COMMAND` and `HOURLY_TEST_IMAGE` no longer override these required checks. Promotion checks that both main and staging still match their selected snapshots before a normal merge and push; concurrent updates cause a retry on the next cycle.
+
 ```mermaid
 graph TD
-    A[Every 20 min or Manual Dispatch] --> B[detect-staging: Check for changes]
+    A[Every 10 min or Manual Dispatch] --> B[detect-staging: Check for changes]
     A --> S[sweep-issues: Check for leftover issue files]
     B --> C{Are there new commits?}
     C -- No --> Skip((Skip Workflow))
@@ -165,7 +167,41 @@ CLI selection precedence is:
 2. Repository variable (`REVIEW_AGENT_CLI`, then fallback `AGENT_CLI`)
 3. PR label tag (`review-cli:<cli>` or `review-agent:<cli>`)
 
-Model override uses the same pattern (`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> review-model:<model>`). For custom tooling, install and argument behavior can be customized with repository variables such as `REVIEW_AGENT_INSTALL_CMD`, `REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`, and `REVIEW_AGENT_PROMPT_MODE`.
+Both review runners (`opencode.yml` and `workflow-review-dispatch.yml`) default to
+`auto`. The shared [model picker](model-picker.md) queries the current OpenRouter
+catalog, requires free text/tool models with at least 256,000 tokens of context,
+and ranks by documented total parameters, catalog release date, then context.
+Unknown parameter counts rank below disclosed sizes. This implements the
+capacity-first criterion; it is not a benchmark of review quality.
+
+Provider failures try the next candidate, with bounded attempts and time.
+A substantive review FAIL does not trigger another model. Evidence and comments
+record the model that actually completed the review. Model IDs passed to OpenCode
+include its `openrouter/` provider prefix; the catalog uses raw OpenRouter IDs.
+Before the picker reaches the trusted base branch, reviews use the prior free
+Nemotron 3 Ultra bootstrap model and emit an explicit notice. PR code is never
+loaded as the privileged picker implementation.
+
+Model selection in `opencode.yml` follows
+`auto -> REVIEW_AGENT_MODEL/AGENT_MODEL -> nonempty manual model input -> review-model:<model>`.
+The manual input defaults to empty so it does not mask repository settings.
+`workflow-review-dispatch.yml` uses `REVIEW_AGENT_MODEL`, then `AGENT_MODEL`,
+then the same default; it also honors `REVIEW_AGENT_CLI` before `AGENT_CLI`.
+Explicit overrides may select a paid model, so use a `:free` model ID when
+zero-cost inference is required.
+
+For custom tooling, install and argument behavior can be customized in
+`opencode.yml` with repository variables such as `REVIEW_AGENT_INSTALL_CMD`,
+`REVIEW_AGENT_CLI_FLAGS`, `REVIEW_AGENT_MODEL_FLAG`, `REVIEW_AGENT_PROMPT_FLAG`,
+and `REVIEW_AGENT_PROMPT_MODE`.
+
+Configure the repository secret `OPENROUTER_API_KEY` for the default model.
+The dispatch runner prefers that key for `openrouter/` models, with
+`AGENT_API_KEY` as a legacy fallback; other providers continue to use
+`AGENT_API_KEY`. The router key is scoped to credential validation and agent
+execution. OpenCode is invoked as `opencode run --model <model>` with the full
+prompt and diff streamed through stdin, avoiding command-line argument limits.
+When selecting another CLI, set a model override that the selected CLI supports.
 
 Security hardening notes:
 - `/oc` and `/opencode` comment-triggered reviews only run for trusted associations (`OWNER`, `MEMBER`, `COLLABORATOR`).
@@ -188,6 +224,19 @@ graph TD
     F -- No --> G[Post Failure Comment]
     F -- Yes --> H[Remove Trigger Label & Add 'reviewed']
 ```
+
+### 9. Decision-Gated Staging Admission
+
+The optional `decision-merge` label requests full review and PR validation, then
+requires an explicit automatic-review PASS with zero blocking findings, then
+a separate typed Decisions API assessment across five review areas. At least four
+areas must reach 80% YES probability, including correctness and security; an
+identified unresolved blocker vetoes admission. The local rule admits the exact
+reviewed commit to staging. The legacy staging paths defer opted-in PRs to this
+gate. Existing tested promotion to main remains unchanged. Manual runs default
+to dry-run; automatic runs apply accepted decisions. See
+[`decision-merge.md`](decision-merge.md) for configuration, provenance checks,
+retry behavior, and bootstrap requirements.
 
 ---
 

@@ -1,4 +1,4 @@
-mcp>=1.0.0
+mcp>=1.0.0,<2.0.0
 openai>=1.0.0
 pydantic
 pytest
@@ -9,3 +9,6 @@ flake8
 black
 ollama
 aiohttp>=3.9.0
+aiomqtt>=2.0.0
+bleak>=0.21.0
+bless

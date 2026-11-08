@@ -5,8 +5,10 @@ from typing import Dict, Any, Optional
 
 try:
     from .mesh import LiminalMesh
+    from .storage import SQLiteStorageProvider
 except ImportError:
     from mesh import LiminalMesh
+    from storage import SQLiteStorageProvider
 
 
 class DistributedKVCache:
@@ -51,7 +53,7 @@ class DistributedKVCache:
         }
 
         # We use an ORSet so multiple shards can append their chunks to the same session simultaneously
-        # without overwriting each other (which LWWRegister would do).
+        # without overwriting each other (which Register would do).
         await self.mesh.update_set(crdt_key, json.dumps(cache_metadata), urgency="high")
         return crdt_key
 
@@ -116,7 +118,9 @@ if __name__ == "__main__":
         # Mock mesh
         from unittest.mock import MagicMock
 
-        mesh = LiminalMesh(secret_key="mock", db_path=":memory:")
+        mesh = LiminalMesh(
+            secret_key="mock", storage_provider=SQLiteStorageProvider(":memory:")
+        )
         cache = DistributedKVCache(mesh)
 
         print("Pushing Mock Cache Blocks to CRDT...")

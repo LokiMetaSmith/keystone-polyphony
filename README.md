@@ -22,6 +22,12 @@ The result should be welcoming to developers, artists, strategists, testers, and
 - `Polyphony`: The many voices. Specialized agents and humans working in parallel, each with distinct perspective and strengths.
 - `Mind Bridge`: The connective tissue. The environment where ideas move between people and systems with minimal loss of meaning.
 
+### Multi-Modal Transport Context
+Keystone Polyphony implements contextual network attenuation to route messages based on physical proximity and urgency, acting as a true "Mind Bridge" across diverse environments:
+- **Macro (MQTT):** For distant nodes (>5m) or high-urgency updates, the system utilizes MQTT for robust, low-latency, and wide-area publish/subscribe broadcasting.
+- **Micro (BLE):** For hyper-local nodes (<1m), the system can bridge air-gapped networks using Bluetooth Low Energy (BLE) GATT characteristics. This allows physical presence and proximity to serve as an intrinsic security parameter and enables edge-device coordination ("sneaker problem") without relying on global internet infrastructure.
+- **Fallback (Hyperswarm):** The default peer-to-peer DHT routing mesh used when specialized macro/micro transports are unavailable.
+
 ## Collaboration Model (RTOS-Inspired)
 
 One of our primary technical experiments is applying real-time operating system principles to multi-agent collaboration at scale.
@@ -151,6 +157,9 @@ The onboarding script (`npm run setup`) will guide you through configuring Jules
 To run the bridge manually and connect your local environment to the swarm, you need to configure the following environment variables:
 
 - `SWARM_KEY`: A shared secret string that anchors the peer discovery. All agents in the same mesh must use the same key.
+- `MQTT_HOST` (Optional): Hostname for the MQTT broker to enable Macro broadcast transport (e.g. `broker.hivemq.com`).
+- `MQTT_PORT` (Optional): Port for the MQTT broker (defaults to 1883).
+- `BLE_ENABLED` (Optional): Set to `true` to enable Micro broadcast transport via Bluetooth Low Energy (requires `bless` and `bleak`).
 - `DUCKY_API_KEY`: The API key for the Architect (LLM). This supports:
   - **OpenAI**: Use a standard `sk-...` key.
   - **Google Gemini**: Use an `AIza...` key.
@@ -195,6 +204,8 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
 - Liminal Bridge: [`docs/liminal-bridge.md`](docs/liminal-bridge.md)
 - Hybrid WASM LLM Engine: [`docs/hybrid-wasm-llm.md`](docs/hybrid-wasm-llm.md)
+- Optional decision models and local ensemble demo: [`docs/decision-models.md`](docs/decision-models.md)
+- Decision-gated PR admission to staging: [`docs/decision-merge.md`](docs/decision-merge.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
