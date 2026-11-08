@@ -368,6 +368,8 @@ jobs:
           Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and the nonnegative integer count of blocking findings, for example:
           REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}
           Never return PASS merely to satisfy the requested format.
+          The literal prefix REVIEW_RESULT: must occur exactly once in your whole response, only on that final verdict line.
+          Do not quote it in prose, inline code, examples, tables, or descriptions of this repository's workflows; call it the final verdict instead.
           RESULT_INSTRUCTIONS
           fi
 

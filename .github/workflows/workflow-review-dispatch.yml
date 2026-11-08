@@ -246,6 +246,7 @@ jobs:
               echo '- End with exactly one REVIEW_RESULT marker as the final nonempty, unfenced line: REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}'
               echo '- Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and a nonnegative integer blocking count, for example: REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}'
               echo '- Never return PASS merely to satisfy the requested format.'
+              echo '- The literal prefix REVIEW_RESULT: must occur exactly once in the whole response, only on the final verdict line. Do not quote it in prose, inline code, examples, tables, or workflow descriptions; call it the final verdict instead.'
               echo '- Analysis only: do not approve, merge, comment, edit, or otherwise mutate the PR. The separate decision gate handles admission to staging.'
             else
               echo "- If safe, submit approval with gh pr review $PR_NUMBER --approve."
