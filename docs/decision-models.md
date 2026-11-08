@@ -67,3 +67,24 @@ Pulse consultation through a running bridge. Inspect `pulse.last_decision` in
 the host process to distinguish a provider decision from a fallback. A live
 OpenRouter response, broker transport, and BLE hardware are separate from this
 offline demonstration.
+
+## Live smoke test using a GitHub repository secret
+
+The **Live Decision Model Smoke Test** workflow injects the repository secret
+`OPENROUTER_API_KEY` only into the live test step. Its initial run is triggered
+by changes to the smoke workflow or demo script on `feat/lokimetasmith-sync`.
+After the workflow is on the default branch, it can also be run manually with
+an optional Decisions API model ID. It has no schedule or pull-request trigger.
+
+The test runs the offline scenarios and then makes one real request through
+the production advisor and Pulse, using synthetic task summaries. It prints
+only the adapter's validated result summary. It fails if the provider response
+falls back instead of producing an accepted typed decision; a successful
+offline fixture cannot satisfy the live check. The Architect remains scripted,
+and the three nodes still use loopback transport.
+
+The same explicit opt-in is available locally when the key is in the environment:
+
+```bash
+.venv/bin/python scripts/demo-decision-ensemble.py --live
+```

@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Offline coordination demo: scripted roles, production mesh and Pulse logic.
 
-Run from the repository with its Python dependencies installed. No model, SSH,
-Hyperswarm, MQTT, or BLE service is contacted. This demonstrates coordination
-of an implementation task; the role nodes do not generate or implement code.
+Run from the repository with its Python dependencies installed. By default no
+external service is contacted. --live adds one real decision-model request.
+This demonstrates coordination of an implementation task; the role nodes do
+not generate or implement code.
 """
 
 import asyncio
+import argparse
 import json
+import os
 from pathlib import Path
 import secrets
 import sys
@@ -102,11 +105,17 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-async def run_demo():
+async def run_demo(live=False):
+    if live and not os.getenv("OPENROUTER_API_KEY", "").strip():
+        raise RuntimeError("--live requires OPENROUTER_API_KEY")
     print("Roles: three scripted nodes (planner, implementer, reviewer).")
     print("Transport: in-process loopback; production encrypted, signed mesh messages.")
     print(
-        "Models: offline fixtures; no live model calls or autonomous code generation."
+        "Models: scripted Architect and decision fixtures; no autonomous code generation."
+    )
+    print(
+        "Live Decisions API request: "
+        + ("enabled (one request)." if live else "disabled.")
     )
     nodes = []
     with tempfile.TemporaryDirectory(prefix="decision-ensemble-") as directory:
@@ -224,14 +233,36 @@ async def run_demo():
                 f"PASS all 3 nodes agree: task done, master_plan, review chat, no baton; "
                 f"{transport.deliveries} signed/encrypted deliveries."
             )
+            if live:
+                pulse = Pulse(
+                    planner, architect, decision_advisor=DecisionAdvisor(enabled=True)
+                )
+                await pulse.trigger("routine_check")
+                result = pulse.last_decision
+                # Print only the adapter's validated summary, never raw provider bodies.
+                print("Live decision summary: " + json.dumps(result, sort_keys=True))
+                require(
+                    result is not None and result.get("status") == "decision",
+                    "Live provider did not return an accepted typed decision",
+                )
+                print(
+                    "PASS live Decisions API advice evaluated through production Pulse."
+                )
         finally:
             for node in nodes:
                 node.storage.conn.close()
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Make one real Decisions API request using OPENROUTER_API_KEY",
+    )
+    args = parser.parse_args()
     try:
-        asyncio.run(run_demo())
+        asyncio.run(run_demo(live=args.live))
     except Exception as error:
         print(f"FAIL: {error}", file=sys.stderr)
         sys.exit(1)
