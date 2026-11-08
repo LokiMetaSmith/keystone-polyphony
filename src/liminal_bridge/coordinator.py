@@ -447,11 +447,11 @@ class Coordinator:
             existing = db.execute(
                 "SELECT body FROM records WHERE kind='candidate' AND id=?", (cid,)
             ).fetchone()
-            if existing:
-                return json.loads(existing[0])
             if task["status"] != "accepted" and a["number"] == task["attempts"]:
                 task.update(status="awaiting_review", current_candidate=cid)
                 self._save(db, "task", task["id"], task)
+            if existing:
+                return json.loads(existing[0])
             return self._save(
                 db,
                 "candidate",

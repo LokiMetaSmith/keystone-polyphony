@@ -600,3 +600,16 @@ async def test_network_outage_holds_protected_calls_but_approved_work_finishes(
         assert store.snapshot()["task"][0]["attempts"] == 1
     finally:
         await runner.cleanup()
+
+
+def test_replacement_can_resubmit_identical_candidate_without_relabeling_author(store):
+    task = enroll(store)
+    c = candidate(store, task)
+    store.observe(c["attempt"], "exited", True)
+    store.evidence(c["id"], "reviewer", "tests", False, 1)
+    replacement = start(store, task, worker="replacement")
+    artifact = store.save_work(replacement["id"], "replacement", "patch")
+    same = store.candidate(replacement["id"], "replacement", "base", artifact)
+    assert same["id"] == c["id"] and same["author"] == "author"
+    store.evidence(c["id"], "reviewer", "tests", True, 1)
+    assert store.accept(same["id"])["candidate"]["id"] == c["id"]
