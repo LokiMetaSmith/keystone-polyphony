@@ -34,6 +34,8 @@ jobs:
       AGENT_OPENCLAW_NPM_PACKAGE: ${{ vars.AGENT_OPENCLAW_NPM_PACKAGE || 'openclaw@2026.2.23' }}
       AGENT_CLAUDE_NPM_PACKAGE: ${{ vars.AGENT_CLAUDE_NPM_PACKAGE || '@anthropic-ai/claude-code@2.1.52' }}
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
+      AGENT_PROMPT_MODE: ${{ vars.REVIEW_AGENT_PROMPT_MODE || '' }}
+      AGENT_PROMPT_FLAG: ${{ vars.REVIEW_AGENT_PROMPT_FLAG || '--prompt' }}
       AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || 'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free' }}
       REPO: ${{ github.repository }}
     steps:
@@ -207,7 +209,6 @@ jobs:
           BASE_SHA=$(jq -r '.base.sha' review_pr.json)
           HEAD_SHA=$(jq -r '.head.sha' review_pr.json)
           gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" -H 'Accept: application/vnd.github.diff' > pr_patch.diff
-          DIFF_CONTENT=$(cat pr_patch.diff)
           DECISION_MERGE=$(jq '[.labels[].name] | index("decision-merge") != null' review_pr.json)
           echo "decision_merge=$DECISION_MERGE" >> "$GITHUB_OUTPUT"
 
@@ -222,7 +223,7 @@ jobs:
             echo ""
             echo "## PR Diff (review workflow changes in context)"
             echo "\`\`\`diff"
-            echo "$DIFF_CONTENT"
+            cat pr_patch.diff
             echo "\`\`\`"
             echo ""
             if [ -f AGENTS.md ]; then
@@ -241,6 +242,9 @@ jobs:
             echo '- End with an explicit go/no-go recommendation and explain any blockers.'
             if [ "$DECISION_MERGE" = true ]; then
               echo '- Review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior workflow-specific scope instructions do not limit this review. Give a GO/no-go recommendation covering all changed files.'
+              echo '- End with exactly one REVIEW_RESULT marker as the final nonempty, unfenced line: REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}'
+              echo '- Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and a nonnegative integer blocking count, for example: REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}'
+              echo '- Never return PASS merely to satisfy the requested format.'
               echo '- Analysis only: do not approve, merge, comment, edit, or otherwise mutate the PR. The separate decision gate handles admission to staging.'
             else
               echo "- If safe, submit approval with gh pr review $PR_NUMBER --approve."
@@ -280,16 +284,38 @@ jobs:
             CMD+=("--model" "$AGENT_MODEL")
           fi
 
-          # Read prompt from file
-          PROMPT_CONTENT=$(cat agent_prompt.txt)
-          if [[ "$AGENT_CLI" == "opencode" ]]; then
-            CMD+=("$PROMPT_CONTENT")
-          else
-            CMD+=("--prompt" "$PROMPT_CONTENT")
+          PROMPT_MODE="${AGENT_PROMPT_MODE:-}"
+          if [ -z "$PROMPT_MODE" ]; then
+            if [[ "$AGENT_CLI" == "opencode" ]]; then
+              PROMPT_MODE=stdin
+            else
+              PROMPT_MODE=flag
+            fi
           fi
+          case "$PROMPT_MODE" in
+            stdin)
+              if [[ "$AGENT_CLI" == "opencode" ]]; then
+                CMD+=("Review the supplied input and follow its instructions.")
+              fi
+              ;;
+            positional)
+              CMD+=("$(cat agent_prompt.txt)")
+              ;;
+            flag)
+              CMD+=("${AGENT_PROMPT_FLAG:---prompt}" "$(cat agent_prompt.txt)")
+              ;;
+            *)
+              echo "Unsupported REVIEW_AGENT_PROMPT_MODE: $PROMPT_MODE" >&2
+              exit 1
+              ;;
+          esac
 
           echo "Running agent: ${CMD[0]} ... (redacted prompt)"
 
+          PROMPT_INPUT=/dev/null
+          if [ "$PROMPT_MODE" = stdin ]; then
+            PROMPT_INPUT=agent_prompt.txt
+          fi
           set +e
           env \
             AGENT_API_KEY="$AGENT_API_KEY" \
@@ -300,7 +326,7 @@ jobs:
             GEMINI_API_KEY="$AGENT_API_KEY" \
             DEEPSEEK_API_KEY="$AGENT_API_KEY" \
             OPENAI_API_BASE="https://openrouter.ai/api/v1" \
-            "${CMD[@]}" 2>&1 | tee review_output_raw.txt
+            "${CMD[@]}" < "$PROMPT_INPUT" 2>&1 | tee review_output_raw.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 

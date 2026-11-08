@@ -373,6 +373,10 @@ def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
     diff = fetch_diff(github, pr, evidence)
     state = {
         "review": evidence["review_text"],
+        "automatic_review": {
+            "verdict": evidence["review_verdict"],
+            "blocking_findings": evidence["blocking_findings"],
+        },
         "review_model": evidence.get("model"),
         "scope": evidence["scope"],
         "diff": diff,

@@ -197,7 +197,8 @@ Configure the repository secret `OPENROUTER_API_KEY` for the default model.
 The dispatch runner prefers that key for `openrouter/` models, with
 `AGENT_API_KEY` as a legacy fallback; other providers continue to use
 `AGENT_API_KEY`. The router key is scoped to credential validation and agent
-execution. OpenCode is invoked as `opencode run --model <model> <prompt>`.
+execution. OpenCode is invoked as `opencode run --model <model>` with the full
+prompt and diff streamed through stdin, avoiding command-line argument limits.
 When selecting another CLI, set a model override that the selected CLI supports.
 
 Security hardening notes:
@@ -225,7 +226,8 @@ graph TD
 ### 9. Decision-Gated Staging Admission
 
 The optional `decision-merge` label requests full review and PR validation, then
-uses a typed Decisions API approval at confidence ≥0.95 to admit the exact
+requires an explicit automatic-review PASS with zero blocking findings, then
+a separate typed Decisions API approval at confidence ≥0.95 to admit the exact
 reviewed commit to staging. The legacy staging paths defer opted-in PRs to this
 gate. Existing tested promotion to main remains unchanged. Manual runs default
 to dry-run; automatic runs apply accepted decisions. See

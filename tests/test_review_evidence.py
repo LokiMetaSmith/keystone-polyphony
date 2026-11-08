@@ -13,6 +13,8 @@ SPEC = importlib.util.spec_from_file_location(
 )
 evidence = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evidence)
+PASS = 'REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}'
+PASS_REVIEW = "## Summary\nSafe\n## Recommendation\nGo\n" + PASS
 
 
 @pytest.fixture
@@ -26,9 +28,7 @@ def pr():
     }
 
 
-def build(
-    pr, current=None, review=b"## Summary\nSafe\n## Recommendation\nGo", **overrides
-):
+def build(pr, current=None, review=PASS_REVIEW.encode(), **overrides):
     arguments = dict(
         repository="owner/repo",
         run_id=123,
@@ -47,7 +47,7 @@ def build(
 def test_schema_binds_exact_revisions_and_run(pr):
     result = build(pr)
     assert result == {
-        "version": 1,
+        "version": 2,
         "repository": "owner/repo",
         "pr_number": 86,
         "head_sha": "a" * 40,
@@ -56,9 +56,11 @@ def test_schema_binds_exact_revisions_and_run(pr):
         "run_attempt": 2,
         "workflow_path": ".github/workflows/opencode.yml",
         "model": "review/model",
-        "review_text": "## Summary\nSafe\n## Recommendation\nGo",
+        "review_text": PASS_REVIEW,
         "exit_code": 0,
         "scope": "general",
+        "review_verdict": "PASS",
+        "blocking_findings": 0,
     }
 
 
@@ -107,10 +109,27 @@ def test_unicode_bound_is_bytes_and_json_remains_inert(pr):
     text = "## Summary\n" + "ö" * 29995
     with pytest.raises(ValueError, match="oversized"):
         build(pr, review=text.encode())
-    text = "## Summary\nUnicode ✓ and `$(touch /tmp/no)` are data"
+    text = "## Summary\nUnicode ✓ and `$(touch /tmp/no)` are data\n" + PASS
     assert (
         json.loads(json.dumps(build(pr, review=text.encode())))["review_text"] == text
     )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        "",
+        'REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}',
+        'REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":0}',
+        PASS + "\n" + PASS,
+        "```\n" + PASS + "\n```",
+        PASS + "\nAdditional output",
+        'REVIEW_RESULT: {"verdict":"FAIL","verdict":"PASS","blocking_findings":0}',
+    ],
+)
+def test_successful_cli_cannot_publish_without_independent_review_pass(pr, result):
+    with pytest.raises(ValueError, match="explicitly PASS"):
+        build(pr, review=("## Summary\nReviewed\n" + result).encode())
 
 
 @pytest.mark.parametrize("mutation", ["closed", "merged", "number", "sha"])

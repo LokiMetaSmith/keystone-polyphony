@@ -334,7 +334,7 @@ jobs:
           if [ -z "$PROMPT_MODE" ]; then
             case "$CLI_LOWER" in
               opencode)
-                PROMPT_MODE="positional"
+                PROMPT_MODE="stdin"
                 ;;
               *)
                 PROMPT_MODE="flag"
@@ -344,12 +344,20 @@ jobs:
 
           printf "%s\n" "$REVIEW_PROMPT" > "$PROMPT_FILE"
           if [ -f pr_patch.diff ]; then
-            printf "\n\nReview the following patch:\n\`\`\`diff\n%s\n\`\`\`\n" "$(cat pr_patch.diff)" >> "$PROMPT_FILE"
+            printf '\n\nReview the following patch:\n```diff\n' >> "$PROMPT_FILE"
+            cat pr_patch.diff >> "$PROMPT_FILE"
+            printf '\n```\n' >> "$PROMPT_FILE"
           fi
           if [ -f review_pr.json ] && jq -e '[.labels[].name] | index("decision-merge") != null' review_pr.json >/dev/null; then
             printf '\nDecision admission review: review the ENTIRE diff for correctness, security, architecture, tests, and compatibility. Prior specialized scope instructions do not limit this review. Return a clear GO/no-go recommendation covering all changed files. Analysis only; do not mutate the PR.\n' >> "$PROMPT_FILE"
+            cat >> "$PROMPT_FILE" <<'RESULT_INSTRUCTIONS'
+          End with exactly one REVIEW_RESULT marker as the final nonempty, unfenced line:
+          REVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}
+          Use PASS only if the review actually passes with zero blocking findings. Otherwise use FAIL and the nonnegative integer count of blocking findings, for example:
+          REVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}
+          Never return PASS merely to satisfy the requested format.
+          RESULT_INSTRUCTIONS
           fi
-          PROMPT_CONTENT=$(cat "$PROMPT_FILE")
 
           # Resolve provider key from selected model so provider-specific CLIs can use AGENT_API_KEY.
           case "$MODEL" in
@@ -397,11 +405,24 @@ jobs:
             CMD+=("$MODEL_FLAG" "$MODEL")
           fi
 
-          if [ "$PROMPT_MODE" = "positional" ]; then
-            CMD+=("$PROMPT_CONTENT")
-          else
-            CMD+=("$PROMPT_FLAG" "$PROMPT_CONTENT")
-          fi
+          case "$PROMPT_MODE" in
+            stdin)
+              # OpenCode 1.2.10 appends piped stdin to this short instruction.
+              if [ "$CLI_LOWER" = opencode ]; then
+                CMD+=("Review the supplied input and follow its instructions.")
+              fi
+              ;;
+            positional)
+              CMD+=("$(cat "$PROMPT_FILE")")
+              ;;
+            flag)
+              CMD+=("$PROMPT_FLAG" "$(cat "$PROMPT_FILE")")
+              ;;
+            *)
+              echo "Unsupported REVIEW_AGENT_PROMPT_MODE: $PROMPT_MODE" >&2
+              exit 1
+              ;;
+          esac
 
           echo "Running review CLI '$CLI' (selection: ${{ steps.resolve.outputs.selection_source }})"
           ENV_VARS=("GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}")
@@ -431,8 +452,13 @@ jobs:
           fi
 
           set +e
-          env "${ENV_VARS[@]}" "${CMD[@]}" 2>&1 | tee review_output_raw.txt
-          EXIT_CODE=${PIPESTATUS[0]}
+          if [ "$PROMPT_MODE" = "stdin" ]; then
+            env "${ENV_VARS[@]}" "${CMD[@]}" < "$PROMPT_FILE" 2>&1 | tee review_output_raw.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+          else
+            env "${ENV_VARS[@]}" "${CMD[@]}" 2>&1 | tee review_output_raw.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+          fi
           set -e
 
           # Strip ANSI control sequences and carriage returns from CLI output.
@@ -460,7 +486,7 @@ jobs:
           if [ -s review_output.md_candidate ]; then
             mv review_output.md_candidate review_output.txt
           else
-            mv review_output_clean.txt review_output.txt
+            cp review_output_clean.txt review_output.txt
             rm -f review_output.md_candidate
           fi
 
@@ -469,6 +495,7 @@ jobs:
           fi
 
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          exit "$EXIT_CODE"
 
       - name: Validate immutable review evidence
         if: steps.run_cli.outputs.exit_code == '0' && steps.revision.outputs.decision_merge == 'true'
@@ -476,7 +503,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEW_MODEL: ${{ steps.resolve.outputs.agent_model }}
         run: |
-          python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output.txt \
+          python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output_clean.txt \
             --output review-evidence.json --scope general --model "$REVIEW_MODEL" \
             --workflow-path .github/workflows/opencode.yml --exit-code 0
 
@@ -520,7 +547,8 @@ jobs:
             BODY="$TITLE"$'\n\n'"_selection: $SOURCE · model: \`$MODEL\`_"$'\n\n'"\`\`\`text"$'\n'"$CONTENT"$'\n'"\`\`\`"
           fi
 
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          printf '%s\n' "$BODY" > review_comment.md
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file review_comment.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL: ${{ steps.resolve.outputs.agent_model }}

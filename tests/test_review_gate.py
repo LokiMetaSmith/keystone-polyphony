@@ -25,14 +25,16 @@ def state():
         "head": {"sha": "b" * 40},
     }
     evidence = {
-        "version": 1,
+        "version": 2,
         "repository": "owner/repo",
         "pr_number": 12,
         "base_sha": "a" * 40,
         "head_sha": "b" * 40,
         "exit_code": 0,
         "scope": "general",
-        "review_text": "GO: checked changes; no findings.",
+        "review_text": 'GO: checked changes; no findings.\nREVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}',
+        "review_verdict": "PASS",
+        "blocking_findings": 0,
     }
     return [
         pr,
@@ -67,6 +69,18 @@ def test_missing_or_malformed_refs_fail_closed(state, pr):
         (1, "repository", "wrong/repo", "invalid_evidence_identity"),
         (1, "pr_number", True, "invalid_evidence_identity"),
         (1, "version", True, "invalid_evidence_identity"),
+        (1, "version", 1, "invalid_evidence_identity"),
+        (1, "review_verdict", "FAIL", "automatic_review_not_passed"),
+        (1, "review_verdict", None, "automatic_review_not_passed"),
+        (1, "blocking_findings", 1, "automatic_review_not_passed"),
+        (1, "blocking_findings", False, "automatic_review_not_passed"),
+        (
+            1,
+            "review_text",
+            '## Recommendation\nNO GO\nREVIEW_RESULT: {"verdict":"FAIL","blocking_findings":2}',
+            "automatic_review_not_passed",
+        ),
+        (1, "review_text", "## Recommendation\nGO", "automatic_review_not_passed"),
         (1, "head_sha", "c" * 40, "head_sha_mismatch"),
         (1, "base_sha", "c" * 40, "base_sha_mismatch"),
         (1, "exit_code", False, "review_failed"),

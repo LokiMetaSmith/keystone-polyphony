@@ -30,14 +30,16 @@ def archive(data, name="review-evidence.json"):
 @pytest.fixture
 def evidence():
     return {
-        "version": 1,
+        "version": 2,
         "repository": REPO,
         "pr_number": 8,
         "head_sha": HEAD,
         "base_sha": BASE,
         "exit_code": 0,
         "scope": "general",
-        "review_text": "## Recommendation\nGO: no findings.",
+        "review_text": '## Recommendation\nGO: no findings.\nREVIEW_RESULT: {"verdict":"PASS","blocking_findings":0}',
+        "review_verdict": "PASS",
+        "blocking_findings": 0,
         "run_id": 90,
         "run_attempt": 1,
         "workflow_path": ".github/workflows/opencode.yml",
@@ -179,6 +181,26 @@ def test_review_success_alone_does_not_count(ready_github, evidence):
     )
     with pytest.raises(gate.Hold, match="successful_validation"):
         gate.readiness(ready_github, 8, evidence, [])
+
+
+def test_failed_review_cannot_reach_even_an_approving_decision_model(
+    ready_github, evidence, monkeypatch
+):
+    evidence["review_text"] = (
+        '## Recommendation\nNO GO\nREVIEW_RESULT: {"verdict":"FAIL","blocking_findings":1}'
+    )
+    # A forged PASS metadata field cannot override the actual reviewer output.
+    monkeypatch.setattr(
+        gate, "read_evidence", lambda *args: ({"head_sha": HEAD}, evidence)
+    )
+    remote = AsyncMock(return_value={"approved": True, "confidence": 0.99})
+    monkeypatch.setattr(gate, "evaluate_review", remote)
+    apply = Mock()
+    monkeypatch.setattr(gate, "approve_and_stage", apply)
+    with pytest.raises(gate.Hold, match="automatic_review_not_passed"):
+        gate.evaluate(ready_github, 90, dry_run=False)
+    remote.assert_not_awaited()
+    apply.assert_not_called()
 
 
 @pytest.fixture

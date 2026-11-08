@@ -10,6 +10,7 @@ import math
 import aiohttp
 
 from .decisions import DECISIONS_URL, DEFAULT_MODEL
+from .review_result import parse_review_result
 
 MAX_REVIEW_BYTES = 60000
 
@@ -43,7 +44,7 @@ def eligibility(
         blockers.append("not_mergeable")
     if (
         type(evidence.get("version")) is not int
-        or evidence["version"] != 1
+        or evidence["version"] != 2
         or not isinstance(repository, str)
         or not repository
         or evidence.get("repository") != repository
@@ -76,6 +77,15 @@ def eligibility(
         valid_text = False
     if not valid_text:
         blockers.append("invalid_review_text")
+    result = parse_review_result(text) if valid_text else None
+    if (
+        result is None
+        or result["verdict"] != "PASS"
+        or evidence.get("review_verdict") != "PASS"
+        or type(evidence.get("blocking_findings")) is not int
+        or evidence["blocking_findings"] != 0
+    ):
+        blockers.append("automatic_review_not_passed")
     if unresolved_threads is not False:
         blockers.append("unresolved_or_unknown_threads")
     if not isinstance(reviews, list):

@@ -7,6 +7,10 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from liminal_bridge.review_result import review_passed
 
 MAX_REVIEW_BYTES = 60000
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -61,8 +65,12 @@ def build_evidence(
     # Error placeholders and bootstrap-only output must never become review evidence.
     if not re.search(r"^#{1,6}\s+", review_text, flags=re.MULTILINE):
         raise ValueError("review must contain Markdown analysis sections")
+    if not review_passed(review_bytes.decode("utf-8", errors="strict")):
+        raise ValueError(
+            "automatic review must explicitly PASS with no blocking findings"
+        )
     return {
-        "version": 1,
+        "version": 2,
         "repository": repository,
         "pr_number": snapshot["number"],
         "head_sha": snapshot["head"]["sha"],
@@ -74,6 +82,8 @@ def build_evidence(
         "review_text": review_text,
         "exit_code": 0,
         "scope": scope,
+        "review_verdict": "PASS",
+        "blocking_findings": 0,
     }
 
 
