@@ -166,7 +166,7 @@ def ensure_mesh():
             identity_path=IDENTITY_PATH,
             mqtt_host=MQTT_HOST,
             mqtt_port=MQTT_PORT,
-            ble_enabled=BLE_ENABLED
+            ble_enabled=BLE_ENABLED,
         )
         pulse = Pulse(mesh, architect)
         mesh.on_baton_release = pulse.on_baton_release
@@ -301,20 +301,18 @@ async def register_to_swarm(github_secret: str = None) -> str:
     if github_secret and (not mesh or mesh.secret_key != github_secret):
         if mesh and mesh.running:
             await mesh.stop()
-        # We need to construct storage provider here
-        # but since DB_PATH is used directly here, let's use SQLite as default or reconstruct.
-        # Actually this uses a mock/local db for testing probably, let's adapt it:
-        storage = _create_storage_provider("sqlite", DB_PATH, None)
+        storage = _create_storage_provider(STORAGE_BACKEND, DB_PATH, STORAGE_URL)
         mesh = LiminalMesh(
             secret_key=github_secret,
             storage_provider=storage,
             identity_path=IDENTITY_PATH,
             mqtt_host=MQTT_HOST,
             mqtt_port=MQTT_PORT,
-            ble_enabled=BLE_ENABLED
+            ble_enabled=BLE_ENABLED,
         )
         pulse = Pulse(mesh, architect)
         mesh.on_baton_release = pulse.on_baton_release
+        mesh.on_command_request = handle_command_request
 
     ensure_mesh()
 
@@ -727,7 +725,7 @@ async def run_seed_mode(
         swarm_seed=swarm_seed,
         mqtt_host=MQTT_HOST,
         mqtt_port=MQTT_PORT,
-        ble_enabled=BLE_ENABLED
+        ble_enabled=BLE_ENABLED,
     )
     pulse = Pulse(mesh, architect)
     mesh.on_baton_release = pulse.on_baton_release
@@ -829,7 +827,7 @@ async def run_verify_mode():
             swarm_seed=swarm_seed,
             mqtt_host=MQTT_HOST,
             mqtt_port=MQTT_PORT,
-            ble_enabled=BLE_ENABLED
+            ble_enabled=BLE_ENABLED,
         )
 
         # Node 2: Client
@@ -842,7 +840,7 @@ async def run_verify_mode():
             identity_path=client_id,
             mqtt_host=MQTT_HOST,
             mqtt_port=MQTT_PORT,
-            ble_enabled=BLE_ENABLED
+            ble_enabled=BLE_ENABLED,
         )
 
         print(f"Starting Node 1 (Anchor)... ID: {mesh1.node_id}")
@@ -904,7 +902,7 @@ async def run_daemon_mode(
         swarm_seed=swarm_seed,
         mqtt_host=MQTT_HOST,
         mqtt_port=MQTT_PORT,
-        ble_enabled=BLE_ENABLED
+        ble_enabled=BLE_ENABLED,
     )
     pulse = Pulse(mesh, architect)
     mesh.on_baton_release = pulse.on_baton_release

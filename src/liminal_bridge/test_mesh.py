@@ -11,7 +11,11 @@ def mesh(tmp_path):
     """Fixture to create a LiminalMesh with temporary DB and Identity."""
     db = tmp_path / "test.db"
     identity = tmp_path / "test.pem"
-    mesh = LiminalMesh("test-secret", storage_provider=SQLiteStorageProvider(str(db)), identity_path=str(identity))
+    mesh = LiminalMesh(
+        "test-secret",
+        storage_provider=SQLiteStorageProvider(str(db)),
+        identity_path=str(identity),
+    )
     mesh.broadcast = AsyncMock()
     yield mesh
     # Cleanup is handled by tmp_path, but stop() closes DB connection

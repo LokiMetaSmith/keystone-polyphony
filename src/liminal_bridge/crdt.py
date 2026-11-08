@@ -112,7 +112,9 @@ class Register(CRDT):
                 winner_val = resolve(self.value(), other.value())
                 self._value = winner_val
                 # Deterministically advance metadata past both
-                if other.timestamp > self.timestamp or (other.timestamp == self.timestamp and other.origin > self.origin):
+                if other.timestamp > self.timestamp or (
+                    other.timestamp == self.timestamp and other.origin > self.origin
+                ):
                     self.origin = other.origin
                 self.timestamp = max(self.timestamp, other.timestamp)
                 # Point-wise max of vector clocks
