@@ -605,3 +605,55 @@ def test_new_workflow_waiting_for_jobs_still_blocks():
     result = gate.current_run_checks(github, HEAD, [])
     assert len(result) == 1
     assert result[0]["status"] == "queued"
+
+
+@pytest.mark.parametrize(
+    "value", ["0.79", "1.01", "NaN", "inf", "-inf", "true", "", "garbage"]
+)
+def test_invalid_admin_threshold_holds_before_any_network(
+    evaluate_ready, monkeypatch, value
+):
+    monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", value)
+    read = Mock()
+    monkeypatch.setattr(gate, "read_evidence", read)
+    with pytest.raises(gate.Hold, match="confidence policy"):
+        gate.evaluate(evaluate_ready, 90)
+    read.assert_not_called()
+    gate.evaluate_review.assert_not_awaited()
+
+
+def test_admin_threshold_is_read_once_and_passed_to_each_chunk(
+    evaluate_ready, monkeypatch
+):
+    monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", "0.8")
+    monkeypatch.setattr(gate, "fetch_diff", lambda *args: "é" * 21000)
+
+    async def choose(state, **kwargs):
+        assert kwargs["minconfidence"] == 0.8
+        monkeypatch.setenv("DECISION_MERGE_MIN_CONFIDENCE", "0.99")
+        return {"approved": True, "confidence": 0.87, "model": "test"}
+
+    gate.evaluate_review.side_effect = choose
+    assert gate.evaluate(evaluate_ready, 90)["status"] == "would_stage"
+    assert gate.evaluate_review.await_count > 1
+
+
+def test_readable_summary_shows_score_choice_and_policy():
+    decision = {
+        "model_choice": "approve",
+        "confidence": 0.87304,
+        "required_confidence": 0.95,
+        "chunks": [
+            {
+                "chunk_index": 1,
+                "model": "decision-model",
+                "model_choice": "approve",
+                "confidence": 0.87304,
+                "required_confidence": 0.95,
+            }
+        ],
+    }
+    summary = gate.readable_summary({"status": "held", "decision": decision})
+    assert "87.30%" in summary and "95.00%" in summary
+    assert "Model choice: **approve**" in summary and "decision-model" in summary
+    assert "not measured accuracy" in summary

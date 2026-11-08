@@ -283,3 +283,41 @@ def test_confidence_hold_retains_validated_model_evidence():
         "required_confidence": 0.95,
     }
     assert validate_decision(answer("hold", confidence=0.87))["model_choice"] == "hold"
+
+
+@pytest.mark.parametrize("threshold", [0.8, 0.87, 0.95, 1.0])
+def test_admin_confidence_threshold_boundaries(threshold):
+    approved = validate_decision(answer(confidence=threshold), minconfidence=threshold)
+    assert approved["approved"] is True
+    assert approved["model_choice"] == "approve"
+    assert approved["required_confidence"] == threshold
+    assert approved["confidence"] == threshold
+    held = validate_decision(
+        answer("hold", confidence=threshold), minconfidence=threshold
+    )
+    assert held["approved"] is False and held["model_choice"] == "hold"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "threshold", [True, False, 0.79, 1.01, float("nan"), float("inf"), "0.8"]
+)
+async def test_invalid_confidence_policy_cannot_call_provider(http, threshold):
+    result = await evaluate_review({}, api_key="test-key", minconfidence=threshold)
+    assert result["approved"] is False and result["status"] == "invalid_request"
+    http[0].assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_adjusted_threshold_is_used_for_real_response_validation(http):
+    http[2].json.return_value = answer(confidence=0.87)
+    result = await evaluate_review({}, api_key="test-key", minconfidence=0.8)
+    assert result["approved"] is True
+    assert result["confidence"] == 0.87 and result["required_confidence"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_adjusted_threshold_does_not_override_refusal(http):
+    http[2].json.return_value = {"refusal": "cannot decide"}
+    result = await evaluate_review({}, api_key="test-key", minconfidence=0.8)
+    assert result["approved"] is False

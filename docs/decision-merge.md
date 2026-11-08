@@ -41,7 +41,9 @@ its commits eventually reach the target branch through normal promotion.
    full file manifest and hashes, full-diff hash, and chunk index/count. Every
    chunk must **separately** approve; one hold, refusal, or failure stops the
    sequence without staging any part of the PR. Only
-   a typed `approve` choice with confidence at least **0.95** allows admission.
+   a typed `approve` choice with confidence at least **0.95** by default allows admission. Administrators
+   may explicitly configure another threshold from **0.80** through **1.00**;
+   this never permits a `hold` or refusal to approve.
    A refusal, hold, low confidence, malformed response, missing key, or error
    leaves the PR out of staging. The decision model cannot override a failed
    automatic review. Confidence is model output, not a proof of safety.
@@ -60,6 +62,7 @@ Adding the label after a PR is already staged cannot retroactively gate it.
 | --- | --- |
 | Repository secret `OPENROUTER_API_KEY` | Required for the decision request. |
 | Repository variable `DECISION_MERGE_MODEL` | `auto`; ranked free Decisions API models with availability fallback. An explicit compatible model ID pins one model. |
+| Repository variable `DECISION_MERGE_MIN_CONFIDENCE` | `0.95`; administrator confidence threshold, finite numeric value from `0.80` through `1.00`. Invalid values hold before any network request. |
 | Repository variable `DECISION_MERGE_REQUIRED_CHECKS` | `pr-validation`; comma-separated successful check/status names. Other reported failures still block. |
 | Repository secret `UPSTREAM_PR_TOKEN` | Optional staging push token, falling back to `GITHUB_TOKEN`. |
 | Actions setting “Allow GitHub Actions to create and approve pull requests” | Required for the bot's native approval. Default workflow permissions can remain read-only. |

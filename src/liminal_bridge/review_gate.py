@@ -178,7 +178,7 @@ def validate_decision(response, minconfidence=0.95):
         or not math.isfinite(confidence)
         or isinstance(minconfidence, bool)
         or not isinstance(minconfidence, (int, float))
-        or not 0.95 <= minconfidence <= 1
+        or not 0.8 <= minconfidence <= 1
     ):
         return _hold("invalid_response")
     if confidence < minconfidence:
@@ -192,10 +192,14 @@ def validate_decision(response, minconfidence=0.95):
         "approved": answer["choice"] == "approve",
         "status": "decision",
         "confidence": confidence,
+        "model_choice": answer["choice"],
+        "required_confidence": minconfidence,
     }
 
 
-async def evaluate_review(state, *, api_key, model=DEFAULT_MODEL, timeout=20):
+async def evaluate_review(
+    state, *, api_key, model=DEFAULT_MODEL, timeout=20, minconfidence=0.95
+):
     """Ask for staging advice; errors hold admission and never expose bodies."""
     if not isinstance(api_key, str) or not api_key.strip():
         return _hold("missing_key")
@@ -207,6 +211,10 @@ async def evaluate_review(state, *, api_key, model=DEFAULT_MODEL, timeout=20):
         or not isinstance(timeout, (int, float))
         or not 0 < timeout <= 60
         or not math.isfinite(timeout)
+        or isinstance(minconfidence, bool)
+        or not isinstance(minconfidence, (int, float))
+        or not 0.8 <= minconfidence <= 1
+        or not math.isfinite(minconfidence)
     ):
         return _hold("invalid_request")
     request = {
@@ -245,6 +253,6 @@ async def evaluate_review(state, *, api_key, model=DEFAULT_MODEL, timeout=20):
         api_key=api_key,
         model=model,
         timeout=timeout,
-        validate=validate_decision,
+        validate=lambda response: validate_decision(response, minconfidence),
         fallback=_hold,
     )

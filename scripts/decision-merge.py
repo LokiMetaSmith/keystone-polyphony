@@ -6,6 +6,7 @@ import asyncio
 import io
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -424,7 +425,20 @@ def diff_manifest(diff):
     ]
 
 
-async def evaluate_diff(state):
+def decision_threshold():
+    """Read an administrator policy once, before fetching or evaluating evidence."""
+    try:
+        value = float(os.getenv("DECISION_MERGE_MIN_CONFIDENCE", "0.95"))
+    except (TypeError, ValueError):
+        raise Hold(
+            "Invalid decision confidence policy; expected 0.8 through 1"
+        ) from None
+    if not math.isfinite(value) or not 0.8 <= value <= 1:
+        raise Hold("Invalid decision confidence policy; expected 0.8 through 1")
+    return value
+
+
+async def evaluate_diff(state, minconfidence=0.95):
     """Require an affirmative decision for every byte of a bounded full diff."""
     diff = state["diff"]
     chunks = split_diff(diff)
@@ -452,6 +466,7 @@ async def evaluate_diff(state):
             request,
             api_key=os.getenv("OPENROUTER_API_KEY", ""),
             model=os.getenv("DECISION_MERGE_MODEL") or "auto",
+            minconfidence=minconfidence,
         )
         outcomes.append({**decision, "chunk_index": index})
         if not decision["approved"]:
@@ -567,6 +582,7 @@ def approve_and_stage(github, pr, evidence, decision, required_checks):
 
 
 def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
+    minconfidence = decision_threshold()
     run, evidence = read_evidence(github, run_id)
     actual_number = evidence.get("pr_number")
     if (
@@ -596,7 +612,7 @@ def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
         ],
         "policy": "Admit this reviewed commit to staging only. Main promotion requires separate tests.",
     }
-    decision = asyncio.run(evaluate_diff(state))
+    decision = asyncio.run(evaluate_diff(state, minconfidence))
     result = {
         "pr_number": actual_number,
         "head_sha": evidence["head_sha"],
@@ -666,6 +682,57 @@ def scan(github, dry_run, required_checks, expected_number=0):
     return results
 
 
+def readable_summary(result):
+    """Expose validated confidence evidence without raw provider responses."""
+
+    def cell(value):
+        return str(value or "unavailable").replace("|", "/").replace("\n", " ")
+
+    def percent(value):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return f"{value * 100:.2f}%"
+        return "unavailable"
+
+    lines = ["## Decision staging gate", ""]
+    for item in result.get("results", [result]):
+        decision = item.get("decision", {})
+        lines.extend(
+            [
+                f"Status: **{cell(item.get('status'))}**. "
+                f"Model choice: **{cell(decision.get('model_choice'))}**. "
+                f"Confidence: **{percent(decision.get('confidence'))}**; "
+                f"required: **{percent(decision.get('required_confidence'))}**.",
+                "",
+            ]
+        )
+        chunks = decision.get("chunks", [])
+        if chunks:
+            lines.extend(
+                [
+                    "| Chunk | Model | Choice | Confidence | Required |",
+                    "| --- | --- | --- | --- | --- |",
+                ]
+            )
+            for chunk in chunks[:25]:
+                lines.append(
+                    f"| {cell(chunk.get('chunk_index'))} | {cell(chunk.get('model'))} "
+                    f"| {cell(chunk.get('model_choice'))} | {percent(chunk.get('confidence'))} "
+                    f"| {percent(chunk.get('required_confidence'))} |"
+                )
+            lines.append("")
+            if len(chunks) > 25:
+                lines.extend(
+                    ["Additional chunk outcomes appear in the JSON artifact.", ""]
+                )
+    lines.extend(
+        [
+            "Confidence expresses the model's decision distribution, not measured accuracy.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", type=int, default=0)
@@ -709,7 +776,8 @@ def main():
     if os.getenv("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(
-                "## Decision staging gate\n\n```json\n"
+                readable_summary(result)
+                + "\n```json\n"
                 + json.dumps(result, indent=2)
                 + "\n```\n"
             )

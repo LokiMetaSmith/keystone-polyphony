@@ -5,7 +5,7 @@ on:
     # One-time installation: the owner must pin this exact audited commit in
     # DECISION_GATE_BOOTSTRAP_SHA before pushing. Remove the pin after admission.
     branches: [feat/lokimetasmith-sync]
-    paths: [.github/workflows/decision-merge.yml, scripts/decision-merge.py]
+    paths: [.github/workflows/decision-merge.yml, scripts/decision-merge.py, src/liminal_bridge/review_gate.py]
   workflow_run:
     workflows: [opencode, Agent PR Review Dispatch]
     types: [completed]
@@ -128,6 +128,7 @@ jobs:
           STAGING_PUSH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           DECISION_MERGE_MODEL: ${{ vars.DECISION_MERGE_MODEL || 'auto' }}
+          DECISION_MERGE_MIN_CONFIDENCE: ${{ vars.DECISION_MERGE_MIN_CONFIDENCE || '0.95' }}
           DECISION_MERGE_REQUIRED_CHECKS: ${{ vars.DECISION_MERGE_REQUIRED_CHECKS || 'pr-validation' }}
           REVIEW_RUN_ID: ${{ needs.installation-review.outputs.run_id || github.event.workflow_run.id || inputs.review_run_id }}
           EXPECTED_PR: ${{ github.event_name == 'push' && '86' || inputs.pr_number }}
