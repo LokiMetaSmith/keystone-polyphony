@@ -391,7 +391,7 @@ def evaluate(github, run_id, number=0, dry_run=True, required_checks=()):
         evaluate_review(
             state,
             api_key=os.getenv("OPENROUTER_API_KEY", ""),
-            model=os.getenv("DECISION_MERGE_MODEL") or "parallel/decisions-fast:free",
+            model=os.getenv("DECISION_MERGE_MODEL") or "auto",
         )
     )
     result = {

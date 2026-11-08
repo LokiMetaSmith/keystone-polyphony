@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Optional model override (defaults to free Nemotron 3 Ultra)"
+        description: "Optional model override (defaults to ranked free models)"
         required: false
         default: ""
       prompt:
@@ -52,7 +52,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
       DEFAULT_AGENT_CLI: opencode
-      DEFAULT_AGENT_MODEL: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      DEFAULT_AGENT_MODEL: auto
       AGENT_CLI_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI || vars.AGENT_CLI || '' }}
       AGENT_CLI_FLAGS_FROM_VAR: ${{ vars.REVIEW_AGENT_CLI_FLAGS || vars.AGENT_CLI_FLAGS || '' }}
       AGENT_MODEL_FROM_VAR: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || '' }}
@@ -359,6 +359,18 @@ jobs:
           RESULT_INSTRUCTIONS
           fi
 
+          AUTO_PICKER=false
+          if [ "$MODEL" = auto ]; then
+            if [ -f scripts/run-review-models.py ]; then
+              AUTO_PICKER=true
+            else
+              # Only execute scripts from the trusted base checkout. Bootstrap
+              # PRs retain the established free model until that base is updated.
+              MODEL=openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+              echo "::notice::Dynamic picker activates after trusted-base merge; using bootstrap free model."
+            fi
+          fi
+
           # Resolve provider key from selected model so provider-specific CLIs can use AGENT_API_KEY.
           case "$MODEL" in
             anthropic/*)
@@ -451,6 +463,16 @@ jobs:
             echo "Warning: no provider key configured for '$KEY_PROVIDER'. Running without provider API key overrides."
           fi
 
+          if [ "$AUTO_PICKER" = true ]; then
+            PICKER_ARGS=(--model-output review_model.txt "--model-flag=$MODEL_FLAG")
+            if [ "$PROMPT_MODE" = stdin ]; then
+              PICKER_ARGS+=(--stdin-file "$PROMPT_FILE")
+            fi
+            if [ "$CLI_LOWER" = opencode ]; then
+              PICKER_ARGS+=(--json-events)
+            fi
+            CMD=(python3 scripts/run-review-models.py "${PICKER_ARGS[@]}" -- "${CMD[@]}")
+          fi
           set +e
           if [ "$PROMPT_MODE" = "stdin" ]; then
             env "${ENV_VARS[@]}" "${CMD[@]}" < "$PROMPT_FILE" 2>&1 | tee review_output_raw.txt
@@ -460,6 +482,11 @@ jobs:
             EXIT_CODE=${PIPESTATUS[0]}
           fi
           set -e
+
+          if [ "$AUTO_PICKER" = true ] && [ -s review_model.txt ]; then
+            MODEL=$(cat review_model.txt)
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
 
           # Strip ANSI control sequences and carriage returns from CLI output.
           perl -pe 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g; s/\r//g' review_output_raw.txt > review_output_clean.txt
@@ -501,7 +528,7 @@ jobs:
         if: steps.run_cli.outputs.exit_code == '0' && steps.revision.outputs.decision_merge == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REVIEW_MODEL: ${{ steps.resolve.outputs.agent_model }}
+          REVIEW_MODEL: ${{ steps.run_cli.outputs.model }}
         run: |
           python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output_clean.txt \
             --output review-evidence.json --scope general --model "$REVIEW_MODEL" \
@@ -551,7 +578,7 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file review_comment.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MODEL: ${{ steps.resolve.outputs.agent_model }}
+          MODEL: ${{ steps.run_cli.outputs.model || steps.resolve.outputs.agent_model }}
 
       - name: Ensure Reviewed Label
         if: steps.run_cli.outputs.exit_code == '0' && (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') && (contains(github.event.label.name, '-review') || contains(github.event.pull_request.labels.*.name, 'workflow-review') || contains(github.event.pull_request.labels.*.name, 'arch-review') || contains(github.event.pull_request.labels.*.name, 'security-review'))

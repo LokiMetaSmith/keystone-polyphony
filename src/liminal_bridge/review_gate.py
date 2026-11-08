@@ -4,12 +4,10 @@ This module performs no repository mutations. Callers must revalidate GitHub
 state immediately before admitting the exact reviewed commit to staging.
 """
 
-import asyncio
 import math
 
-import aiohttp
 
-from .decisions import DECISIONS_URL, DEFAULT_MODEL
+from .decisions import DEFAULT_MODEL, request_decisions
 from .review_result import parse_review_result
 
 MAX_REVIEW_BYTES = 60000
@@ -230,27 +228,11 @@ async def evaluate_review(state, *, api_key, model=DEFAULT_MODEL, timeout=20):
             }
         },
     }
-    try:
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=timeout)
-        ) as session:
-            async with session.post(
-                DECISIONS_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json=request,
-                allow_redirects=False,
-            ) as response:
-                if response.status != 200:
-                    return _hold("http_error")
-                data = await response.json()
-    except asyncio.TimeoutError:
-        return _hold("timeout")
-    except aiohttp.ContentTypeError:
-        return _hold("invalid_response")
-    except (aiohttp.ClientError, OSError):
-        return _hold("http_error")
-    except (ValueError, TypeError, OverflowError):
-        return _hold("invalid_response")
-    result = validate_decision(data)
-    result["model"] = model
-    return result
+    return await request_decisions(
+        request,
+        api_key=api_key,
+        model=model,
+        timeout=timeout,
+        validate=validate_decision,
+        fallback=_hold,
+    )

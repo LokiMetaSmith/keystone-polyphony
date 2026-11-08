@@ -166,22 +166,22 @@ CLI selection precedence is:
 3. PR label tag (`review-cli:<cli>` or `review-agent:<cli>`)
 
 Both review runners (`opencode.yml` and `workflow-review-dispatch.yml`) default to
-`openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`. The `openrouter/` prefix is
-the CLI provider ID; the OpenRouter API model ID is
-`nvidia/nemotron-3-ultra-550b-a55b:free`.
+`auto`. The shared [model picker](model-picker.md) queries the current OpenRouter
+catalog, requires free text/tool models with at least 256,000 tokens of context,
+and ranks by documented total parameters, catalog release date, then context.
+Unknown parameter counts rank below disclosed sizes. This implements the
+capacity-first criterion; it is not a benchmark of review quality.
 
-This choice was checked against the [live OpenRouter catalog](https://openrouter.ai/api/v1/models)
-on 2026-11-08: [Nemotron 3 Ultra](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free)
-has 550B total parameters (55B active), a 1M-token context window, text output,
-tool calling, and zero prompt/completion prices. It is the largest disclosed
-parameter count among the free text/tool models meeting our 256k+ context
-preference. This is a capacity-first choice, not a measured review-quality
-ranking; newer smaller models exist. The model is pinned explicitly rather than
-using a router that could choose a paid model. Free service remains rate limited
-and availability can change; recheck the catalog before changing this default.
+Provider failures try the next candidate, with bounded attempts and time.
+A substantive review FAIL does not trigger another model. Evidence and comments
+record the model that actually completed the review. Model IDs passed to OpenCode
+include its `openrouter/` provider prefix; the catalog uses raw OpenRouter IDs.
+Before the picker reaches the trusted base branch, reviews use the prior free
+Nemotron 3 Ultra bootstrap model and emit an explicit notice. PR code is never
+loaded as the privileged picker implementation.
 
 Model selection in `opencode.yml` follows
-`DEFAULT -> REVIEW_AGENT_MODEL/AGENT_MODEL -> nonempty manual model input -> review-model:<model>`.
+`auto -> REVIEW_AGENT_MODEL/AGENT_MODEL -> nonempty manual model input -> review-model:<model>`.
 The manual input defaults to empty so it does not mask repository settings.
 `workflow-review-dispatch.yml` uses `REVIEW_AGENT_MODEL`, then `AGENT_MODEL`,
 then the same default; it also honors `REVIEW_AGENT_CLI` before `AGENT_CLI`.

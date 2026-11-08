@@ -56,7 +56,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGING_PUSH_TOKEN: ${{ secrets.UPSTREAM_PR_TOKEN || secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          DECISION_MERGE_MODEL: ${{ vars.DECISION_MERGE_MODEL || 'parallel/decisions-fast:free' }}
+          DECISION_MERGE_MODEL: ${{ vars.DECISION_MERGE_MODEL || 'auto' }}
           DECISION_MERGE_REQUIRED_CHECKS: ${{ vars.DECISION_MERGE_REQUIRED_CHECKS || 'pr-validation' }}
           REVIEW_RUN_ID: ${{ github.event.workflow_run.id || inputs.review_run_id }}
           EXPECTED_PR: ${{ inputs.pr_number }}

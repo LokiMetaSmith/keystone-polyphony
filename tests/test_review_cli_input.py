@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -28,7 +29,27 @@ def workflow_shell(filename, step_name, replacements=None):
     return re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: values.get(m[1], ""), script)
 
 
-def run_review(tmp_path, workflow, *, mode="", cli_exit=0, large=True, prefix=""):
+def run_review(
+    tmp_path,
+    workflow,
+    *,
+    mode="",
+    cli_exit=0,
+    large=True,
+    prefix="",
+    model="openrouter/test",
+    picker=False,
+):
+    if picker:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        shutil.copy(ROOT / "scripts/run-review-models.py", scripts)
+        package = tmp_path / "src/liminal_bridge"
+        package.mkdir(parents=True)
+        (package / "__init__.py").touch()
+        (package / "model_picker.py").write_text(
+            'def get_model_candidates(kind): return ["selected/best:free"]\n'
+        )
     cli = tmp_path / "opencode"
     cli.write_text(
         f"#!{sys.executable}\n"
@@ -36,8 +57,10 @@ def run_review(tmp_path, workflow, *, mode="", cli_exit=0, large=True, prefix=""
         'pathlib.Path("received.json").write_text(json.dumps({"argv": sys.argv[1:], '
         '"stdin": sys.stdin.read()}))\n'
         'print(os.environ.get("FAKE_OUTPUT_PREFIX", ""), end="")\n'
-        'print("## Summary\\nReview captured\\nREVIEW_RESULT: '
-        '{\\"verdict\\":\\"PASS\\",\\"blocking_findings\\":0}")\n'
+        'text = "## Summary\\nReview captured\\nREVIEW_RESULT: '
+        '{\\"verdict\\":\\"PASS\\",\\"blocking_findings\\":0}"\n'
+        'print(json.dumps({"type": "text", "part": {"text": text}}) '
+        'if "--format" in sys.argv else text)\n'
         'sys.exit(int(os.environ["FAKE_CLI_EXIT"]))\n'
     )
     cli.chmod(0o755)
@@ -59,11 +82,11 @@ def run_review(tmp_path, workflow, *, mode="", cli_exit=0, large=True, prefix=""
     environment = dict(
         os.environ,
         REVIEW_PROMPT="Review this:",
-        MODEL="openrouter/test",
+        MODEL=model,
         GITHUB_OUTPUT=str(tmp_path / "outputs"),
         AGENT_CLI=str(cli),
         AGENT_CLI_FLAGS="",
-        AGENT_MODEL="openrouter/test",
+        AGENT_MODEL=model,
         AGENT_API_KEY="",
         AGENT_PROMPT_MODE=mode,
         FAKE_CLI_EXIT=str(cli_exit),
@@ -173,3 +196,26 @@ def test_evidence_preserves_conflicting_marker_before_markdown(tmp_path):
     assert not verdicts.review_passed(complete_output)
     producer = workflow_shell("opencode.yml", "Validate immutable review evidence")
     assert "--review review_output_clean.txt" in producer
+
+
+@pytest.mark.parametrize("workflow", ["opencode.yml", "workflow-review-dispatch.yml"])
+def test_auto_bootstrap_uses_trusted_fixed_model_until_base_merge(tmp_path, workflow):
+    result, received, _ = run_review(tmp_path, workflow, model="auto")
+    assert result.returncode == 0, result.stderr
+    assert "trusted-base merge" in result.stdout
+    assert "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free" in received["argv"]
+    assert (
+        "model=openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+        in (tmp_path / "outputs").read_text()
+    )
+
+
+@pytest.mark.parametrize("workflow", ["opencode.yml", "workflow-review-dispatch.yml"])
+def test_auto_dynamic_helper_records_actual_chosen_model(tmp_path, workflow):
+    result, received, patch = run_review(tmp_path, workflow, model="auto", picker=True)
+    assert result.returncode == 0, result.stderr
+    assert "openrouter/selected/best:free" in received["argv"]
+    assert "--format" in received["argv"]
+    assert patch in received["stdin"]
+    assert "model=openrouter/selected/best:free" in (tmp_path / "outputs").read_text()
+    assert "Review captured" in (tmp_path / "review_output.txt").read_text()

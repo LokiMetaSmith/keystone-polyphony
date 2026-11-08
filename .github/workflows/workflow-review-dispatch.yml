@@ -36,7 +36,7 @@ jobs:
       AGENT_CLI_FLAGS: ${{ vars.AGENT_CLI_FLAGS }}
       AGENT_PROMPT_MODE: ${{ vars.REVIEW_AGENT_PROMPT_MODE || '' }}
       AGENT_PROMPT_FLAG: ${{ vars.REVIEW_AGENT_PROMPT_FLAG || '--prompt' }}
-      AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || 'openrouter/nvidia/nemotron-3-ultra-550b-a55b:free' }}
+      AGENT_MODEL: ${{ vars.REVIEW_AGENT_MODEL || vars.AGENT_MODEL || 'auto' }}
       REPO: ${{ github.repository }}
     steps:
       - name: Checkout repository
@@ -84,7 +84,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          if [[ "$AGENT_MODEL" == openrouter/* ]]; then
+          if [[ "$AGENT_MODEL" == openrouter/* || "$AGENT_MODEL" == auto ]]; then
             AGENT_API_KEY="${OPENROUTER_API_KEY:-${AGENT_API_KEY:-}}"
           fi
           if [ -z "${AGENT_API_KEY:-}" ]; then
@@ -262,8 +262,18 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          if [[ "$AGENT_MODEL" == openrouter/* ]]; then
+          if [[ "$AGENT_MODEL" == openrouter/* || "$AGENT_MODEL" == auto ]]; then
             AGENT_API_KEY="${OPENROUTER_API_KEY:-${AGENT_API_KEY:-}}"
+          fi
+
+          AUTO_PICKER=false
+          if [ "$AGENT_MODEL" = auto ]; then
+            if [ -f scripts/run-review-models.py ]; then
+              AUTO_PICKER=true
+            else
+              AGENT_MODEL=openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+              echo "::notice::Dynamic picker activates after trusted-base merge; using bootstrap free model."
+            fi
           fi
 
           CMD=("$AGENT_CLI")
@@ -316,6 +326,16 @@ jobs:
           if [ "$PROMPT_MODE" = stdin ]; then
             PROMPT_INPUT=agent_prompt.txt
           fi
+          if [ "$AUTO_PICKER" = true ]; then
+            PICKER_ARGS=(--model-output review_model.txt)
+            if [ "$PROMPT_MODE" = stdin ]; then
+              PICKER_ARGS+=(--stdin-file agent_prompt.txt)
+            fi
+            if [ "$AGENT_CLI" = opencode ]; then
+              PICKER_ARGS+=(--json-events)
+            fi
+            CMD=(python3 scripts/run-review-models.py "${PICKER_ARGS[@]}" -- "${CMD[@]}")
+          fi
           set +e
           env \
             AGENT_API_KEY="$AGENT_API_KEY" \
@@ -330,6 +350,10 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
+          if [ "$AUTO_PICKER" = true ] && [ -s review_model.txt ]; then
+            AGENT_MODEL=$(cat review_model.txt)
+          fi
+          echo "model=$AGENT_MODEL" >> "$GITHUB_OUTPUT"
           perl -pe 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g; s/\r//g' review_output_raw.txt > review_output.txt
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
@@ -339,13 +363,15 @@ jobs:
 
       - name: Validate immutable review evidence
         if: steps.run_agent.outputs.exit_code == '0' && steps.prompt.outputs.decision_merge == 'true'
+        env:
+          REVIEW_MODEL: ${{ steps.run_agent.outputs.model }}
         run: |
           SCOPE=workflow
           if jq -e '[.labels[].name] | index("decision-merge") != null' review_pr.json >/dev/null; then
             SCOPE=general
           fi
           python3 scripts/write-review-evidence.py --snapshot review_pr.json --review review_output.txt \
-            --output review-evidence.json --scope "$SCOPE" --model "$AGENT_MODEL" \
+            --output review-evidence.json --scope "$SCOPE" --model "$REVIEW_MODEL" \
             --workflow-path .github/workflows/workflow-review-dispatch.yml --exit-code 0
 
       - name: Publish immutable review evidence

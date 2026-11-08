@@ -54,7 +54,7 @@ Adding the label after a PR is already staged cannot retroactively gate it.
 | Setting | Default / purpose |
 | --- | --- |
 | Repository secret `OPENROUTER_API_KEY` | Required for the decision request. |
-| Repository variable `DECISION_MERGE_MODEL` | `parallel/decisions-fast:free`; a compatible Jev model ID may be used instead. |
+| Repository variable `DECISION_MERGE_MODEL` | `auto`; ranked free Decisions API models with availability fallback. An explicit compatible model ID pins one model. |
 | Repository variable `DECISION_MERGE_REQUIRED_CHECKS` | `pr-validation`; comma-separated successful check/status names. Other reported failures still block. |
 | Repository secret `UPSTREAM_PR_TOKEN` | Optional staging push token, falling back to `GITHUB_TOKEN`. |
 | Actions setting “Allow GitHub Actions to create and approve pull requests” | Required for the bot's native approval. Default workflow permissions can remain read-only. |
@@ -109,3 +109,12 @@ workflow-only evidence for application changes rather than silently truncating
 the decision input. The provider can impose a smaller context budget, in which
 case its error also holds admission. Missing or pending checks hold the PR until
 the next retry; unresolved findings require a new review or explicit resolution.
+
+The decision picker uses only typed Decisions API models with zero prices for every advertised pricing component, never general
+chat or paid fallbacks. Catalog lookup and up
+to three ranked attempts share the gate's timeout. Availability, rate-limit,
+transport, and malformed-response failures can try the next model. A valid
+`hold`, low-confidence decision, or refusal ends selection and holds admission;
+it never retries to obtain an approval. The final decision records the actual
+selected model. An explicit `DECISION_MERGE_MODEL` bypasses catalog selection and
+fallback. See [model selection](model-picker.md) for ranking and catalog-outage behavior.

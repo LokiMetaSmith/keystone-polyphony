@@ -6,9 +6,16 @@ import pytest
 
 from src.liminal_bridge.decisions import (
     DECISIONS_URL,
-    DEFAULT_MODEL,
     DecisionAdvisor,
 )
+
+
+@pytest.fixture(autouse=True)
+def candidates(monkeypatch):
+    monkeypatch.setattr(
+        "src.liminal_bridge.decisions.get_model_candidates",
+        lambda *args, **kwargs: ["parallel/decisions-fast:free"],
+    )
 
 
 @pytest.fixture
@@ -60,7 +67,7 @@ async def test_typed_decision_and_request_contract(http, choice):
         "action": choice,
         "status": "decision",
         "source": "decisions",
-        "model": DEFAULT_MODEL,
+        "model": "parallel/decisions-fast:free",
         "confidence": 0.8,
     }
     args, kwargs = session.post.call_args
@@ -68,7 +75,7 @@ async def test_typed_decision_and_request_contract(http, choice):
     assert kwargs["headers"] == {"Authorization": "Bearer test-key"}
     assert kwargs["allow_redirects"] is False
     assert kwargs["json"]["state"] == state
-    assert kwargs["json"]["model"] == DEFAULT_MODEL
+    assert kwargs["json"]["model"] == "parallel/decisions-fast:free"
     question = kwargs["json"]["questions"]["coordination"]
     assert question["type"] == "choice"
     assert set(question["criteria"]) == {"continue", "consult_architect"}

@@ -13,6 +13,14 @@ from src.liminal_bridge.review_gate import (
 )
 
 
+@pytest.fixture(autouse=True)
+def candidates(monkeypatch):
+    monkeypatch.setattr(
+        "src.liminal_bridge.decisions.get_model_candidates",
+        lambda *args, **kwargs: ["parallel/decisions-fast:free"],
+    )
+
+
 @pytest.fixture
 def state():
     pr = {

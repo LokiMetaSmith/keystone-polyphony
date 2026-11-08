@@ -258,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--live",
         action="store_true",
-        help="Make one real Decisions API request using OPENROUTER_API_KEY",
+        help="Evaluate a live Decisions API request with bounded model fallback using OPENROUTER_API_KEY",
     )
     args = parser.parse_args()
     try:

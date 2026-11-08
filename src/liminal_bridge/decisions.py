@@ -9,11 +9,95 @@ import math
 import os
 from typing import Any, Dict, Optional
 
+from .model_picker import get_model_candidates
+
 import aiohttp
 
 DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
-DEFAULT_MODEL = "parallel/decisions-fast:free"
+DEFAULT_MODEL = "auto"
 MIN_CONFIDENCE = 0.8
+
+
+async def request_decisions(request, *, api_key, model, timeout, validate, fallback):
+    """Try availability failures only, within one catalog-and-request budget."""
+    selected_model = None
+
+    def failed(status):
+        result = fallback(status)
+        if selected_model is not None:
+            result["model"] = selected_model
+        return result
+
+    async def run():
+        nonlocal selected_model
+        deadline = asyncio.get_running_loop().time() + timeout
+        candidates = (
+            [model]
+            if model.strip().lower() != "auto"
+            else await asyncio.to_thread(
+                get_model_candidates, "decision", timeout=min(3, timeout / 4)
+            )
+        )
+        candidates = candidates[:3]
+        if not candidates:
+            return fallback("no_models")
+        last = fallback("no_models")
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as session:
+            for index, candidate in enumerate(candidates):
+                selected_model = candidate
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    return failed("timeout")
+                terminal = False
+                try:
+                    async with session.post(
+                        DECISIONS_URL,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={**request, "model": candidate},
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(
+                            total=remaining / (len(candidates) - index)
+                        ),
+                    ) as response:
+                        if response.status != 200:
+                            result = fallback("http_error")
+                            terminal = response.status not in (404, 408, 429) and (
+                                response.status < 500
+                            )
+                        else:
+                            data = await response.json()
+                            result = validate(data)
+                            answers = (
+                                data.get("answers") if isinstance(data, dict) else None
+                            )
+                            refused = isinstance(answers, dict) and any(
+                                isinstance(answer, dict)
+                                and answer.get("type") == "refusal"
+                                for answer in answers.values()
+                            )
+                            terminal = refused or result["status"] != "invalid_response"
+                except asyncio.TimeoutError:
+                    result = fallback("timeout")
+                except aiohttp.ContentTypeError:
+                    result = fallback("invalid_response")
+                except (aiohttp.ClientError, OSError):
+                    result = fallback("http_error")
+                except (ValueError, TypeError, OverflowError):
+                    result = fallback("invalid_response")
+                result["model"] = candidate
+                last = result
+                if terminal:
+                    return result
+        return last
+
+    try:
+        return await asyncio.wait_for(run(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return failed("timeout")
+    except (OSError, ValueError, TypeError):
+        return failed("catalog_error")
 
 
 class DecisionAdvisor:
@@ -85,28 +169,16 @@ class DecisionAdvisor:
                 }
             },
         }
-        try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout)
-            ) as session:
-                async with session.post(
-                    DECISIONS_URL,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json=request,
-                    allow_redirects=False,
-                ) as response:
-                    if response.status != 200:
-                        return self._fallback("http_error")
-                    data = await response.json()
-        except asyncio.TimeoutError:
-            return self._fallback("timeout")
-        except aiohttp.ContentTypeError:
-            return self._fallback("invalid_response")
-        except (aiohttp.ClientError, OSError):
-            return self._fallback("http_error")
-        except (ValueError, TypeError):
-            return self._fallback("invalid_response")
+        return await request_decisions(
+            request,
+            api_key=self.api_key,
+            model=self.model,
+            timeout=self.timeout,
+            validate=self._validate,
+            fallback=self._fallback,
+        )
 
+    def _validate(self, data):
         if not isinstance(data, dict):
             return self._fallback("invalid_response")
         answers = data.get("answers")

@@ -10,20 +10,29 @@ these environment variables before starting the bridge:
 ```bash
 export LIMINAL_DECISIONS_ENABLED=true
 export OPENROUTER_API_KEY='your-api-key'
-export LIMINAL_DECISION_MODEL='parallel/decisions-fast:free'
+export LIMINAL_DECISION_MODEL=auto
 export LIMINAL_DECISION_TIMEOUT=5
 ```
 
-`LIMINAL_DECISION_MODEL` accepts another compatible Decisions API model ID, such
-as a Jev model available through the provider. Consult the provider's current
-model catalog for availability. These settings are separate from `DUCKY_MODEL`
+`LIMINAL_DECISION_MODEL=auto` discovers the ranked free typed Decisions API
+models in the current OpenRouter catalog. It tries up to three compatible
+candidates on availability, rate-limit, transport, or malformed-response failures.
+Catalog lookup and all attempts share the configured timeout. A valid decision,
+including consultation, low confidence, or refusal, ends selection immediately;
+fallback never seeks a more permissive answer. An explicit compatible model ID
+(such as a Jev model supported by the provider) pins a single model and disables
+automatic selection and fallback. These settings are separate from `DUCKY_MODEL`
 and `DUCKY_API_KEY`, which continue to configure the Architect.
 
 The adapter uses OpenRouter's
 [Decisions API](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request)
 at `POST https://openrouter.ai/api/alpha/decisions`, with `state` and a named
-`choice` question. It does not use chat completions. The default model is
-[Parallel Decisions Fast](https://openrouter.ai/parallel/decisions-fast:free).
+`choice` question. It does not use chat completions. General chat models are
+never substituted for typed decision models. Catalog selection requires zero
+prices for every advertised pricing component; it never falls back to paid models. The chosen model is recorded in
+`Pulse.last_decision`. During a catalog outage, a small vetted free compatible
+fallback list preserves availability; a successful catalog with no free compatible
+models fails closed. See [model selection](model-picker.md) for the ranking policy.
 
 Only a typed `consult_architect` or `continue` choice with finite confidence of
 at least 0.8 is accepted. Missing credentials, refusals, invalid responses, low
@@ -71,14 +80,17 @@ offline demonstration.
 ## Live smoke test using a GitHub repository secret
 
 The **Live Decision Model Smoke Test** workflow injects the repository secret
-`OPENROUTER_API_KEY` only into the live test step. Its initial run is triggered
+`OPENROUTER_API_KEY` only into the live inference steps. Its initial run is triggered
 by changes to the smoke workflow or demo script on `feat/lokimetasmith-sync`.
 After the workflow is on the default branch, it can also be run manually with
 an optional Decisions API model ID. It has no schedule or pull-request trigger.
 
-The test runs the offline scenarios and then makes one real request through
-the production advisor and Pulse, using synthetic task summaries. It prints
-only the adapter's validated result summary. It fails if the provider response
+The test first lists ranked free candidates and exercises the review picker with
+a small synthetic function, requiring an independent PASS. It then runs the
+offline scenarios and evaluates a real decision through the production advisor
+and Pulse using synthetic task summaries. Default selection is `auto`; service
+failures can advance to another free candidate within the timeout. It prints
+the review and the adapter's validated decision summary. It fails if the provider response
 falls back instead of producing an accepted typed decision; a successful
 offline fixture cannot satisfy the live check. The Architect remains scripted,
 and the three nodes still use loopback transport.
