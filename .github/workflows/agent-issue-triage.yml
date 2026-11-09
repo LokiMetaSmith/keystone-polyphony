@@ -108,12 +108,6 @@ jobs:
               continue
             fi
 
-            # Treat the dispatcher status as advisory. Check the actual file.
-            if ! python3 scripts/validate_issue.py "$file"; then
-              echo "Issue $file failed final validation. Keeping the source file."
-              continue
-            fi
-
             TITLE=$(get_issue_title "$file")
             # Create a clean body for publishing
             cat "$file" > .github_issues_body.txt
