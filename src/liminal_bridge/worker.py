@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import os
 import secrets
+import time
 
 from aiohttp import ClientError
 
@@ -28,12 +29,31 @@ class Worker:
         """One bounded choice. No task means an event wait, never a model call."""
         snapshot = await self.client.snapshot()
         self.cursor = snapshot["cursor"]
+        tasks = {task["id"]: task for task in snapshot["task"]}
+        now = time.time()
+        for attempt in snapshot["attempt"]:
+            if (
+                attempt["worker"] == self.identity
+                and attempt["state"] == "reserved"
+                and not attempt.get("permission_current", attempt["deadline"] > now)
+            ):
+                # A reserved attempt has never crossed the launch transaction;
+                # cancellation can release it without guessing process state.
+                await self.client.request(
+                    "POST", "/cancel", {"attempt_id": attempt["id"]}
+                )
         # Reconnect to unfinished work from the same authenticated identity.
         active = next(
             (
                 a
                 for a in snapshot["attempt"]
-                if a["worker"] == self.identity and not a["termination_confirmed"]
+                if a["worker"] == self.identity
+                and not a["termination_confirmed"]
+                and a["state"] in {"reserved", "running"}
+                and not a.get("cancel_requested")
+                and a.get("permission_current", a["deadline"] > now)
+                and a["requirements_revision"] == tasks[a["task"]]["revision"]
+                and not tasks[a["task"]].get("dependency_problem")
             ),
             None,
         )
