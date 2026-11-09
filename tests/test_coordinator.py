@@ -2,6 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import secrets
 import json
 import sys
 from unittest.mock import AsyncMock
@@ -31,7 +32,7 @@ def start(store, task, worker="author", seconds=10, key="start"):
     return store.start_attempt(task["id"], worker, [], seconds, key)
 
 
-def candidate(store, task=None, worker="author", patch="patch", base="base"):
+def candidate(store, task=None, worker="author", patch="patch", base="1" * 40):
     task = task or enroll(store)
     attempt = start(store, task, worker)
     artifact = store.save_work(attempt["id"], worker, patch)
@@ -41,6 +42,7 @@ def candidate(store, task=None, worker="author", patch="patch", base="base"):
 def test_atomic_fence_and_retry_survive_restart(store):
     now = [100.0]
     store.clock = lambda: now[0]
+    store.monotonic_clock = store.clock
     task = enroll(store, resource="shared")
     a = start(store, task)
 
@@ -121,20 +123,28 @@ def test_candidate_identity_and_evidence_fail_closed(store):
         store.accept(c["id"])
     with pytest.raises(Conflict):
         store.evidence(c["id"], "author", "tests", True, 1)
-    store.evidence(c["id"], "reviewer", "tests", False, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", False, 1, request_key=secrets.token_hex(16)
+    )
     with pytest.raises(Conflict):
         store.accept(c["id"])
-    store.evidence(c["id"], "reviewer", "tests", True, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+    )
     packet = store.accept(c["id"])
     assert packet["release_authorized"] is False
     assert store.accept(c["id"]) == packet
     assert len(store.snapshot()["evidence"]) == 2
     assert Coordinator(store.path).admission(c["id"]) == packet
     # A new failing observation withdraws admission until checks pass again.
-    store.evidence(c["id"], "reviewer", "tests", False, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", False, 1, request_key=secrets.token_hex(16)
+    )
     with pytest.raises(Conflict):
         store.admission(c["id"])
-    store.evidence(c["id"], "reviewer", "tests", True, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+    )
     store.accept(c["id"])
     artifact2 = store.save_work(c["attempt"], "author", "changed patch")
     c2 = store.candidate(c["attempt"], "author", c["base"], artifact2)
@@ -145,7 +155,9 @@ def test_candidate_identity_and_evidence_fail_closed(store):
     with pytest.raises(Conflict):
         store.accept(c["id"])
     with pytest.raises(Conflict):
-        store.evidence(c["id"], "reviewer", "tests", True, 1)
+        store.evidence(
+            c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+        )
     with pytest.raises(Conflict):
         store.admission(c["id"])
     assert digest(["ab", "c"]) != digest(["a", "bc"])
@@ -160,6 +172,7 @@ def test_resource_permission_and_deadline(store):
         store.acquire("shared", a["id"], "impostor", 0)
     store.acquire("shared", a["id"], "author", 0)
     store.clock = lambda: a["deadline"]
+    store.monotonic_clock = lambda: a["monotonic_deadline"]
     with pytest.raises(Conflict):
         store.write_resource("shared", a["id"], "author", 1, "write", 1)
 
@@ -167,6 +180,7 @@ def test_resource_permission_and_deadline(store):
 def test_choice_busy_dependency_capability_and_fairness(store):
     now = [1000]
     store.clock = lambda: now[0]
+    store.monotonic_clock = store.clock
     old = enroll(store, priority=0)
     now[0] += 121
     high = enroll(store, priority=2, resource="shared")
@@ -191,6 +205,7 @@ def test_advice_is_optional_expiring_and_rate_limited(store):
     with pytest.raises(Conflict, match="rate limited"):
         store.advise(task["id"], "conductor", "repeated message")
     store.clock = lambda: advice["expires"]
+    store.monotonic_clock = lambda: advice["monotonic_expires"]
     with pytest.raises(Conflict, match="expired"):
         store.respond(advice["id"], "author", "follow", "too late")
     assert start(store, task)  # no conductor permission needed
@@ -439,7 +454,9 @@ def test_competing_acquisitions_and_evidence_are_serialized(store):
     c = candidate(store, task)
 
     def review(passed):
-        return store.evidence(c["id"], "reviewer", "tests", passed, 1)
+        return store.evidence(
+            c["id"], "reviewer", "tests", passed, 1, request_key=secrets.token_hex(16)
+        )
 
     with ThreadPoolExecutor(2) as pool:
         observations = list(pool.map(review, [True, False]))
@@ -497,7 +514,8 @@ async def test_execute_retry_and_storage_outage_do_not_duplicate_or_abandon(
             if store.snapshot()["candidate"]:
                 break
             await asyncio.sleep(0.02)
-        assert len(adapter.running) == 1
+        assert not adapter.running
+        assert len(adapter.results) == 1
         assert len(store.snapshot()["candidate"]) == 1
         assert "proof.txt" in store.artifact(store.snapshot()["candidate"][0]["patch"])
 
@@ -542,16 +560,20 @@ def test_pending_review_is_not_repeated_and_old_candidate_cannot_complete(store)
     assert select_task(store.snapshot(), [], 10) is None
     with pytest.raises(Conflict, match="awaiting review"):
         start(store, task, worker="replacement")
-    store.evidence(c["id"], "reviewer", "tests", True, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+    )
     changed = store.save_work(c["attempt"], "author", "new patch")
-    c2 = store.candidate(c["attempt"], "author", "base", changed)
+    c2 = store.candidate(c["attempt"], "author", "1" * 40, changed)
     with pytest.raises(Conflict, match="superseded"):
         store.accept(c["id"])
     with pytest.raises(Conflict, match="missing or failed"):
         store.accept(c2["id"])
     store.evidence(c2["id"], "reviewer", "tests", False, 1)
     assert select_task(store.snapshot(), [], 10)["id"] == task["id"]
-    store.evidence(c2["id"], "reviewer", "tests", True, 1)
+    store.evidence(
+        c2["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+    )
     store.accept(c2["id"])
 
 
@@ -606,10 +628,14 @@ def test_replacement_can_resubmit_identical_candidate_without_relabeling_author(
     task = enroll(store)
     c = candidate(store, task)
     store.observe(c["attempt"], "exited", True)
-    store.evidence(c["id"], "reviewer", "tests", False, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", False, 1, request_key=secrets.token_hex(16)
+    )
     replacement = start(store, task, worker="replacement")
     artifact = store.save_work(replacement["id"], "replacement", "patch")
-    same = store.candidate(replacement["id"], "replacement", "base", artifact)
+    same = store.candidate(replacement["id"], "replacement", "1" * 40, artifact)
     assert same["id"] == c["id"] and same["author"] == "author"
-    store.evidence(c["id"], "reviewer", "tests", True, 1)
+    store.evidence(
+        c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
+    )
     assert store.accept(same["id"])["candidate"]["id"] == c["id"]

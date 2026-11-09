@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import time
@@ -32,6 +33,14 @@ def positive(value):
     return value
 
 
+def immutable_revision(value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"(?:[0-9a-f]{40}|[0-9a-f]{64})", value
+    ):
+        raise ValueError("base must be a full immutable Git object ID")
+    return value
+
+
 def managed_task(task):
     """Fail closed even when the authority service is unavailable."""
     return (
@@ -41,10 +50,21 @@ def managed_task(task):
 
 
 class Coordinator:
-    def __init__(self, path, clock=time.time):
+    def __init__(self, path, clock=time.time, monotonic_clock=None, boot_id=None):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = str(path)
         self.clock = clock
+        self.monotonic_clock = monotonic_clock or (
+            time.monotonic if clock is time.time else clock
+        )
+        if boot_id is None:
+            try:
+                boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+            except OSError:
+                # Without a stable boot identity, reopening cannot grant old
+                # execution permission. Saved work/admissions remain durable.
+                boot_id = secrets.token_hex(16)
+        self.boot_id = boot_id
         with self.connect() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
@@ -91,6 +111,69 @@ class Coordinator:
             )
         ]
 
+    def _current_admission(self, db, candidate_id, trail=(), cache=None):
+        cache = {} if cache is None else cache
+        if candidate_id in cache:
+            packet = cache[candidate_id]
+            if packet["candidate"]["task"] in trail:
+                raise Conflict("cyclic dependency admissions")
+            return packet
+        packet = self._get(db, "admission", candidate_id)
+        candidate = packet["candidate"]
+        try:
+            immutable_revision(candidate["base"])
+        except ValueError as exc:
+            raise Conflict(
+                "legacy candidate requires an immutable base and new review"
+            ) from exc
+        task = self._get(db, "task", candidate["task"])
+        if task["id"] in trail:
+            raise Conflict("cyclic dependency admissions")
+        if (
+            task["status"] != "accepted"
+            or task.get("accepted") != candidate_id
+            or task["revision"] != candidate["revision"]
+        ):
+            raise Conflict("admission superseded")
+        self._check_dependencies(db, task, candidate, trail + (task["id"],), cache)
+        cache[candidate_id] = packet
+        return packet
+
+    def _dependency_bindings(self, db, task, trail=(), cache=None):
+        cache = {} if cache is None else cache
+        bindings = {}
+        for dependency_id in task["dependencies"]:
+            dependency = self._get(db, "task", dependency_id)
+            if dependency["status"] != "accepted" or not dependency.get("accepted"):
+                raise Conflict("dependencies not accepted")
+            packet = self._current_admission(db, dependency["accepted"], trail, cache)
+            bindings[dependency_id] = digest(packet)
+        return bindings
+
+    def _check_dependencies(self, db, task, record, trail=(), cache=None):
+        # Old dependency-free records remain usable. Old dependent records have
+        # no trustworthy input provenance and require a fresh attempt/review.
+        expected = record.get(
+            "dependency_admissions", {} if not task["dependencies"] else None
+        )
+        if expected != self._dependency_bindings(db, task, trail, cache):
+            raise Conflict("dependency admission changed or provenance missing")
+        return expected
+
+    def _invalidate_dependents(self, db, task_id):
+        pending = [task_id]
+        seen = {task_id}
+        tasks = self._all(db, "task")
+        while pending:
+            invalid = pending.pop()
+            for task in tasks:
+                if invalid in task["dependencies"] and task["id"] not in seen:
+                    seen.add(task["id"])
+                    pending.append(task["id"])
+                    task.pop("accepted", None)
+                    task.update(status="needs_revision", dependency_problem=task_id)
+                    self._save(db, "task", task["id"], task)
+
     def _save(self, db, kind, key, value):
         db.execute(
             "INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) "
@@ -126,6 +209,7 @@ class Coordinator:
                 ).fetchone()[0]
             }
 
+            admissions = {}
             for task in result["task"]:
                 task["remaining_attempts"] = task["max_attempts"] - task["attempts"]
                 task["remaining_seconds"] = (
@@ -141,7 +225,30 @@ class Coordinator:
                         task["unresolved_reason"] = (
                             "task time budget exhausted; preserved work awaits review or owner action"
                         )
+                if task["status"] == "accepted":
+                    try:
+                        self._current_admission(db, task["accepted"], cache=admissions)
+                    except Conflict as exc:
+                        task.update(
+                            status="blocked",
+                            admission_invalid=True,
+                            unresolved_reason=str(exc),
+                        )
+            for attempt in result["attempt"]:
+                try:
+                    self._permission(db, attempt["id"], attempt["worker"])
+                    attempt["permission_current"] = True
+                except Conflict:
+                    attempt["permission_current"] = False
+            for resource in result["resource"]:
+                resource["lease_current"] = self._lease_current(resource)
             return result
+
+    def _lease_current(self, resource):
+        return (
+            resource.get("boot_id") == self.boot_id
+            and resource.get("monotonic_until", 0) > self.monotonic_clock()
+        )
 
     def cursor(self):
         with self.connect() as db:
@@ -219,7 +326,9 @@ class Coordinator:
                 status="todo",
             )
             task.pop("accepted", None)
-            return self._save(db, "task", task_id, task)
+            self._save(db, "task", task_id, task)
+            self._invalidate_dependents(db, task_id)
+            return task
 
     def start_attempt(self, task_id, worker, capabilities, seconds, request_key):
         """Worker chooses task_id; intent does not authorize any shared write."""
@@ -244,11 +353,7 @@ class Coordinator:
                 raise Conflict("already accepted or candidate awaiting review")
             if not set(task["required"]) <= set(capabilities):
                 raise Conflict("capability mismatch")
-            if any(
-                self._get(db, "task", d)["status"] != "accepted"
-                for d in task["dependencies"]
-            ):
-                raise Conflict("dependencies not accepted")
+            dependencies = self._dependency_bindings(db, task, (task_id,))
             if any(
                 a["task"] == task_id and not a["termination_confirmed"]
                 for a in self._all(db, "attempt")
@@ -266,13 +371,17 @@ class Coordinator:
                 "worker": worker,
                 "number": task["attempts"] + 1,
                 "requirements_revision": task["revision"],
+                "dependency_admissions": dependencies,
                 "started": self.clock(),
                 "deadline": self.clock() + seconds,
+                "monotonic_deadline": self.monotonic_clock() + seconds,
+                "boot_id": self.boot_id,
                 "state": "reserved",
                 "termination_confirmed": False,
                 "cost": None,
             }
             task.pop("current_candidate", None)
+            task.pop("dependency_problem", None)
             task["attempts"] += 1
             task["allocated_seconds"] += seconds
             task["status"] = "in_progress"
@@ -282,6 +391,8 @@ class Coordinator:
 
     def observe(self, attempt_id, state, termination_confirmed=False):
         """Adapter/owner only; a cancellation request is not proof of death."""
+        if type(termination_confirmed) is not bool:
+            raise ValueError("termination confirmation must be boolean")
         if state not in {
             "running",
             "unknown",
@@ -296,15 +407,55 @@ class Coordinator:
             a = self._get(db, "attempt", attempt_id)
             if a["termination_confirmed"]:
                 return a
+            if a.get("cancel_requested") and not termination_confirmed:
+                state = "cancel_requested"
             a.update(state=state, termination_confirmed=termination_confirmed)
             return self._save(db, "attempt", attempt_id, a)
+
+    def request_cancel(self, attempt_id, worker):
+        with self.transaction() as db:
+            attempt = self._get(db, "attempt", attempt_id)
+            if attempt["worker"] != worker:
+                raise Conflict("wrong worker")
+            if attempt["termination_confirmed"]:
+                return attempt
+            if attempt["state"] == "reserved":
+                # Launch and cancellation contend in this same transaction.
+                # No launch claim exists, so it is safe to confirm no process.
+                attempt.update(state="exited", termination_confirmed=True)
+            else:
+                attempt["state"] = "cancel_requested"
+            attempt["cancel_requested"] = True
+            return self._save(db, "attempt", attempt_id, attempt)
+
+    def authorize_launch(self, attempt_id, worker):
+        with self.transaction() as db:
+            attempt = self._permission(db, attempt_id, worker)
+            if attempt["state"] != "reserved":
+                raise Conflict("launch outcome unknown; reconcile before retry")
+            attempt["state"] = "unknown"
+            self._save(db, "attempt", attempt_id, attempt)
+            task = self._get(db, "task", attempt["task"])
+            return attempt, task["requirements"]
+
+    def execution_permission(self, attempt_id, worker):
+        with self.transaction() as db:
+            return self._permission(db, attempt_id, worker)
+
+    def remaining_seconds(self, attempt_id, worker):
+        with self.transaction() as db:
+            attempt = self._permission(db, attempt_id, worker)
+            return attempt["monotonic_deadline"] - self.monotonic_clock()
 
     def _permission(self, db, attempt_id, worker):
         a = self._get(db, "attempt", attempt_id)
         if (
             a["worker"] != worker
             or a["termination_confirmed"]
-            or self.clock() >= a["deadline"]
+            or a.get("cancel_requested")
+            or a["state"] == "cancel_requested"
+            or a.get("boot_id") != self.boot_id
+            or self.monotonic_clock() >= a.get("monotonic_deadline", 0)
         ):
             raise Conflict("attempt permission expired")
         task = self._get(db, "task", a["task"])
@@ -313,6 +464,7 @@ class Coordinator:
             or task["status"] == "accepted"
         ):
             raise Conflict("attempt requirements expired")
+        self._check_dependencies(db, task, a, (task["id"],))
         return a
 
     def acquire(self, resource, attempt_id, worker, expected_fence, seconds=30):
@@ -338,7 +490,7 @@ class Coordinator:
                 "SELECT body FROM records WHERE kind='resource' AND id=?", (resource,)
             ).fetchone()
             old = json.loads(rows[0]) if rows else {"fence": 0, "until": 0}
-            if old["fence"] != expected_fence or old["until"] > self.clock():
+            if old["fence"] != expected_fence or self._lease_current(old):
                 raise Conflict("resource busy or revision changed")
             result = self._save(
                 db,
@@ -349,6 +501,10 @@ class Coordinator:
                     "fence": old["fence"] + 1,
                     "attempt": attempt_id,
                     "until": min(self.clock() + seconds, a["deadline"]),
+                    "monotonic_until": min(
+                        self.monotonic_clock() + seconds, a["monotonic_deadline"]
+                    ),
+                    "boot_id": self.boot_id,
                 },
             )
 
@@ -385,7 +541,7 @@ class Coordinator:
             if (
                 lease["attempt"] != attempt_id
                 or lease["fence"] != fence
-                or self.clock() >= lease["until"]
+                or not self._lease_current(lease)
             ):
                 raise Conflict("stale fencing token")
             result = {"resource": resource, "fence": fence, "value": value}
@@ -395,6 +551,8 @@ class Coordinator:
 
     def save_work(self, attempt_id, worker, content):
         """Even an expired author may salvage work; this is never acceptance."""
+        if not isinstance(content, str):
+            raise ValueError("work product must be UTF-8 text")
         raw = content.encode()
         if len(raw) > 4_000_000:
             raise ValueError("work product exceeds 4 MB prototype limit")
@@ -426,8 +584,7 @@ class Coordinator:
             return bytes(row[0]).decode()
 
     def candidate(self, attempt_id, worker, base, artifact_id):
-        if not base:
-            raise ValueError("base revision is required")
+        immutable_revision(base)
         with self.transaction() as db:
             a = self._get(db, "attempt", attempt_id)
             if a["worker"] != worker:
@@ -435,6 +592,7 @@ class Coordinator:
             task = self._get(db, "task", a["task"])
             if task["revision"] != a["requirements_revision"]:
                 raise Conflict("requirements changed; salvage work in a new attempt")
+            dependencies = self._check_dependencies(db, task, a, (task["id"],))
             self._get(db, "work", digest([attempt_id, artifact_id]))
             identity = {
                 "base": base,
@@ -442,6 +600,7 @@ class Coordinator:
                 "requirements": task["requirements"],
                 "revision": task["revision"],
                 "task": task["id"],
+                "dependency_admissions": dependencies,
             }
             cid = digest(identity)
             existing = db.execute(
@@ -464,11 +623,33 @@ class Coordinator:
                 },
             )
 
-    def evidence(self, candidate_id, reviewer, check, passed, input_revision):
+    def evidence(
+        self, candidate_id, reviewer, check, passed, input_revision, request_key=None
+    ):
         """Reviewer identity is service-authenticated, never a worker-supplied label."""
         if type(passed) is not bool:
             raise ValueError("passed must be boolean")
         with self.transaction() as db:
+            payload = {
+                "candidate": candidate_id,
+                "reviewer": reviewer,
+                "check": check,
+                "passed": passed,
+                "input_revision": input_revision,
+            }
+            retry_id = (
+                digest([reviewer, request_key]) if request_key is not None else None
+            )
+            if retry_id is not None:
+                prior = db.execute(
+                    "SELECT body FROM records WHERE kind='review_retry' AND id=?",
+                    (retry_id,),
+                ).fetchone()
+                if prior:
+                    saved = json.loads(prior[0])
+                    if saved["payload"] != payload:
+                        raise Conflict("review retry payload changed")
+                    return saved["result"]
             candidate = self._get(db, "candidate", candidate_id)
             task = self._get(db, "task", candidate["task"])
             if (
@@ -482,6 +663,28 @@ class Coordinator:
                 or task["revision"] != input_revision
             ):
                 raise Conflict("review input revision is stale")
+            self._check_dependencies(db, task, candidate, (task["id"],))
+            previous = [
+                e
+                for e in self._all(db, "evidence")
+                if e["candidate"] == candidate_id
+                and e["reviewer"] == reviewer
+                and e["check"] == check
+            ]
+            latest = max(
+                previous, key=lambda e: e["observation_revision"], default=None
+            )
+            if latest and latest["passed"] == passed:
+                if retry_id is not None:
+                    self._save(
+                        db,
+                        "review_retry",
+                        retry_id,
+                        {"payload": payload, "result": latest},
+                    )
+                return latest
+            if latest and retry_id is None:
+                raise Conflict("review changes require an explicit request_key")
             result = self._save(
                 db,
                 "evidence",
@@ -526,11 +729,22 @@ class Coordinator:
                     else "awaiting_review"
                 )
                 self._save(db, "task", task["id"], task)
+                self._invalidate_dependents(db, task["id"])
+            if retry_id is not None:
+                self._save(
+                    db, "review_retry", retry_id, {"payload": payload, "result": result}
+                )
             return result
 
     def accept(self, candidate_id):
         with self.transaction() as db:
             c = self._get(db, "candidate", candidate_id)
+            try:
+                immutable_revision(c["base"])
+            except ValueError as exc:
+                raise Conflict(
+                    "candidate requires an immutable base and new review"
+                ) from exc
             task = self._get(db, "task", c["task"])
             if (
                 task["revision"] != c["revision"]
@@ -541,6 +755,7 @@ class Coordinator:
                 raise Conflict("another candidate already accepted")
             if task.get("current_candidate") != candidate_id:
                 raise Conflict("candidate superseded by newer work")
+            self._check_dependencies(db, task, c, (task["id"],))
             evidence = [
                 e
                 for e in self._all(db, "evidence")
@@ -588,11 +803,7 @@ class Coordinator:
     def admission(self, candidate_id):
         with self.connect() as db:
             db.execute("BEGIN")
-            packet = self._get(db, "admission", candidate_id)
-            task = self._get(db, "task", packet["candidate"]["task"])
-            if task.get("accepted") != candidate_id:
-                raise Conflict("admission superseded")
-            return packet
+            return self._current_admission(db, candidate_id)
 
     def problem(self, attempt_id, worker, cause):
         with self.transaction() as db:
@@ -618,8 +829,16 @@ class Coordinator:
         positive(minimum_interval)
         with self.transaction() as db:
             task = self._get(db, "task", task_id)
-            old = [a for a in self._all(db, "advice") if a["task"] == task_id]
-            if old and self.clock() - max(a["time"] for a in old) < minimum_interval:
+            old = [
+                a
+                for a in self._all(db, "advice")
+                if a["task"] == task_id and a.get("boot_id") == self.boot_id
+            ]
+            if (
+                old
+                and self.monotonic_clock() - max(a["monotonic_time"] for a in old)
+                < minimum_interval
+            ):
                 raise Conflict("advice rate limited")
             aid = secrets.token_hex(12)
             return self._save(
@@ -633,6 +852,9 @@ class Coordinator:
                     "message": message,
                     "time": self.clock(),
                     "expires": self.clock() + min(ttl, 3600),
+                    "monotonic_time": self.monotonic_clock(),
+                    "monotonic_expires": self.monotonic_clock() + min(ttl, 3600),
+                    "boot_id": self.boot_id,
                     "input_revision": task["revision"],
                 },
             )
@@ -643,7 +865,11 @@ class Coordinator:
         with self.transaction() as db:
             a = self._get(db, "advice", advice_id)
             task = self._get(db, "task", a["task"])
-            if self.clock() >= a["expires"] or a["input_revision"] != task["revision"]:
+            if (
+                a.get("boot_id") != self.boot_id
+                or self.monotonic_clock() >= a.get("monotonic_expires", 0)
+                or a["input_revision"] != task["revision"]
+            ):
                 raise Conflict("advice expired")
             return self._save(
                 db,
@@ -669,11 +895,15 @@ def select_task(snapshot, capabilities, seconds, now=None):
     now = time.time() if now is None else now
     tasks = {t["id"]: t for t in snapshot["task"]}
     active = {a["task"] for a in snapshot["attempt"] if not a["termination_confirmed"]}
-    busy = {r["id"] for r in snapshot["resource"] if r["until"] > now}
+    busy = {
+        r["id"]
+        for r in snapshot["resource"]
+        if r.get("lease_current", r["until"] > now)
+    }
     ready = [
         t
         for t in tasks.values()
-        if t["status"] not in {"accepted", "awaiting_review"}
+        if t["status"] not in {"accepted", "awaiting_review", "blocked"}
         and t["id"] not in active
         and t["resource"] not in busy
         and set(t["required"]) <= set(capabilities)

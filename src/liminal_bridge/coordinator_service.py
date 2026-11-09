@@ -65,13 +65,22 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
     async def auth(request, handler):
         bearer = request.headers.get("Authorization", "").removeprefix("Bearer ")
         principal = next(
-            (p for key, p in credentials.items() if hmac.compare_digest(bearer, key)),
+            (
+                p
+                for key, p in credentials.items()
+                if hmac.compare_digest(bearer.encode(), key.encode())
+            ),
             None,
         )
         if principal is None:
             raise web.HTTPUnauthorized()
         request[PRINCIPAL] = principal
-        return await handler(request)
+        try:
+            return await handler(request)
+        except Conflict as exc:
+            return web.json_response({"error": str(exc)}, status=409)
+        except (ValueError, TypeError, KeyError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
 
     app = web.Application(middlewares=[auth], client_max_size=5_000_000)
 
@@ -80,6 +89,9 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
     async def snapshot(request):
         if adapter:
             for attempt in store.snapshot()["attempt"]:
+                active = executions.get(attempt["id"])
+                if active is not None and not active.done():
+                    continue  # Preserve work before releasing its reservation.
                 if (
                     not attempt["termination_confirmed"]
                     and attempt["state"] != "reserved"
@@ -98,6 +110,8 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         if principal["role"] != "worker" or adapter is None or execution is None:
             raise web.HTTPForbidden()
         payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("object payload required")
         attempts = store.snapshot()["attempt"]
         attempt = next(
             (a for a in attempts if a["id"] == payload.get("attempt_id")), None
@@ -108,15 +122,7 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         # Launch intent is persisted before launching. A lost launch response may
         # only observe/reconcile; a restart must never duplicate an unknown launch.
         if aid not in executions:
-            if attempt["state"] != "reserved" or attempt["deadline"] <= store.clock():
-                return web.json_response(
-                    {"error": "launch outcome unknown or permission expired"},
-                    status=409,
-                )
-            store.observe(aid, "unknown")
-            task = next(
-                t for t in store.snapshot()["task"] if t["id"] == attempt["task"]
-            )
+            attempt, requirements = store.authorize_launch(aid, principal["identity"])
 
             async def supervise():
                 try:
@@ -125,6 +131,13 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
                         home = adapter.root / f"{aid}.home"
                         home.mkdir(mode=0o700, exist_ok=True)
                         approved_env = dict(approved_env or {}) | {"HOME": str(home)}
+                        approved_env.update(
+                            XDG_CONFIG_HOME=str(home / "config"),
+                            XDG_DATA_HOME=str(home / "data"),
+                            XDG_CACHE_HOME=str(home / "cache"),
+                            XDG_STATE_HOME=str(home / "state"),
+                        )
+                        approved_env.pop("OPENCODE_DB", None)
                     return await run_attempt(
                         store,
                         adapter,
@@ -133,10 +146,14 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
                         execution["command"],
                         env=approved_env,
                         input_text=input_provider.worker_input(
-                            task["id"], task["requirements"]
+                            attempt["task"], requirements
                         ),
                     )
                 except Exception:
+                    if aid not in adapter.watchers and aid not in adapter.running:
+                        # This service uniquely claimed a fresh reserved launch.
+                        # Input/permission preparation failed before any spawn.
+                        store.observe(aid, "exited", True)
                     store.problem(
                         aid,
                         attempt["worker"],
@@ -150,6 +167,8 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
     async def cancel(request):
         principal = request[PRINCIPAL]
         payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("object payload required")
         attempt = next(
             (
                 a
@@ -165,8 +184,13 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
             or adapter is None
         ):
             raise web.HTTPForbidden()
-        store.observe(attempt["id"], "cancel_requested")
+        cancelled = store.request_cancel(attempt["id"], principal["identity"])
+        if cancelled["termination_confirmed"]:
+            return web.json_response(cancelled)
         result = await adapter.cancel(attempt["id"])
+        active = executions.get(attempt["id"])
+        if active is not None:
+            await asyncio.shield(active)
         store.observe(attempt["id"], result["state"], result["termination_confirmed"])
         return web.json_response(result)
 
