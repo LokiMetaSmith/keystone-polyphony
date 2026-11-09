@@ -38,7 +38,31 @@ except (ImportError, ValueError):
         PostgresStorageProvider,
     )  # noqa: E402
 
+try:
+    from src.core.collaboration import (
+        FencedLedger,
+        CollaborationCoordinator,
+        DeterministicExecutionAdapter,
+        EnsembleConductor,
+        ReviewVerdict,
+    )
+except ImportError:
+    from core.collaboration import (
+        FencedLedger,
+        CollaborationCoordinator,
+        DeterministicExecutionAdapter,
+        EnsembleConductor,
+        ReviewVerdict,
+    )
+
 from mcp.server.fastmcp import FastMCP  # noqa: E402
+
+# Fenced Collaboration Protocol Engine
+COLLAB_DB_PATH = os.getenv("LIMINAL_COLLAB_DB", "collab_ledger.db")
+collab_ledger = FencedLedger(COLLAB_DB_PATH)
+collab_adapter = DeterministicExecutionAdapter()
+collab_coordinator = CollaborationCoordinator(collab_ledger, collab_adapter)
+collab_conductor = EnsembleConductor(collab_ledger)
 
 # Initialize components
 SWARM_KEY = get_or_create_swarm_key()
@@ -618,6 +642,16 @@ async def complete_task(task_id: str) -> str:
     if err:
         return err
 
+    # Guardrail: Check if task is enrolled under schema_version >= 2
+    enrolled_task = collab_ledger.get_task(task_id)
+    if enrolled_task and enrolled_task.schema_version >= 2:
+        # Enrolled task cannot be bypassed with simple complete_task call without accepted candidate receipt
+        if not enrolled_task.accepted_candidate_id:
+            return (
+                f"DENIED: Task {task_id} is enrolled under Collaboration Protocol (schema v{enrolled_task.schema_version}). "
+                "Completion requires an accepted candidate receipt and passing review evidence."
+            )
+
     await mesh.release_baton(f"task:{task_id}")
     backlog = mesh.get_kv("swarm_backlog") or []
     for item in backlog:
@@ -634,6 +668,130 @@ async def complete_task(task_id: str) -> str:
         except BaseException:
             continue
     return f"Task {task_id} completed."
+
+
+@mcp.tool()
+async def create_enrolled_task(
+    task_id: str,
+    title: str,
+    description: str,
+    baseline_sha: str,
+    acceptance_criteria: list[str],
+    max_budget: float = 100.0,
+    max_attempts: int = 5,
+) -> str:
+    """Creates a durable, fenced task enrolled in the collaboration protocol."""
+    task = collab_coordinator.register_task(
+        task_id=task_id,
+        title=title,
+        description=description,
+        baseline_sha=baseline_sha,
+        acceptance_criteria=acceptance_criteria,
+        max_budget=max_budget,
+        max_attempts=max_attempts,
+    )
+    return json.dumps(task.to_dict(), indent=2)
+
+
+@mcp.tool()
+async def claim_enrolled_task(
+    task_id: str,
+    actor_id: str,
+    reserve_cost: float = 10.0,
+    lease_duration: float = 300.0,
+) -> str:
+    """Atomically acquires a bounded assignment lease and monotonic fence token for an enrolled task."""
+    ok, handle, reason = collab_coordinator.dispatch_attempt(
+        task_id=task_id,
+        actor_id=actor_id,
+        reserve_cost=reserve_cost,
+        lease_duration=lease_duration,
+    )
+    if not ok or not handle:
+        # Contested or rejected: Conductor evaluates nudge
+        nudge = collab_conductor.observe_contention_and_nudge(task_id, actor_id)
+        result = {
+            "success": False,
+            "reason": reason,
+            "nudge": nudge.to_dict() if nudge else None,
+        }
+        return json.dumps(result, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "assignment_id": handle.attempt_id,
+            "fence_token": handle.fence_token,
+            "actor_id": handle.actor_id,
+            "baseline_ref": handle.baseline_ref,
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def submit_enrolled_contribution(
+    task_id: str,
+    assignment_id: str,
+    actor_id: str,
+    fence_token: int,
+    request_id: str,
+    diff_text: str,
+    actual_cost: float,
+) -> str:
+    """Atomically validates fence token, records candidate, and settles attempt budget."""
+    ok, sub, reason = collab_coordinator.submit_attempt(
+        task_id=task_id,
+        assignment_id=assignment_id,
+        actor_id=actor_id,
+        fence_token=fence_token,
+        request_id=request_id,
+        diff_text=diff_text,
+        actual_cost=actual_cost,
+    )
+    if not ok or not sub:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps({"success": True, "submission": sub.to_dict()}, indent=2)
+
+
+@mcp.tool()
+async def evaluate_enrolled_candidate(
+    candidate_id: str,
+    task_id: str,
+    reviewer_actor_id: str,
+    verdict: str,
+    blocking_findings: int,
+    notes: str = "",
+) -> str:
+    """Records an independent review evaluation for a candidate (enforcing author != reviewer)."""
+    try:
+        v = ReviewVerdict(verdict.upper())
+    except ValueError:
+        return json.dumps(
+            {"success": False, "reason": f"Invalid verdict: {verdict}"}, indent=2
+        )
+
+    ok, receipt, reason = collab_coordinator.record_review(
+        candidate_id=candidate_id,
+        task_id=task_id,
+        reviewer_actor_id=reviewer_actor_id,
+        verdict=v,
+        blocking_findings=blocking_findings,
+        notes=notes,
+    )
+    if not ok or not receipt:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "review_id": receipt.review_id,
+            "verdict": receipt.verdict.value,
+            "blocking_findings": receipt.blocking_findings,
+        },
+        indent=2,
+    )
 
 
 @mcp.tool()
