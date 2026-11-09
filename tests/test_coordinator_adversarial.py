@@ -220,7 +220,9 @@ async def test_cancel_during_git_preparation_never_starts_command(tmp_path):
         adapter.launch(aid, "HEAD", [sys.executable, "-c", "pass"], 10)
     )
     await asyncio.to_thread(entered.wait, 2)
-    assert not (await adapter.cancel(aid))["termination_confirmed"]
+    pending = await adapter.cancel(aid)
+    assert pending["state"] == "unknown"
+    assert not pending["termination_confirmed"]
     released.set()
     with pytest.raises(Conflict):
         await launch
@@ -516,3 +518,54 @@ def test_invalid_legacy_admission_is_not_a_ready_dependency(store):
         == "blocked"
     )
     assert select_task(snapshot, [], 10)["id"] == independent["id"]
+
+
+@pytest.mark.asyncio
+async def test_live_waitid_child_runs_to_completion_before_supervisor_cleanup(tmp_path):
+    """WNOWAIT/WNOHANG returns None for a live child on supported CPython/Linux."""
+    import os
+
+    adapter = GitWorktreeAdapter(tmp_path, tmp_path / "worktrees")
+    aid = secrets.token_hex(16)
+    marker = tmp_path / "completed.txt"
+    with (tmp_path / "child.log").open("wb") as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys,time; from pathlib import Path; time.sleep(0.15); "
+                "Path(sys.argv[1]).write_text('completed')",
+                str(marker),
+            ],
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+        )
+        adapter.running[aid] = process
+        assert (
+            os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            is None
+        )
+        await adapter._supervise(
+            aid, process, asyncio.get_running_loop().time() + 5, log
+        )
+    result = await adapter.observe(aid)
+    assert result["termination_confirmed"] and result["returncode"] == 0
+    assert marker.read_text() == "completed"
+    assert not adapter.running
+
+
+@pytest.mark.asyncio
+async def test_wait_failure_preserves_original_error_and_execution_reservation(store):
+    from src.liminal_bridge.worktree_adapter import run_attempt
+
+    t = task(store)
+    attempt = store.start_attempt(t["id"], "author", [], 10, "reserve")
+    adapter = MagicMock()
+    adapter.launch = AsyncMock(return_value={"base": "1" * 40})
+    original = RuntimeError("adapter wait failed")
+    adapter.wait = AsyncMock(side_effect=original)
+    with pytest.raises(RuntimeError) as raised:
+        await run_attempt(store, adapter, attempt, "HEAD", ["unused"])
+    assert raised.value is original
+    assert not store.snapshot()["attempt"][0]["termination_confirmed"]
