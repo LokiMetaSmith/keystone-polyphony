@@ -783,10 +783,11 @@ class LiminalMesh:
             await self._send_to_sidecar("broadcast", self._signed_envelope(payload))
 
     async def broadcast_macro(self, payload: Any):
-        """Send to MQTT peers and DHT peers, without assuming full coverage."""
+        """Submit one envelope through MQTT and DHT and report each route."""
         msg = self._signed_envelope(payload)
-        mqtt_delivered = False
+        result = {"message_id": payload["message_id"], "mqtt": "disabled", "dht": "pending"}
         if self.mqtt_host:
+            result["mqtt"] = "failed"
             try:
                 encoded = json.dumps(msg).encode()
                 topic = f"keystone/{self.topic}/macro"
@@ -799,16 +800,19 @@ class LiminalMesh:
                         hostname=self.mqtt_host, port=self.mqtt_port
                     ) as client:
                         await client.publish(topic, encoded)
-                mqtt_delivered = True
+                result["mqtt"] = "submitted"
             except Exception as exc:
                 print(f"Warning: MQTT delivery failed: {exc}")
 
         try:
             await self._send_to_sidecar("broadcast", msg)
+            result["dht"] = "submitted"
         except Exception:
-            if not mqtt_delivered:
+            result["dht"] = "failed"
+            if result["mqtt"] != "submitted":
                 raise
             print("Warning: DHT unavailable; MQTT delivery was attempted")
+        return result
 
     async def _ble_listener(self):
         """Background task that starts a BLE GATT Server via bless and periodically scans via bleak."""
@@ -912,9 +916,15 @@ class LiminalMesh:
                 await asyncio.sleep(30)
 
     async def broadcast_micro(self, payload: Any):
-        """Send to all discovered BLE peers and DHT peers in the mixed mesh."""
+        """Submit one envelope through discovered BLE peers and DHT."""
         msg = self._signed_envelope(payload)
-        ble_delivered = False
+        result = {
+            "message_id": payload["message_id"],
+            "ble": "disabled" if not self.ble_enabled else "no_peers",
+            "ble_attempted": 0,
+            "ble_submitted": 0,
+            "dht": "pending",
+        }
         if self.ble_enabled:
             try:
                 import bleak
@@ -929,25 +939,36 @@ class LiminalMesh:
                     ]
                     if self._ble_service_uuid.lower() not in advertised_uuids:
                         continue
+                    result["ble_attempted"] += 1
                     try:
                         async with bleak.BleakClient(device) as client:
                             await client.write_gatt_char(
                                 self._ble_characteristic_uuid, encoded, response=True
                             )
-                        ble_delivered = True
+                        result["ble_submitted"] += 1
                     except Exception as exc:
                         print(
                             f"Warning: BLE delivery to {device.address} failed: {exc}"
                         )
+                if result["ble_attempted"]:
+                    result["ble"] = (
+                        "submitted"
+                        if result["ble_submitted"] == result["ble_attempted"]
+                        else "partial" if result["ble_submitted"] else "failed"
+                    )
             except Exception as exc:
+                result["ble"] = "failed"
                 print(f"Warning: BLE broadcast failed: {exc}")
 
         try:
             await self._send_to_sidecar("broadcast", msg)
+            result["dht"] = "submitted"
         except Exception:
-            if not ble_delivered:
+            result["dht"] = "failed"
+            if not result["ble_submitted"]:
                 raise
             print("Warning: DHT unavailable; BLE delivery was attempted")
+        return result
 
     def _increment_clock(self):
         """Increments the local logical clock."""

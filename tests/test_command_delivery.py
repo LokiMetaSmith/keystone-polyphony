@@ -2,6 +2,10 @@
 
 import asyncio
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -147,3 +151,41 @@ async def test_reused_payload_is_a_new_logical_broadcast(tmp_path):
     first_id = node._decrypt(first["e"])["message_id"]
     second_id = node._decrypt(second["e"])["message_id"]
     assert first_id != second_id
+
+
+def test_receipt_survives_fresh_interpreter_and_storage_provider(tmp_path):
+    node = make_mesh(tmp_path, "recipient")
+    origin = "a" * 64
+    message_id = "d" * 32
+    assert not node._command_is_duplicate(origin, message_id)
+
+    script = (
+        "import sys\n"
+        "from src.liminal_bridge.mesh import LiminalMesh\n"
+        "from src.liminal_bridge.storage import SQLiteStorageProvider\n"
+        "node = LiminalMesh('overlap-test-key', "
+        "storage_provider=SQLiteStorageProvider(sys.argv[1]), "
+        "identity_path=sys.argv[2])\n"
+        "assert node._command_is_duplicate(sys.argv[3], sys.argv[4])\n"
+    )
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(tmp_path / "recipient.db"),
+            str(tmp_path / "recipient.pem"),
+            origin,
+            message_id,
+        ],
+        cwd=root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
