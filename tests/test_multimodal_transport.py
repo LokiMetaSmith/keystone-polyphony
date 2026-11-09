@@ -78,7 +78,7 @@ async def test_ble_broadcast_reaches_all_matching_peers(monkeypatch, mesh):
         assert kwargs == {"response": True}
         assert_envelope(mesh, json.loads(args[1]), payload)
     clients["other"].write_gatt_char.assert_not_awaited()
-    mesh._send_to_sidecar.assert_not_awaited()
+    mesh._send_to_sidecar.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -99,7 +99,7 @@ async def test_ble_continues_after_peer_failure_without_duplicate_dht(
 
     clients["unreachable"].write_gatt_char.assert_awaited_once()
     clients["reachable"].write_gatt_char.assert_awaited_once()
-    mesh._send_to_sidecar.assert_not_awaited()
+    mesh._send_to_sidecar.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -145,7 +145,8 @@ async def test_mqtt_reuses_client_and_preserves_envelope(mesh):
     topic, encoded = mesh._mqtt_client.publish.call_args.args
     assert topic == f"keystone/{mesh.topic}/macro"
     assert_envelope(mesh, json.loads(encoded), payload)
-    mesh._send_to_sidecar.assert_not_awaited()
+    mesh._send_to_sidecar.assert_awaited_once()
+    assert mesh._send_to_sidecar.call_args.args[1] == json.loads(encoded)
 
 
 @pytest.mark.asyncio
@@ -190,3 +191,23 @@ async def test_broadcast_routing(mesh, urgency, distance, route):
     assert payload["urgency"] == urgency
     assert "timestamp" in payload
     assert payload["vc"] == mesh.vector_clock
+
+
+@pytest.mark.asyncio
+async def test_mqtt_success_dht_failure_preserves_available_route(mesh):
+    mesh.mqtt_host = "broker"
+    mesh._mqtt_client = SimpleNamespace(publish=AsyncMock())
+    mesh._send_to_sidecar.side_effect = OSError("dht offline")
+    await mesh.broadcast_macro({"type": "thought", "content": "test"})
+    mesh._mqtt_client.publish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_all_transport_failures_propagate(mesh):
+    mesh.mqtt_host = "broker"
+    mesh._mqtt_client = SimpleNamespace(
+        publish=AsyncMock(side_effect=OSError("mqtt offline"))
+    )
+    mesh._send_to_sidecar.side_effect = OSError("dht offline")
+    with pytest.raises(OSError, match="dht offline"):
+        await mesh.broadcast_macro({"type": "thought", "content": "test"})
