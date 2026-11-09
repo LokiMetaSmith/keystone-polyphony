@@ -212,6 +212,7 @@ class GitWorktreeAdapter:
         owned = True
         try:
             while True:
+                # CPython returns None under WNOHANG while the child is alive.
                 exited = os.waitid(
                     os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
                 )
@@ -271,6 +272,7 @@ class GitWorktreeAdapter:
             return self.results[attempt_id]
         if attempt_id in self.running:
             return {"state": "running", "termination_confirmed": False, "cost": None}
+        # Includes Git preparation: watchers[attempt_id] is a None placeholder.
         return {"state": "unknown", "termination_confirmed": False, "cost": None}
 
     async def cancel(self, attempt_id):
@@ -341,6 +343,7 @@ async def run_attempt(
         store.observe(aid, "running")
     except sqlite3.Error:
         pass  # The live adapter still enforces the previously approved limit.
+    # Wait failures leave the reservation held; capture's finally is not entered.
     result = await adapter.wait(aid)
     if not result["termination_confirmed"]:
         store.observe(aid, "unknown")
