@@ -60,6 +60,12 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
             or principal.get("role") not in ROLE_OPERATIONS
         ):
             raise ValueError("invalid credential configuration")
+    if execution is not None:
+        if adapter is None:
+            raise ValueError("execution template requires an adapter")
+        # Reject unsupported hosts before workers allocate task-wide budgets.
+        # The authority/read/recovery service can still run without execution.
+        adapter.validate_execution()
 
     @web.middleware
     async def auth(request, handler):
@@ -86,11 +92,27 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
 
     executions = {}
 
+    def capture_unresolved(active):
+        return active is not None and (
+            not active.done()
+            or active.cancelled()
+            or active.exception() is not None
+            or active.result() is None
+        )
+
     async def snapshot(request):
         if adapter:
             for attempt in store.snapshot()["attempt"]:
                 active = executions.get(attempt["id"])
-                if active is not None and not active.done():
+                if capture_unresolved(active):
+                    if (
+                        active.done()
+                        and not attempt["termination_confirmed"]
+                        and attempt["state"] not in {"unknown", "cancel_requested"}
+                    ):
+                        # Reconcile a failed capture after storage recovers,
+                        # without confirming death or blocking independent work.
+                        store.observe(attempt["id"], "unknown")
                     continue  # Preserve work before releasing its reservation.
                 if (
                     not attempt["termination_confirmed"]
@@ -150,16 +172,28 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
                         ),
                     )
                 except Exception:
-                    if aid not in adapter.watchers and aid not in adapter.running:
+                    state = adapter.results.get(aid)
+                    unlaunched = (
+                        aid not in adapter.watchers
+                        and aid not in adapter.running
+                        and (state is None or state.get("not_started") is True)
+                    )
+                    if unlaunched:
                         # This service uniquely claimed a fresh reserved launch.
                         # Input/permission preparation failed before any spawn.
-                        store.observe(aid, "exited", True)
+                        confirmed = store.observe(aid, "exited", True)
+                    else:
+                        store.observe(aid, "unknown")
                     store.problem(
                         aid,
                         attempt["worker"],
-                        "adapter execution failed; inspect private adapter log",
+                        "execution/capture failed; preserve work before verified owner recovery",
                     )
-                    return None
+                    return (
+                        {"execution": confirmed, "not_started": True}
+                        if unlaunched
+                        else None
+                    )
 
             executions[aid] = asyncio.create_task(supervise())
         return web.json_response({"attempt": aid, "state": "submitted"})
@@ -190,9 +224,27 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         result = await adapter.cancel(attempt["id"])
         active = executions.get(attempt["id"])
         if active is not None:
-            await asyncio.shield(active)
-        store.observe(attempt["id"], result["state"], result["termination_confirmed"])
-        return web.json_response(result)
+            try:
+                await asyncio.shield(active)
+            except asyncio.CancelledError:
+                if not active.cancelled():
+                    raise  # The HTTP caller cancelled, not the execution task.
+            except Exception:
+                pass  # Failed capture remains reserved for verified recovery.
+            if capture_unresolved(active):
+                raise Conflict(
+                    "work capture unresolved; preserve work before owner recovery"
+                )
+            result = await adapter.observe(attempt["id"])
+        confirmed = store.observe(
+            attempt["id"], result["state"], result["termination_confirmed"]
+        )
+        return web.json_response(
+            confirmed
+            if confirmed["termination_confirmed"]
+            and not result["termination_confirmed"]
+            else result
+        )
 
     async def cleanup(app):
         # Stop serving protected requests while already approved independent

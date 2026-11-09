@@ -639,3 +639,237 @@ def test_replacement_can_resubmit_identical_candidate_without_relabeling_author(
         c["id"], "reviewer", "tests", True, 1, request_key=secrets.token_hex(16)
     )
     assert store.accept(same["id"])["candidate"]["id"] == c["id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["patch", "save_work", "launch"])
+async def test_capture_failure_holds_reservation_through_poll_cancel_and_restart(
+    store, repository, tmp_path, credentials, monkeypatch, failure
+):
+    import subprocess
+
+    adapter = GitWorktreeAdapter(repository, tmp_path / "worktrees")
+    base = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    ).strip()
+    task = enroll(store)
+    attempt = start(store, task)
+    execution = {
+        "base": base,
+        "command": [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; Path('valuable.txt').write_text('salvage me')",
+        ],
+        "env": {},
+    }
+    target = store if failure == "save_work" else adapter
+    original = getattr(target, failure)
+
+    def unavailable(*args):
+        raise OSError("capture unavailable")
+
+    if failure == "launch":
+
+        async def unavailable_after_spawn(*args, **kwargs):
+            handle = await original(*args, **kwargs)
+            await adapter.wait(handle["attempt"])
+            adapter.watchers.pop(handle["attempt"])
+            raise OSError("launch failed after child exit")
+
+        monkeypatch.setattr(target, failure, unavailable_after_spawn)
+    else:
+        monkeypatch.setattr(target, failure, unavailable)
+    worker = {"Authorization": "Bearer " + "a" * 32}
+    owner = {"Authorization": "Bearer " + "o" * 32}
+    async with TestClient(
+        TestServer(create_app(store, credentials, adapter, execution))
+    ) as client:
+        response = await client.post(
+            "/execute", json={"attempt_id": attempt["id"]}, headers=worker
+        )
+        assert response.status == 200
+        for _ in range(300):
+            if store.snapshot()["problem"]:
+                break
+            await asyncio.sleep(0.01)
+        assert store.snapshot()["problem"]
+        for _ in range(2):
+            observed = await client.get("/snapshot", headers=worker)
+            saved_attempt = (await observed.json())["attempt"][0]
+            assert not saved_attempt["termination_confirmed"]
+            assert saved_attempt["state"] in {"unknown", "cancel_requested"}
+            cancelled = await client.post(
+                "/cancel", json={"attempt_id": attempt["id"]}, headers=worker
+            )
+            assert cancelled.status == 409
+        assert not store.snapshot()["work"]
+        with pytest.raises(Conflict):
+            start(store, task, key="must-stay-reserved")
+        assert (
+            adapter._path(attempt["id"]) / "valuable.txt"
+        ).read_text() == "salvage me"
+        # A restarted supervisor also cannot infer safe recovery from old files.
+        reopened = Coordinator(store.path)
+        restarted = GitWorktreeAdapter(repository, adapter.root)
+        async with TestClient(
+            TestServer(create_app(reopened, credentials, restarted))
+        ) as recovery:
+            snapshot = await recovery.get("/snapshot", headers=owner)
+            assert not (await snapshot.json())["attempt"][0]["termination_confirmed"]
+        # Explicit owner recovery: verify process death, save the retained bytes,
+        # and only then confirm termination. No task budget is silently reset.
+        monkeypatch.setattr(target, failure, original)
+        assert (await adapter.observe(attempt["id"]))["termination_confirmed"]
+        patch = adapter.patch(attempt["id"], base)
+        saved = await client.post(
+            "/call/save_work",
+            json={"attempt_id": attempt["id"], "content": patch},
+            headers=worker,
+        )
+        assert saved.status == 200
+        artifact = (await saved.json())["result"]
+        confirmed = await client.post(
+            "/call/observe",
+            json={
+                "attempt_id": attempt["id"],
+                "state": "exited",
+                "termination_confirmed": True,
+            },
+            headers=owner,
+        )
+        assert confirmed.status == 200
+        replacement = start(store, task, key="after-verified-recovery")
+        assert replacement["number"] == 2
+        saved_task = next(
+            t for t in reopened.snapshot()["task"] if t["id"] == task["id"]
+        )
+        assert saved_task["allocated_seconds"] == 20
+        assert "salvage me" in reopened.artifact(artifact)
+
+
+def test_unsupported_execution_host_fails_before_serving_workers(
+    store, repository, tmp_path, credentials, monkeypatch
+):
+    import src.liminal_bridge.worktree_adapter as module
+
+    adapter = GitWorktreeAdapter(repository, tmp_path / "worktrees")
+    monkeypatch.setattr(module.os, "waitid", None)
+    assert not adapter.query_capabilities()["termination_confirmation"]
+    task = enroll(store)
+    with pytest.raises(ValueError, match="waitid"):
+        create_app(store, credentials, adapter, {"base": "HEAD", "command": ["unused"]})
+    # Authority/review/recovery remains usable without the Linux execution adapter.
+    assert create_app(store, credentials) is not None
+    snapshot = store.snapshot()
+    assert not snapshot["attempt"]
+    assert snapshot["task"][0]["id"] == task["id"]
+    assert snapshot["task"][0]["allocated_seconds"] == 0
+
+
+@pytest.mark.asyncio
+async def test_service_cancel_during_preparation_confirms_known_unlaunched_attempt(
+    store, repository, tmp_path, credentials
+):
+    import threading
+
+    adapter = GitWorktreeAdapter(repository, tmp_path / "worktrees")
+    entered, released = threading.Event(), threading.Event()
+
+    def prepare(path, base):
+        entered.set()
+        assert released.wait(5)
+        path.mkdir()
+        return "1" * 40
+
+    adapter._prepare = prepare
+    attempt = start(store, enroll(store))
+    worker = {"Authorization": "Bearer " + "a" * 32}
+    config = {"base": "HEAD", "command": ["must-not-spawn"], "env": {}}
+    async with TestClient(
+        TestServer(create_app(store, credentials, adapter, config))
+    ) as client:
+        assert (
+            await client.post(
+                "/execute", json={"attempt_id": attempt["id"]}, headers=worker
+            )
+        ).status == 200
+        assert await asyncio.to_thread(entered.wait, 2)
+
+        async def cancel():
+            return await client.post(
+                "/cancel", json={"attempt_id": attempt["id"]}, headers=worker
+            )
+
+        pending = asyncio.create_task(cancel())
+        try:
+            for _ in range(100):
+                if store.snapshot()["attempt"][0].get("cancel_requested"):
+                    break
+                await asyncio.sleep(0.01)
+            assert store.snapshot()["attempt"][0]["cancel_requested"]
+        finally:
+            released.set()
+        response = await pending
+        assert response.status == 200, await response.text()
+        assert (await response.json())["termination_confirmed"]
+        assert adapter.results[attempt["id"]]["not_started"]
+        assert not adapter.running
+
+
+@pytest.mark.asyncio
+async def test_storage_recovery_marks_failed_capture_unknown_without_releasing_it(
+    store, repository, tmp_path, credentials, monkeypatch
+):
+    import sqlite3
+
+    adapter = GitWorktreeAdapter(repository, tmp_path / "worktrees")
+    attempt = start(store, enroll(store))
+    observed = store.observe
+    unavailable = [True]
+
+    def save_failure(*args):
+        raise sqlite3.OperationalError("storage temporarily unavailable")
+
+    def observe_failure(aid, state, termination_confirmed=False):
+        if state == "unknown" and unavailable[0]:
+            unavailable[0] = False
+            raise sqlite3.OperationalError("storage temporarily unavailable")
+        return observed(aid, state, termination_confirmed)
+
+    monkeypatch.setattr(store, "save_work", save_failure)
+    monkeypatch.setattr(store, "observe", observe_failure)
+    config = {
+        "base": "HEAD",
+        "command": [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; Path('partial.txt').write_text('retained')",
+        ],
+        "env": {},
+    }
+    worker = {"Authorization": "Bearer " + "a" * 32}
+    async with TestClient(
+        TestServer(create_app(store, credentials, adapter, config))
+    ) as client:
+        assert (
+            await client.post(
+                "/execute", json={"attempt_id": attempt["id"]}, headers=worker
+            )
+        ).status == 200
+        for _ in range(300):
+            response = await client.get("/snapshot", headers=worker)
+            snapshot = await response.json()
+            current = snapshot["attempt"][0]
+            if current["state"] == "unknown" and not unavailable[0]:
+                break
+            await asyncio.sleep(0.01)
+        assert current["state"] == "unknown" and not current["termination_confirmed"]
+        assert not unavailable[0]
+        assert not snapshot["work"]
+        assert (adapter._path(attempt["id"]) / "partial.txt").read_text() == "retained"
+        response = await client.post(
+            "/cancel", json={"attempt_id": attempt["id"]}, headers=worker
+        )
+        assert response.status == 409
+        assert not store.snapshot()["attempt"][0]["termination_confirmed"]

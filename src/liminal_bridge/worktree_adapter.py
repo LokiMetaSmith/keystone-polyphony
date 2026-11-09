@@ -33,10 +33,18 @@ class GitWorktreeAdapter:
             "execution_limits": "live_supervisor_process_group",
             "recovery": "durable_worktree_unknown_process_after_restart",
             "termination_confirmation": hasattr(os, "WNOWAIT")
+            and callable(getattr(os, "waitid", None))
             and Path("/proc/self/stat").exists(),
             "cost": None,
             "platform": "linux_proc_waitid",
         }
+
+    def validate_execution(self):
+        if (
+            os.name != "posix"
+            or not self.query_capabilities()["termination_confirmation"]
+        ):
+            raise ValueError("adapter requires waitid(WNOWAIT) and Linux procfs")
 
     def _path(self, attempt_id):
         if not re.fullmatch(r"[a-f0-9]{32}", attempt_id):
@@ -87,11 +95,7 @@ class GitWorktreeAdapter:
         path = self._path(attempt_id)
         if path.exists() or attempt_id in self.watchers or attempt_id in self.results:
             raise Conflict("attempt already launched; observe before retry")
-        if (
-            os.name != "posix"
-            or not self.query_capabilities()["termination_confirmation"]
-        ):
-            raise ValueError("adapter requires waitid(WNOWAIT) and Linux procfs")
+        self.validate_execution()
         if not command or not all(isinstance(arg, str) for arg in command):
             raise ValueError("command must be a nonempty argv list")
         if input_text is not None and not isinstance(input_text, str):
@@ -337,7 +341,10 @@ async def run_attempt(
         )
     except Exception:
         state = await adapter.observe(aid)
-        store.observe(aid, state["state"], state["termination_confirmed"])
+        # A failed launch can still have spawned a child and produced work.
+        # Only explicit proof of no spawn permits release without capture.
+        unlaunched = state.get("not_started") is True
+        store.observe(aid, "exited" if unlaunched else "unknown", unlaunched)
         raise
     try:
         store.observe(aid, "running")
@@ -348,9 +355,11 @@ async def run_attempt(
     if not result["termination_confirmed"]:
         store.observe(aid, "unknown")
         raise Conflict("execution termination unknown")
+    # Capture failure must keep the authority reservation held. A local process
+    # exit is not permission to spend another attempt before its work is saved.
+    patch = await asyncio.to_thread(adapter.patch, aid, handle["base"])
+    artifact = store.save_work(aid, attempt["worker"], patch)
     try:
-        patch = await asyncio.to_thread(adapter.patch, aid, handle["base"])
-        artifact = store.save_work(aid, attempt["worker"], patch)
         candidate = store.candidate(aid, attempt["worker"], handle["base"], artifact)
         if result["returncode"]:
             store.problem(
