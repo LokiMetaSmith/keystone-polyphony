@@ -26,6 +26,10 @@ Current hook coverage:
 1. `pre-commit` strips trailing spaces/tabs from **staged content only** (`.md`, `.yml`, `.yaml`, `.txt`, `.sh`). The working tree is never touched, so partial staging is safe.
 2. `pre-commit` normalizes missing EOF newline for those files.
 3. `pre-commit` runs `git diff --cached --check` and blocks commits if unresolved whitespace issues remain.
+4. `pre-commit` runs `scripts/lint.sh`. A failed lint check blocks the commit on every branch.
+5. `pre-push` runs `scripts/run-tests.sh`. A failed lint or test check blocks the push on every branch.
+
+Install the dependencies in `requirements.txt` before you run the hooks. The lint and test checks need `black`, `flake8`, and `pytest`. Do not use `--no-verify` to skip a failed check.
 
 Prerequisites checked by the installer: `git`, `awk`, `mktemp`, `cmp`, `tail`.
 

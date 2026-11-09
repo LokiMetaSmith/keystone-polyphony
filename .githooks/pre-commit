@@ -15,7 +15,7 @@ if [ "$CURRENT_BRANCH" = "main" ]; then
   fi
   BLOCK_ON_FAIL=1
 else
-  BLOCK_ON_FAIL=0
+  BLOCK_ON_FAIL=1
 fi
 
 # Use -z to handle filenames with spaces/newlines correctly.

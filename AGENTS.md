@@ -71,3 +71,20 @@ This repository is intentionally public. Treat it as a transparent collaboration
   - Raise **high-severity/blocking** findings when there is concrete evidence of true sensitive data exposure or privilege escalation risk.
   - Treat generic token wiring patterns (e.g., passing repo vars/secrets into jobs, provider env mapping) as **best-practice hardening** unless sensitive data is explicitly involved.
 - **Still enforce hygiene**: Keep least-privilege permissions, version pinning, and minimal secret surface area as recommended best practices.
+
+## 8. Required Checks Before Handoff
+
+Use this procedure for each code change.
+
+1. Install the Git hooks. Run `./scripts/install-hooks.sh`.
+2. Run `bash scripts/lint.sh` from the repository root.
+3. If Black reports a format error, run `black . --exclude="third_party|.venv"`.
+4. Run `bash scripts/lint.sh` again.
+5. Run `bash scripts/run-tests.sh`.
+6. If a check fails, correct the problem. Run the check again.
+7. Do not commit or push a change if a required check fails.
+8. Do not use `--no-verify` to bypass a failed hook.
+9. Record the checks that you ran. Record the result of each check.
+10. Do not say that the change is complete before all checks pass.
+
+The `pre-commit` and `pre-push` hooks stop the operation when a required check fails.

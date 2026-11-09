@@ -50,3 +50,7 @@ This section tracks the work required to build a fully decentralized, peer-to-pe
 - [x] **Model Sharding Logic:** Teach the Architect to split a `.gguf` into distinct layer stages for Pipeline Parallelism (PP) across the mesh.
 - [x] **Topology Tags:** Implement `pln grant --prop parallel_group=ring_1` logic for grouping shards with low-latency links for Tensor Parallelism (TP).
 - [x] **Distributed KV Cache:** Research utilizing Keystone's CRDT state to synchronize the KV cache across sharded WASM instances (critical for handling Sequence Parallelism and massive context windows). (Implemented CRDT/Blob hybrid in `src/liminal_bridge/distributed_kv_cache.py`)
+
+## Maintenance
+- [ ] **Migrate to MCP v2**: `requirements.txt` pins `mcp<2` because mcp 2.x renamed `FastMCP` to `MCPServer` (`from mcp.server.mcpserver import MCPServer`) and changed other APIs. Port `src/liminal_bridge/server.py` per https://py.sdk.modelcontextprotocol.io/v2/migration/ and remove the pin.
+- [ ] **Fix script-mode imports**: `python src/liminal_bridge/server.py` fails on relative imports in `mesh.py`/`storage.py`; run with `PYTHONPATH=src python -m liminal_bridge.server` until fixed.

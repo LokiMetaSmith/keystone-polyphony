@@ -73,6 +73,10 @@ and publishes fully refined files with the `ready for work` label. Configure at
 least one reviewer: an empty or whitespace-only list holds the files for a later
 run. A failed CLI reviewer or an unconfigured Architect cannot mark a file as
 refined. Async reviewers and quota-limited reviews remain queued for a later run.
+The publisher also verifies a title, human interaction story, prerequisites,
+scope, actionable criteria, and a Gherkin scenario. Successful CLI exit without
+changes does not count as refinement, and an invalid issue with a forged marker
+is also held for review.
 The previous standalone issue reviewer has been superseded by this pipeline.
 
 ### 5. CLI Agent Issue Solver

@@ -24,6 +24,11 @@ if [[ -z "${AGENTS//[[:space:]]/}" ]]; then
 fi
 
 for agent in $AGENTS; do
+    if [[ ! "$agent" =~ ^[[:alpha:]][[:alnum:]_-]*$ ]]; then
+        echo "Invalid triage agent identifier: $agent" >&2
+        echo "INVALID_AGENT"
+        exit 0
+    fi
     if is_refined_by "$FILE" "$agent"; then
         continue
     fi
@@ -57,8 +62,14 @@ for agent in $AGENTS; do
 
         if [ -n "$cmd" ]; then
             echo "Running CLI agent: $agent" >&2
-            # CLI agents are expected to update the file and return 0
+            # Exit status alone is not proof that useful work occurred.
+            before=$(sha256sum "$FILE" | cut -d ' ' -f 1)
             if $cmd "$FILE" >&2; then
+                if [[ ! -f "$FILE" ]] || [[ "$before" == "$(sha256sum "$FILE" | cut -d ' ' -f 1)" ]]; then
+                    echo "Agent $agent did not revise the issue" >&2
+                    echo "NO_REFINEMENT"
+                    exit 0
+                fi
                 mark_refined_by "$FILE" "$agent"
                 echo "Agent $agent refined $FILE (sync)" >&2
                 # Continue to next agent for the same file
@@ -133,4 +144,9 @@ $BODY" \
     fi
 done
 
+# A claimed refinement must meet the publishable issue contract.
+if ! python3 scripts/validate_issue.py "$FILE" >&2; then
+    echo "INVALID_REFINEMENT"
+    exit 0
+fi
 echo "ALL_REFINED"
