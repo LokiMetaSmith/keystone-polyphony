@@ -1,3 +1,13 @@
+"""MCP and daemon entrypoints. Supports both package and direct-script execution."""
+
+import sys
+from pathlib import Path
+
+# Direct script invocations have no package context. Establish one before relative imports.
+if __name__ == "__main__" and not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "src.liminal_bridge"
+
 try:
     from .coordinator import managed_task
 except ImportError:
@@ -5,7 +15,6 @@ except ImportError:
 
 import asyncio
 import os
-import sys
 import argparse
 import time
 import hashlib
