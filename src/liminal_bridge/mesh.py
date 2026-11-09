@@ -775,12 +775,14 @@ class LiminalMesh:
         max_dist = max(self.peer_distances.values()) if self.peer_distances else 0.0
 
         if urgency == "high" or max_dist > 5.0:
-            await self.broadcast_macro(payload)
-        elif max_dist < 1.0 and self.peer_distances:
-            await self.broadcast_micro(payload)
-        else:
-            # Default fallback to Hyperswarm (DHT)
-            await self._send_to_sidecar("broadcast", self._signed_envelope(payload))
+            return await self.broadcast_macro(payload)
+        if max_dist < 1.0 and self.peer_distances:
+            return await self.broadcast_micro(payload)
+
+        # Default fallback to Hyperswarm (DHT). This reports submission,
+        # not acknowledgement by any remote agent.
+        await self._send_to_sidecar("broadcast", self._signed_envelope(payload))
+        return {"message_id": payload["message_id"], "dht": "submitted"}
 
     async def broadcast_macro(self, payload: Any):
         """Submit one envelope through MQTT and DHT and report each route."""

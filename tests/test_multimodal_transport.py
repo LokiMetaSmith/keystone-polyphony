@@ -224,3 +224,26 @@ async def test_all_transport_failures_propagate(mesh):
     mesh._send_to_sidecar.side_effect = OSError("dht offline")
     with pytest.raises(OSError, match="dht offline"):
         await mesh.broadcast_macro({"type": "thought", "content": "test"})
+
+
+@pytest.mark.asyncio
+async def test_public_broadcast_exposes_partial_delivery_outcome(mesh):
+    async def attempted(payload):
+        return {
+            "message_id": payload["message_id"],
+            "mqtt": "submitted",
+            "dht": "failed",
+        }
+
+    mesh.broadcast_macro = AsyncMock(side_effect=attempted)
+    result = await mesh.broadcast({"type": "thought"}, urgency="high")
+    assert result["mqtt"] == "submitted"
+    assert result["dht"] == "failed"
+    assert len(result["message_id"]) == 32
+
+
+@pytest.mark.asyncio
+async def test_default_broadcast_reports_dht_submission(mesh):
+    result = await mesh.broadcast({"type": "thought"})
+    assert result["dht"] == "submitted"
+    assert len(result["message_id"]) == 32

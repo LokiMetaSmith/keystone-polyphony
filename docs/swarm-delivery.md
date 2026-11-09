@@ -22,7 +22,8 @@ Target, capabilities, and status filters are **conjunctive**. A command
 targeted at one node is not processed by another merely because it advertises
 matching capabilities.
 
-Macro and micro methods return an inspectable per-transport submission result.
+The public `broadcast` call and its macro/micro routes return an inspectable
+per-transport submission result.
 `mqtt` and `dht` report `submitted`, `failed`, or `disabled`.
 BLE also reports attempts and successful submissions to distinguish partial
 peer coverage. A submission is **not** a recipient acknowledgement. If all
