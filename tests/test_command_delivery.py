@@ -144,4 +144,6 @@ async def test_reused_payload_is_a_new_logical_broadcast(tmp_path):
     first = node._send_to_sidecar.call_args.args[1]
     await node.broadcast(payload)
     second = node._send_to_sidecar.call_args.args[1]
-    assert node._decrypt(first["e"])["message_id"] != node._decrypt(second["e"])["message_id"]
+    first_id = node._decrypt(first["e"])["message_id"]
+    second_id = node._decrypt(second["e"])["message_id"]
+    assert first_id != second_id
