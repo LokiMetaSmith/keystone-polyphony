@@ -10,6 +10,21 @@ Run all SQLite clients on one host, on a local filesystem. Remote workers use
 the authenticated HTTP interface through an SSH tunnel. Never share the WAL
 files over a network filesystem. The default listener is loopback only.
 
+## Unified Architecture Structure
+
+The durable collaboration protocol is organized into:
+
+- **Core Protocol & Authority (`src/core/collaboration/`)**:
+  - `authority.py`: Single-host durable SQLite WAL authority (`Coordinator`), expected-fence CAS, attempt reservations, and candidate admission.
+  - `models.py`: Formal typed schemas (`TaskObjective`, `AssignmentClaim`, `ReviewReceipt`, `ReviewVerdict`, etc.).
+  - `ledger.py`: `FencedLedger` implementing atomic dual-budget and monotonic fence tracking.
+  - `conductor.py`: `EnsembleConductor` providing non-blocking advisory nudges and worker pivot guidance.
+  - `adapter.py` & `git_worktree_adapter.py`: Portable execution contracts, worktree lifecycle, diff extraction, and command execution.
+- **Service & Transport Layer (`src/liminal_bridge/`)**:
+  - `coordinator_service.py`: Authenticated HTTP daemon exposing the authority to remote nodes over SSH tunnels.
+  - `server.py`: FastMCP server exposing collaboration primitives as MCP tools (`create_enrolled_task`, `claim_enrolled_task`, etc.) for direct agent interaction.
+  - `coordinator.py`: Backward-compatible re-export module routing callers to `src.core.collaboration.authority`.
+
 ## Decisions and boundaries
 
 Upgrading the CRDT batons cannot make destination writes atomic. A distributed
