@@ -25,7 +25,8 @@ if command -v black >/dev/null 2>&1; then
         FAILED=1
     fi
 else
-    echo "[WARNING] 'black' not found. Skipping Python formatting check."
+    echo "[ERROR] 'black' is required. Install repository dependencies."
+    FAILED=1
 fi
 
 # 2. Python Linting (Flake8)
@@ -36,7 +37,8 @@ if command -v flake8 >/dev/null 2>&1; then
         FAILED=1
     fi
 else
-    echo "[WARNING] 'flake8' not found. Skipping Python linting check."
+    echo "[ERROR] 'flake8' is required. Install repository dependencies."
+    FAILED=1
 fi
 
 # 3. JavaScript Syntax
