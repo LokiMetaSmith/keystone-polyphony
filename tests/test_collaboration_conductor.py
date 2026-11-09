@@ -87,10 +87,10 @@ async def test_legacy_complete_task_guardrail_for_enrolled_tasks(temp_db, monkey
     # Import server
     from src.liminal_bridge import server
 
-    server.collab_ledger = FencedLedger(temp_db)
-    server.collab_coordinator = CollaborationCoordinator(
-        server.collab_ledger, server.collab_adapter
-    )
+    ledger = FencedLedger(temp_db)
+    coordinator = CollaborationCoordinator(ledger, server.collab_adapter)
+    monkeypatch.setattr(server, "collab_ledger", ledger)
+    monkeypatch.setattr(server, "collab_coordinator", coordinator)
 
     # Register enrolled task (schema_version = 2)
     server.collab_coordinator.register_task(

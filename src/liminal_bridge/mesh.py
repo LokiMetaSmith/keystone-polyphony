@@ -1,3 +1,8 @@
+try:
+    from .coordinator import managed_task
+except ImportError:
+    from coordinator import managed_task
+
 import asyncio
 import json
 import hashlib
@@ -1449,7 +1454,7 @@ class LiminalMesh:
         task_statuses = {t.get("id"): t.get("status") for t in tasks if t.get("id")}
 
         for task in tasks:
-            if task.get("status") == "todo":
+            if task.get("status") == "todo" and not managed_task(task):
                 # Check dependencies first
                 blocked_by = task.get("blocked_by", [])
                 dependencies_met = True

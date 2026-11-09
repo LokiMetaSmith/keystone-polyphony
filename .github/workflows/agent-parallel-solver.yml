@@ -40,6 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          DEFAULT_AGENT: ${{ vars.AGENT_CLI || 'opencode' }}
         run: |
           set -euo pipefail
           
@@ -49,8 +50,7 @@ jobs:
           
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ISSUE_NUMBER="${{ inputs.issue_number }}"
-            # Default to jules on manual runs if not specified
-            AGENT_NAME="jules"
+            AGENT_NAME="$DEFAULT_AGENT"
           else
             ISSUE_NUMBER="${{ github.event.issue.number }}"
             LABEL_NAME="${{ github.event.label.name }}"
@@ -123,7 +123,6 @@ jobs:
         worker_id: ${{ fromJson(needs.setup.outputs.matrix_json) }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
       AGENT_CLI: ${{ needs.setup.outputs.agent_name }}
       AGENT_OPENCODE_NPM_PACKAGE: ${{ vars.AGENT_OPENCODE_NPM_PACKAGE || 'opencode-ai@1.2.10' }}
       AGENT_JULES_NPM_PACKAGE: ${{ vars.AGENT_JULES_NPM_PACKAGE || '@google/jules@latest' }}
@@ -135,6 +134,14 @@ jobs:
       SWARM_KEY: SWARM_ISSUE_${{ needs.setup.outputs.issue_number }}
     steps:
       - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stage Agent Runner
+        run: cp scripts/run-issue-agent.py "$RUNNER_TEMP/run-issue-agent.py"
+
+      - name: Checkout issue branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -179,71 +186,21 @@ jobs:
               echo ""
             fi
             
-          } > agent_prompt.txt
+          } > "$RUNNER_TEMP/agent_prompt.txt"
 
       - name: Run Agent
+        timeout-minutes: 12
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
         run: |
           set -euo pipefail
-
-          CMD=("$AGENT_CLI")
-
-          if [ -n "$AGENT_CLI_FLAGS" ]; then
-            read -ra FLAGS <<< "$AGENT_CLI_FLAGS"
-            CMD+=("${FLAGS[@]}")
-          fi
-
-          if [[ "$AGENT_CLI" == "opencode" ]]; then
-            CMD+=("--non-interactive")
-          fi
-          # Add flags for jules if necessary
-          # if [[ "$AGENT_CLI" == "jules" ]]; then
-          #   CMD+=("--yolo")
-          # fi
-
-          if [ -n "$AGENT_MODEL" ]; then
-            CMD+=("--model" "$AGENT_MODEL")
-          fi
-
-          PROMPT_CONTENT=$(cat agent_prompt.txt)
-          CMD+=("--prompt" "$PROMPT_CONTENT")
-
-          KEY_PROVIDER="openrouter"
-          case "${AGENT_MODEL:-}" in
-            anthropic/*) KEY_PROVIDER="anthropic" ;;
-            google/*)    KEY_PROVIDER="google" ;;
-            grok/*)      KEY_PROVIDER="grok" ;;
-            deepseek/*)  KEY_PROVIDER="deepseek" ;;
-          esac
-
-          ENV_VARS=()
-          if [ -n "${AGENT_API_KEY:-}" ]; then
-            ENV_VARS+=("AGENT_API_KEY=$AGENT_API_KEY")
-            case "$KEY_PROVIDER" in
-              anthropic) ENV_VARS+=("ANTHROPIC_API_KEY=$AGENT_API_KEY") ;;
-              google)    ENV_VARS+=("GEMINI_API_KEY=$AGENT_API_KEY") ;;
-              grok)      ENV_VARS+=("GROK_API_KEY=$AGENT_API_KEY") ;;
-              deepseek)  ENV_VARS+=("DEEPSEEK_API_KEY=$AGENT_API_KEY") ;;
-              openrouter)
-                ENV_VARS+=("OPENAI_API_KEY=$AGENT_API_KEY")
-                ENV_VARS+=("OPENROUTER_API_KEY=$AGENT_API_KEY")
-                ENV_VARS+=("OPENAI_API_BASE=https://openrouter.ai/api/v1")
-                ;;
-            esac
-          fi
-
-          echo "Running agent (Worker ${{ matrix.worker_id }}): ${CMD[0]} ... (redacted prompt)"
-
           set +e
-          if [ "${#ENV_VARS[@]}" -gt 0 ]; then
-            env "${ENV_VARS[@]}" "${CMD[@]}"
-          else
-            "${CMD[@]}"
-          fi
+          python3 "$RUNNER_TEMP/run-issue-agent.py" --prompt "$RUNNER_TEMP/agent_prompt.txt"
           EXIT_CODE=$?
           set -e
-
           echo "agent_exit_code=$EXIT_CODE" >> "$GITHUB_ENV"
-          
+
       - name: Robust Pull-Rebase-Push
         if: always()
         run: |
@@ -361,10 +318,17 @@ jobs:
           
           if [ -z "$EXISTING_PR" ] || [ "$EXISTING_PR" == "null" ]; then
              echo "Creating PR for issue #$ISSUE_NUMBER"
-             gh pr create \
+             PR_ARGS=()
+             if [ "${{ steps.status.outputs.label }}" = "agent-failed" ]; then
+               PR_ARGS+=(--draft)
+               PR_BODY="Partial agent progress for #$ISSUE_NUMBER; execution failed and this is not a verified solution."
+             else
+               PR_BODY="Closes #$ISSUE_NUMBER. Implemented by parallel workers; review and validation required."
+             fi
+             gh pr create "${PR_ARGS[@]}" \
                --repo "$REPO" \
                --title "feat/agent-$ISSUE_NUMBER: $ISSUE_TITLE (Swarm)" \
-               --body "Closes #$ISSUE_NUMBER. Solved in parallel by an agent swarm." \
+               --body "$PR_BODY" \
                --head "$BRANCH_NAME" \
                --base main \
                --label "${{ steps.status.outputs.label }}"
@@ -372,7 +336,13 @@ jobs:
              echo "PR already exists: #$EXISTING_PR"
              # Optionally update labels based on final status
              gh pr edit "$EXISTING_PR" --repo "$REPO" --add-label "${{ steps.status.outputs.label }}"
+             if [ "${{ steps.status.outputs.label }}" = "agent-failed" ]; then
+               gh pr ready "$EXISTING_PR" --repo "$REPO" --undo
+             fi
           fi
 
-          # Remove working label
-          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "agent-working" || true
+          if [ "${{ steps.status.outputs.label }}" = "agent-failed" ]; then
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "agent-working" --add-label "agent-failed"
+          else
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "agent-working" --remove-label "agent-failed"
+          fi

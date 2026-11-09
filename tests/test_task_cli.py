@@ -4,6 +4,7 @@ import pytest
 import subprocess
 import tempfile
 import os
+import sys
 import json
 
 
@@ -22,7 +23,7 @@ def test_task_cli_workflow(temp_db):
 
     # 1. Enroll
     cmd_enroll = [
-        "python",
+        sys.executable,
         "scripts/task.py",
         "--db",
         temp_db,
@@ -44,7 +45,7 @@ def test_task_cli_workflow(temp_db):
 
     # 2. Claim
     cmd_claim = [
-        "python",
+        sys.executable,
         "scripts/task.py",
         "--db",
         temp_db,
@@ -65,7 +66,7 @@ def test_task_cli_workflow(temp_db):
     # 3. Submit
     diff_text = "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"
     cmd_submit = [
-        "python",
+        sys.executable,
         "scripts/task.py",
         "--db",
         temp_db,
@@ -95,7 +96,7 @@ def test_task_cli_workflow(temp_db):
 
     # 4. Review
     cmd_rev = [
-        "python",
+        sys.executable,
         "scripts/task.py",
         "--db",
         temp_db,
@@ -119,7 +120,7 @@ def test_task_cli_workflow(temp_db):
 
     # 5. Evidence
     cmd_ev = [
-        "python",
+        sys.executable,
         "scripts/task.py",
         "--db",
         temp_db,
