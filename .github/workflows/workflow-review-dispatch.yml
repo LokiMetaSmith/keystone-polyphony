@@ -189,6 +189,10 @@ jobs:
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "quota-hold"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
+             # Reviewer labels come from trusted configuration, but may not
+             # have been provisioned yet (including a new reviewer on retry).
+             gh label create "$LABEL" --repo "$REPO" --color "5319E7" \
+               --description "Configured automated reviewer" --force
              # Remove quota-hold if present
              gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "quota-hold" --add-label "$LABEL"
              echo "skip=false" >> "$GITHUB_OUTPUT"
