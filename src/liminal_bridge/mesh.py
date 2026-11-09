@@ -124,7 +124,9 @@ class LiminalMesh:
 
         # BLE Server specific attributes
         self._ble_server = None
-        self._ble_characteristic_uuid = f"0000{self.topic[:4]}-0000-1000-8000-00805f9b34fb"
+        self._ble_characteristic_uuid = (
+            f"0000{self.topic[:4]}-0000-1000-8000-00805f9b34fb"
+        )
         self._ble_service_uuid = f"{self.topic[:8]}-{self.topic[8:12]}-{self.topic[12:16]}-{self.topic[16:20]}-{self.topic[20:32]}"
 
         # Callbacks for Pulse
@@ -509,7 +511,10 @@ class LiminalMesh:
         while self.running:
             try:
                 import aiomqtt
-                async with aiomqtt.Client(hostname=self.mqtt_host, port=self.mqtt_port) as client:
+
+                async with aiomqtt.Client(
+                    hostname=self.mqtt_host, port=self.mqtt_port
+                ) as client:
                     self._mqtt_client = client
                     topic_sub = f"keystone/{self.topic}/macro"
                     await client.subscribe(topic_sub)
@@ -524,11 +529,13 @@ class LiminalMesh:
                             # Wrap it to simulate sidecar format for handle_message
                             if "e" in msg_dict and "s" in msg_dict and "p" in msg_dict:
                                 # A bit hacky, but derive peer_id from p to conform to handle_message
-                                derived_peer_id = hashlib.sha256(bytes.fromhex(msg_dict["p"])).hexdigest()[:16]
+                                derived_peer_id = hashlib.sha256(
+                                    bytes.fromhex(msg_dict["p"])
+                                ).hexdigest()[:16]
                                 wrapped_msg = {
                                     "type": "message",
                                     "peer_id": derived_peer_id,
-                                    "payload": msg_dict
+                                    "payload": msg_dict,
                                 }
                                 await self._handle_message(wrapped_msg)
                         except Exception as e:
@@ -740,16 +747,25 @@ class LiminalMesh:
             try:
                 if getattr(self, "_mqtt_client", None):
                     # Reuse existing client connection
-                    await self._mqtt_client.publish(f"keystone/{self.topic}/macro", json.dumps(msg).encode())
+                    await self._mqtt_client.publish(
+                        f"keystone/{self.topic}/macro", json.dumps(msg).encode()
+                    )
                     return
                 else:
                     # Fallback to creating a one-off connection if background task failed
                     import aiomqtt
-                    async with aiomqtt.Client(hostname=self.mqtt_host, port=self.mqtt_port) as client:
-                        await client.publish(f"keystone/{self.topic}/macro", json.dumps(msg).encode())
+
+                    async with aiomqtt.Client(
+                        hostname=self.mqtt_host, port=self.mqtt_port
+                    ) as client:
+                        await client.publish(
+                            f"keystone/{self.topic}/macro", json.dumps(msg).encode()
+                        )
                         return
             except Exception as e:
-                print(f"Warning: MQTT broadcast failed, falling back to Hyperswarm: {e}")
+                print(
+                    f"Warning: MQTT broadcast failed, falling back to Hyperswarm: {e}"
+                )
 
         # Default fallback to hyperswarm by sending 'broadcast' to sidecar
         await self._send_to_sidecar("broadcast", msg)
@@ -762,13 +778,20 @@ class LiminalMesh:
         try:
             import bleak
             import bless
-            from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
+            from bless import (
+                BlessServer,
+                BlessGATTCharacteristic,
+                GATTCharacteristicProperties,
+                GATTAttributePermissions,
+            )
         except ImportError:
-            print("Error: 'bleak' or 'bless' module not installed for BLE. BLE Listener disabled.")
+            print(
+                "Error: 'bleak' or 'bless' module not installed for BLE. BLE Listener disabled."
+            )
             return
 
         # Start Bless GATT Server
-        server_name = f"K-Polyphony"
+        server_name = "K-Polyphony"
 
         def read_request(characteristic):
             # When another node reads this, give them our last state or an empty payload.
@@ -780,11 +803,13 @@ class LiminalMesh:
                 msg_str = value.decode()
                 msg_dict = json.loads(msg_str)
                 if "e" in msg_dict and "s" in msg_dict and "p" in msg_dict:
-                    derived_peer_id = hashlib.sha256(bytes.fromhex(msg_dict["p"])).hexdigest()[:16]
+                    derived_peer_id = hashlib.sha256(
+                        bytes.fromhex(msg_dict["p"])
+                    ).hexdigest()[:16]
                     wrapped_msg = {
                         "type": "message",
                         "peer_id": derived_peer_id,
-                        "payload": msg_dict
+                        "payload": msg_dict,
                     }
                     asyncio.create_task(self._handle_message(wrapped_msg))
             except Exception as e:
@@ -798,8 +823,14 @@ class LiminalMesh:
 
             await self._ble_server.add_new_service(self._ble_service_uuid)
 
-            char_flags = GATTCharacteristicProperties.read | GATTCharacteristicProperties.write | GATTCharacteristicProperties.indicate
-            permissions = GATTAttributePermissions.readable | GATTAttributePermissions.writeable
+            char_flags = (
+                GATTCharacteristicProperties.read
+                | GATTCharacteristicProperties.write
+                | GATTCharacteristicProperties.indicate
+            )
+            permissions = (
+                GATTAttributePermissions.readable | GATTAttributePermissions.writeable
+            )
 
             await self._ble_server.add_new_characteristic(
                 self._ble_service_uuid,
@@ -810,7 +841,9 @@ class LiminalMesh:
             )
 
             await self._ble_server.start()
-            print(f"BLE GATT Server started. Advertising Service: {self._ble_service_uuid}")
+            print(
+                f"BLE GATT Server started. Advertising Service: {self._ble_service_uuid}"
+            )
         except Exception as e:
             print(f"Failed to start BLE GATT Server: {e}")
             self._ble_server = None
@@ -821,7 +854,9 @@ class LiminalMesh:
                 # We do not connect here; broadcast_micro handles connection and writing.
                 # The scan just keeps discovery active.
                 def callback(device, advertisement_data):
-                    if self._ble_service_uuid.lower() in [str(u).lower() for u in advertisement_data.service_uuids]:
+                    if self._ble_service_uuid.lower() in [
+                        str(u).lower() for u in advertisement_data.service_uuids
+                    ]:
                         # We found someone in our swarm!
                         pass
 
@@ -847,26 +882,30 @@ class LiminalMesh:
             success = False
             try:
                 import bleak
+
                 msg_bytes = json.dumps(msg).encode()
 
-                # Scan for a short time to find a peer
-                devices = await bleak.BleakScanner.discover(timeout=3.0)
-                target_device = None
-                for d in devices:
-                    # Note: on macOS service_uuids might be empty unless connected,
-                    # but we'll try to match it if present.
-                    if self._ble_service_uuid.lower() in [str(u).lower() for u in d.metadata.get('uuids', [])]:
-                        target_device = d
-                        break
-
-                if target_device:
-                    # Connect and Write
-                    async with bleak.BleakClient(target_device) as client:
-                        await client.write_gatt_char(self._ble_characteristic_uuid, msg_bytes, response=True)
-                        success = True
-                        return # Sent successfully via BLE
+                devices = await bleak.BleakScanner.discover(
+                    timeout=3.0, return_adv=True
+                )
+                for device, advertisement in devices.values():
+                    advertised_uuids = [
+                        str(u).lower() for u in advertisement.service_uuids
+                    ]
+                    if self._ble_service_uuid.lower() not in advertised_uuids:
+                        continue
+                    try:
+                        async with bleak.BleakClient(device) as client:
+                            await client.write_gatt_char(
+                                self._ble_characteristic_uuid, msg_bytes, response=True
+                            )
+                            success = True
+                    except Exception as e:
+                        print(f"Warning: BLE delivery to {device.address} failed: {e}")
             except Exception as e:
-                print(f"Warning: BLE micro broadcast failed, falling back to Hyperswarm: {e}")
+                print(
+                    f"Warning: BLE micro broadcast failed, falling back to Hyperswarm: {e}"
+                )
 
             if success:
                 return

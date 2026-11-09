@@ -5,8 +5,10 @@ from typing import Dict, Any, Optional
 
 try:
     from .mesh import LiminalMesh
+    from .storage import SQLiteStorageProvider
 except ImportError:
     from mesh import LiminalMesh
+    from storage import SQLiteStorageProvider
 
 
 class DistributedKVCache:
@@ -116,7 +118,9 @@ if __name__ == "__main__":
         # Mock mesh
         from unittest.mock import MagicMock
 
-        mesh = LiminalMesh(secret_key="mock", storage_provider=SQLiteStorageProvider(":memory:"))
+        mesh = LiminalMesh(
+            secret_key="mock", storage_provider=SQLiteStorageProvider(":memory:")
+        )
         cache = DistributedKVCache(mesh)
 
         print("Pushing Mock Cache Blocks to CRDT...")

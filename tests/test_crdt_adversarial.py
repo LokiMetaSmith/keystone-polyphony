@@ -1,6 +1,7 @@
 import pytest
 from src.liminal_bridge.crdt import Register
 
+
 def test_resolve_commutativity():
     r1 = Register("valA", 100, "A", {"A": 1})
     r2 = Register("valB", 100, "B", {"B": 1})
@@ -21,6 +22,7 @@ def test_resolve_commutativity():
     assert r1.timestamp == r2_copy.timestamp
     assert r1.origin == r2_copy.origin
     assert r1.vc == r2_copy.vc
+
 
 def test_resolve_overrides_lww():
     r1 = Register("late_loser", 200, "A", {"A": 1})
