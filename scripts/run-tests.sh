@@ -46,7 +46,8 @@ if [ -n "$PYTHON_EXEC" ] && $PYTHON_EXEC -c "import pytest" >/dev/null 2>&1; the
         FAILED=1
     fi
 else
-    echo "[WARNING] pytest module not found. Skipping unit tests."
+    echo "[ERROR] pytest is required. Install repository dependencies."
+    FAILED=1
 fi
 
 # 3. Check for broken symbolic links (if any)
