@@ -65,7 +65,8 @@ Set variables in **Settings → Secrets and variables → Actions → Variables*
 
 | Secret | Purpose |
 |---|---|
-| `AGENT_API_KEY` | API key for the LLM provider used by the agent |
+| `OPENROUTER_API_KEY` | Preferred Actions secret for the default OpenRouter issue-solving agent |
+| `AGENT_API_KEY` | Legacy fallback, or API key for an explicitly selected native provider |
 | `UPSTREAM_PR_TOKEN` | Token with permission to open PRs on the upstream repository |
 
 Set secrets in **Settings → Secrets and variables → Actions → Secrets**.
