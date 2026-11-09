@@ -107,7 +107,42 @@ graph TD
 **Trigger:** `issues` (labeled `ready for work`), `workflow_dispatch`.
 **File:** `agent-issue-solver.yml`
 
-This workflow autonomously implements solutions for issues marked as `ready for work`. It checks the `AGENT_DAILY_TASKS` quota, creates a feature branch, composes a prompt from the issue and repo context, and runs a pluggable CLI agent (e.g., OpenCode). If successful, it opens a Pull Request; otherwise, it labels the issue as `agent-failed`.
+This workflow attempts solutions for issues marked as `ready for work`. It checks
+`AGENT_DAILY_TASKS`, creates a fresh `feat/agent-N-RUN_ID` branch, and runs the
+agent with a prompt stored outside the checkout. A successful invocation with
+repository changes opens a PR for review. Failed invocations and empty results
+mark the issue `agent-failed` and fail the Actions job; they cannot publish a
+solution PR merely because the generated prompt changed.
+
+The default OpenCode runner uses the repository **Actions secret**
+`OPENROUTER_API_KEY`, falling back to `AGENT_API_KEY` for compatibility. A local
+`.env` file is not uploaded to Actions. The default model is
+`openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`; `AGENT_MODEL` can override
+it. Native providers require their matching key or the legacy `AGENT_API_KEY`;
+an OpenRouter credential is never substituted for an Anthropic/OpenAI key.
+Provider credentials are scoped to the execution step. Both issue workflows use
+`scripts/run-issue-agent.py`, which invokes `opencode run --format json` with
+stdin, verifies terminal assistant events, enforces a ten-minute timeout, and
+isolates HOME/XDG/OpenCode state per invocation. It does not retry code-writing
+model calls automatically because partial edits may already exist.
+
+To retry a particular open issue after installing this workflow change:
+
+```bash
+gh workflow run agent-issue-solver.yml --ref main -f issue_number=97
+```
+
+Repeat for #98, #90 or #88 after reviewing their current scope. Explicit retries
+still respect the daily quota and refuse issues already marked `agent-working`.
+Old workflow reruns execute the old workflow revision; adding credentials alone
+cannot repair its unsupported CLI flags. Use a new dispatch on the updated
+branch. Successful publication clears the stale `agent-failed` issue label.
+
+`agent-pr` records that automation created a PR; it does not certify a fix.
+Existing PRs #92, #93, #99 and #100 contain only generated prompt changes and
+must not be merged as issue solutions. New solver runs use fresh branches rather
+than force-pushing over those PRs. Parallel workers retain their shared branch;
+failed partial-progress PRs are drafts and do not claim to close the issue.
 
 ```mermaid
 graph TD

@@ -219,3 +219,51 @@ def test_auto_dynamic_helper_records_actual_chosen_model(tmp_path, workflow):
     assert patch in received["stdin"]
     assert "model=openrouter/selected/best:free" in (tmp_path / "outputs").read_text()
     assert "Review captured" in (tmp_path / "review_output.txt").read_text()
+
+
+def test_dispatch_provisions_selected_reviewer_label_before_assignment(tmp_path):
+    """A missing configured reviewer label must not abort the review queue."""
+    (tmp_path / "yq").write_text(
+        '#!/bin/sh\nprintf \'{"reviewers":[{"name":"New reviewer",'
+        '"handle":"@reviewer","label":"new-reviewer","quota_var":"NEW_QUOTA"}]}\\n\'\n'
+    )
+    (tmp_path / "yq").chmod(0o755)
+    (tmp_path / "gh").write_text(
+        f"#!{sys.executable}\n"
+        "import json,pathlib,sys\n"
+        "args=sys.argv[1:]\n"
+        "with open('calls.jsonl','a') as out: out.write(json.dumps(args)+'\\n')\n"
+        "if args[:2]==['label','create']: pathlib.Path('label-created').touch()\n"
+        "if args[:2]==['pr','edit'] and not pathlib.Path('label-created').exists(): sys.exit(1)\n"
+        "if args[:1]==['api'] and '/variables/' in args[1]: print('0')\n"
+    )
+    (tmp_path / "gh").chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            workflow_shell(
+                "workflow-review-dispatch.yml",
+                "Select Reviewer & Check Quota",
+                {"steps.identify.outputs.pr_number": "101"},
+            ),
+        ],
+        cwd=tmp_path,
+        env=dict(
+            os.environ,
+            PATH=str(tmp_path) + os.pathsep + os.environ["PATH"],
+            REPO="owner/repo",
+            GITHUB_OUTPUT=str(tmp_path / "outputs"),
+        ),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = [
+        json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()
+    ]
+    created = next(call for call in calls if call[:2] == ["label", "create"])
+    assigned = next(call for call in calls if call[:2] == ["pr", "edit"])
+    assert created[2] == "new-reviewer"
+    assert assigned[assigned.index("--add-label") + 1] == "new-reviewer"
+    assert "skip=false" in (tmp_path / "outputs").read_text()
