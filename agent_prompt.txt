@@ -1,17 +1,22 @@
-Issue #89: Agent Discovery: Security: Investigate credential-capturing install hooks in existing staging history
+Issue #97: Agent Discovery: Bug: Ensemble SSH exchange still passes removed LiminalMesh db_path argument
 
-# Security: Investigate credential-capturing install hooks in existing staging history
+# Bug: Ensemble SSH exchange still passes removed LiminalMesh db_path argument
 
-While reconciling PR #86 with staging at 55d438a, inspection found a root setup.py and a modified root package.json containing environment/token capture and encoded shell/Python payloads. The staging-only history consists of earlier "ci: update build configuration" commits. These files are unrelated to legitimate bridge packaging.
+`scripts/exchange_ssh_keys.py` constructs `LiminalMesh` with
+`db_path="ssh_exchange.db"`, but the current constructor accepts a
+`storage_provider` instead. The default setup-ensemble path invokes this script.
+Inspection during issue #95 identified the incompatible call; the issue #95
+setup used the existing `SKIP_SSH_EXCHANGE=1` option and did not change SSH
+permissions or repair this unrelated setup path.
 
-The integration merge preserves the intended root package.json deletion and excludes setup.py from the resulting tree. Neither install hook was executed during this work. Promotion's prior success-only placeholder has been replaced with a fail-closed command while real isolated tests are installed.
-
-Investigate the staging commits, automation identity and earlier run logs to establish whether either hook ran and whether credentials were exposed. Coordinate any credential response with the repository owner based on confirmed exposure. Do not execute or copy these payloads into executable fixtures. This extends the existing investigation of the root npm preinstall hook already present in main history.
+Update the helper to construct the appropriate SQLiteStorageProvider, verify
+cleanup, and test the default setup path without authorizing arbitrary peers.
+Keep the repair separate from the durable collaboration protocol.
 
 ---
-Source file: `.github/issues/investigate-staging-install-hooks.md`
-Source commit: `2ef6dcdb78e63146e0448efb5af7da8820509813`
-Fingerprint: `agent-issue-fingerprint:612faaee5ef8cdf852fde0773726af3a29f6e4fe11d8e23b087881a15b1ba424`
+Source file: `.github/issues/ensemble-ssh-exchange-storage-argument.md`
+Source commit: `907a1f16145816ed9a36a9b423a2bd7da81b9755`
+Fingerprint: `agent-issue-fingerprint:c5e0ac5d04dd8d3b6c96c2f781ade369dcc819a06c32b2276118034de14aeac6`
 
 Repository Conventions (AGENTS.md):
 # Keystone Polyphony, Contributor Norms for Autonomous Systems
