@@ -38,12 +38,59 @@ processes on the host: a worktree separates working files, **not host access**.
 Do not treat bearer credentials or this adapter as a sandbox against malicious
 processes that can read the owner's database, credentials, or other worktrees.
 
+## Authority and execution boundaries
+
+| Module | Owns | Failure boundary |
+| --- | --- | --- |
+| Coordinator | Requirements, task-wide allocations, dependency receipts, artifact bytes, fenced destination effects and admission | SQLite transactions decide authority; elapsed time never proves process death. |
+| Service | Authenticated principals, one launch claim and the capture barrier | Polling/cancellation cannot publish a completed reservation past failed or unfinished capture. |
+| Worktree adapter | Git preparation, live child/group ownership and patch extraction | A process exit is a local observation; it cannot release authority before its bytes are saved. |
+| Worker | Capability-based task choice and bounded retries | It cannot supply host commands, revise requirements, or review its own candidate. |
+
+The service phases below use existing attempt records; they introduce no new
+persisted state machine or destructive database migration.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant S as Service
+    participant A as Authority
+    participant G as Git adapter
+    W->>A: Start attempt; reserve task budget
+    W->>S: Execute attempt
+    S->>A: Persist one launch claim (unknown)
+    S->>G: Prepare; recheck permission; spawn
+    G-->>S: Confirm process-group termination
+    S->>A: Commit patch bytes
+    alt Artifact committed
+        S->>A: Candidate; publish terminal observation
+    else Capture or launch outcome failed
+        S->>A: Record problem; keep execution reserved
+        Note over W,A: Owner must salvage work and verify termination before recovery
+    end
+```
+
+A failure while extracting or saving a patch retains the execution reservation,
+even if the adapter knows the process has exited. Snapshot polling, repeated
+cancellation and service restart cannot turn that observation into a fresh task
+allocation. The worktree stays available for deliberate salvage. The owner must
+save a durable artifact receipt and independently verify termination before using
+`observe` to release the reservation. If a launch fails after spawning a child,
+its exit alone cannot bypass this barrier either. Explicit `not_started` proof
+allows release when no worker ever ran. There is no automatic capture retry or
+new inference on this recovery path. Candidate creation may fail after bytes
+are committed (for example, requirements were revoked); those bytes remain
+recoverable and a verified terminal observation is then safe.
+
 ## Running the service and workers
 
 Install `requirements.txt` and Git. The hardened worktree adapter requires
 Linux procfs visibility and POSIX `waitid(WNOWAIT)` process-group ownership.
 From the repository root, generate local credentials and an approved execution
-template:
+template. A launch-enabled service validates these OS interfaces at startup;
+an unsupported host fails before serving workers or allocating their budgets.
+Run the service without `--execution-config` to inspect/review/recover durable
+data without a local execution adapter.
 
 ```bash
 mkdir -p .liminal
@@ -266,6 +313,65 @@ repeated worker attempts or satisfy downstream readiness. An owner must approve
 fresh attempts/candidates/reviews for that work, with the original task budget
 retained. Existing dependency-free admissions with immutable bases remain usable.
 
+### Upgrade compatibility and recovery
+
+| Existing record/client | Supported behavior after upgrade | Required action |
+| --- | --- | --- |
+| Independent accepted candidate with a full Git ID | Its original admission/evidence packet is exportable unchanged. | None; do not rewrite its identity. |
+| Accepted dependent candidate without receipt bindings | Artifact stays readable; acceptance/export is blocked. | Fix prerequisites first, owner revises task, then fresh attempt/candidate/review. |
+| Candidate with a symbolic base | Artifact stays readable; the original baseline cannot be guessed safely. | Owner establishes the exact immutable base; fresh candidate and review. |
+| Old reserved attempt without monotonic metadata | New execution/write permission is denied. | Worker cancels as unlaunched, then spends only the remaining task budget. |
+| Old dispatched/unknown attempt | Reservation and saved work survive. | Independently verify death and preserve work before owner recovery. |
+| Old lease and completed effect receipt | Old lease cannot grant a new write; an identical historical retry returns its original receipt without repeating the effect. | Acquire the next fence from a new permitted attempt. |
+| Existing reviewer resends the same result | The original receipt and admission remain unchanged. | None. Changed results require a distinct `request_key`; a 409 explains this. |
+
+Before replacing a running service, make a SQLite online backup to a new owner-
+selected file, including committed WAL work, and stop the old service. Reopen
+with the new service and inspect `/snapshot` and `/artifacts/{id}` before any
+recovery operation. No upgrade step resets `attempts`, `allocated_seconds`,
+artifact bytes or historical review/effect receipts.
+
+For a snapshot task marked `admission_invalid`, the owner explicitly creates a
+new requirements revision, even when retaining the same requirements text:
+
+```python
+# owner is a CoordinatorClient authenticated with the owner credential.
+# task is the inspected task from await owner.snapshot().
+revised = await owner.call(
+    "revise", task_id=task["id"], expected_revision=task["revision"],
+    requirements=task["requirements"], checks=task["checks"],
+    reviewers=task["reviewers"],
+)
+```
+
+Then a capable worker starts a new attempt within the retained budget. Saved
+patch bytes can be deliberately salvaged, but must be checked against the
+owner-established full Git base before creating a new candidate. Independent
+review must use `revised["revision"]`; old evidence cannot accept the new
+candidate. Do not automatically resolve an old symbolic `HEAD` against today's
+repository. If attempts/time are exhausted, keep the work for owner action;
+there is no automatic budget reset.
+
+For dispatched/unknown or failed-capture recovery, first inspect the host and
+save the useful patch through the original worker principal's `save_work` call.
+Retrieve that receipt from the reopened store to verify durability. **Only after
+independently verifying termination**, the owner can call:
+
+```python
+await owner.call("observe", attempt_id=attempt_id,
+                 state="exited", termination_confirmed=True)
+```
+
+If termination cannot be verified, leave the attempt held and select independent
+work. The service never signals a remembered PID after restart.
+
+`tests/fixtures/coordinator-pr96.json` contains records generated by the original
+PR96 coordinator at commit `907a1f1`, with its source hash recorded. Upgrade tests
+import the data into SQLite; they do not execute historical code. They verify
+unchanged valid admissions and artifact bytes, owner-only revision and fresh
+review for incompatible records, preserved budgets, reserved/unknown recovery,
+old fence rejection and historical retries that do not overwrite newer effects.
+
 ## Verification and pass limits
 
 Limits were posted in the issue before development:
@@ -285,7 +391,7 @@ Limits were posted in the issue before development:
 Run deterministic verification:
 
 ```bash
-PYTHONPATH=src:. .venv/bin/pytest -q tests/test_coordinator.py tests/test_coordinator_adversarial.py
+PYTHONPATH=src:. .venv/bin/pytest -q tests/test_coordinator.py tests/test_coordinator_adversarial.py tests/test_coordinator_upgrade.py
 ```
 
 Run the live two-worker trial with the key in the environment or `.env`:
