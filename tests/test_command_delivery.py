@@ -133,3 +133,15 @@ async def test_legacy_envelope_without_id_is_still_received(tmp_path):
     )
     await asyncio.sleep(0)
     node.on_command_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reused_payload_is_a_new_logical_broadcast(tmp_path):
+    node = make_mesh(tmp_path, "sender")
+    node._send_to_sidecar = AsyncMock()
+    payload = {"type": "thought", "content": "repeat intentionally"}
+    await node.broadcast(payload)
+    first = node._send_to_sidecar.call_args.args[1]
+    await node.broadcast(payload)
+    second = node._send_to_sidecar.call_args.args[1]
+    assert node._decrypt(first["e"])["message_id"] != node._decrypt(second["e"])["message_id"]

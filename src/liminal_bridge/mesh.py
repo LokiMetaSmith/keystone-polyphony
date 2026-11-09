@@ -761,7 +761,7 @@ class LiminalMesh:
         """Broadcasts a payload to all peers."""
 
         # Attach origin info and one ID reused across all transports.
-        payload.setdefault("message_id", secrets.token_hex(16))
+        payload["message_id"] = secrets.token_hex(16)
         payload["origin"] = self.node_id
         payload["timestamp"] = time.time()
         payload["urgency"] = urgency
