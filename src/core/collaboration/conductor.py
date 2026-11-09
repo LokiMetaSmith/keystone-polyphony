@@ -51,6 +51,8 @@ class EnsembleConductor:
         self.nudge_cooldown = nudge_cooldown_seconds
         self.emitted_nudges: Dict[str, float] = {}  # nudge_fingerprint -> timestamp
         self.active_nudges: List[AdvisoryNudge] = []
+        self.contention_counts: Dict[str, int] = {}  # task_id -> count
+        self.decomposition_proposals: Dict[str, Dict[str, Any]] = {}
 
     def observe_contention_and_nudge(
         self,
@@ -85,12 +87,26 @@ class EnsembleConductor:
             return None
 
         nudge_id = f"nudge_{fingerprint[:12]}"
+        # Track contention count
+        self.contention_counts[contested_task_id] = (
+            self.contention_counts.get(contested_task_id, 0) + 1
+        )
+
         action = (
             f"Pivot to alternative uncontested tasks: {uncontested[:3]}"
             if uncontested
             else "Wait with exponential backoff or assist in integration review"
         )
-        rationale = f"Task {contested_task_id} is currently claimed and contested."
+        rationale = f"Task {contested_task_id} is currently claimed and contested (count: {self.contention_counts[contested_task_id]})."
+
+        # Check if contention crosses threshold for dynamic decomposition (e.g. >= 2)
+        if (
+            self.contention_counts[contested_task_id] >= 2
+            and contested_task_id not in self.decomposition_proposals
+        ):
+            proposal = self.propose_task_decomposition(contested_task_id)
+            if proposal:
+                action += f" | Proposed decomposition: {proposal['subtask_ids']}"
 
         nudge = AdvisoryNudge(
             nudge_id=nudge_id,
@@ -106,6 +122,66 @@ class EnsembleConductor:
         self.emitted_nudges[fingerprint] = current_time
         self.active_nudges.append(nudge)
         return nudge
+
+    def propose_task_decomposition(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Dynamically proposes decomposing a contested task into an abstract interface/stub
+        and parallel implementation leaves to unlock uncontested execution.
+        """
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return None
+
+        interface_task_id = f"{task_id}_protocol"
+        impl1_task_id = f"{task_id}_impl_core"
+        impl2_task_id = f"{task_id}_impl_extended"
+
+        proposal = {
+            "original_task_id": task_id,
+            "strategy": "interface_first_decomposition",
+            "protocol_task": {
+                "task_id": interface_task_id,
+                "title": f"[Protocol/Stub] {task.title}",
+                "description": f"Define interface contracts, types, and stubs for {task_id}.",
+            },
+            "subtask_ids": [interface_task_id, impl1_task_id, impl2_task_id],
+            "reason": f"High contention on {task_id} (count {self.contention_counts.get(task_id, 0)}). Split into protocol and parallel leaves.",
+        }
+        self.decomposition_proposals[task_id] = proposal
+        return proposal
+
+    def apply_decomposition(self, task_id: str) -> List[TaskObjective]:
+        """Creates the proposed subtasks in the ledger and marks original task HELD."""
+        proposal = self.decomposition_proposals.get(task_id)
+        if not proposal:
+            proposal = self.propose_task_decomposition(task_id)
+            if not proposal:
+                return []
+
+        orig = self.ledger.get_task(task_id)
+        if not orig:
+            return []
+
+        subtasks = []
+        for st_id in proposal["subtask_ids"]:
+            st = TaskObjective(
+                task_id=st_id,
+                title=f"Subtask {st_id} for {orig.title}",
+                description=f"Decomposed component from contested task {task_id}",
+                baseline_sha=orig.baseline_sha,
+                acceptance_criteria=orig.acceptance_criteria,
+            )
+            created = self.ledger.create_task(st)
+            subtasks.append(created)
+
+        # Update original task to HELD
+        with self.ledger._get_connection() as conn:
+            conn.execute(
+                "UPDATE tasks SET status = ? WHERE task_id = ?",
+                (TaskStatus.HELD.value, task_id),
+            )
+
+        return subtasks
 
     def get_active_nudges_for_actor(
         self, actor_id: str, now: Optional[float] = None

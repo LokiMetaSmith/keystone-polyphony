@@ -75,3 +75,24 @@ class AdmissionHandoffEmitter:
             "timestamp": time.time(),
         }
         return evidence
+
+    def write_evidence_file(
+        self,
+        task_id: str,
+        output_path: str = "review-evidence.json",
+        workflow_path: str = ".github/workflows/opencode.yml",
+        run_id: int = 12345678,
+        run_attempt: int = 1,
+        pr_number: Optional[int] = None,
+    ) -> str:
+        """Writes review-evidence.json directly to disk for CI/CD ingestion."""
+        evidence = self.emit_review_evidence(
+            task_id=task_id,
+            workflow_path=workflow_path,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            pr_number=pr_number,
+        )
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(evidence, f, indent=2)
+        return output_path
