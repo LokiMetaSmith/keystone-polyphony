@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   format-staging:
@@ -47,3 +48,8 @@ jobs:
             git commit -m "style: format staging Python files with Black"
             git push origin HEAD:staging
           fi
+
+      - name: Trigger required staging checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run periodic-merge-main.yml --repo "$GITHUB_REPOSITORY" --ref main
