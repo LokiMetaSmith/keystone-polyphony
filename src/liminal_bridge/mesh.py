@@ -920,7 +920,9 @@ class LiminalMesh:
                 import bleak
 
                 encoded = json.dumps(msg).encode()
-                devices = await bleak.BleakScanner.discover(timeout=3.0, return_adv=True)
+                devices = await bleak.BleakScanner.discover(
+                    timeout=3.0, return_adv=True
+                )
                 for device, advertisement in devices.values():
                     advertised_uuids = [
                         str(uuid).lower() for uuid in advertisement.service_uuids
@@ -934,7 +936,9 @@ class LiminalMesh:
                             )
                         ble_delivered = True
                     except Exception as exc:
-                        print(f"Warning: BLE delivery to {device.address} failed: {exc}")
+                        print(
+                            f"Warning: BLE delivery to {device.address} failed: {exc}"
+                        )
             except Exception as exc:
                 print(f"Warning: BLE broadcast failed: {exc}")
 

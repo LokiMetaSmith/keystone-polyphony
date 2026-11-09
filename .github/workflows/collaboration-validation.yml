@@ -35,9 +35,7 @@ jobs:
           python -m pip install -r requirements.txt
           npm ci --prefix src/liminal_bridge/sidecar
       - name: Enforce formatting and lint
-        run: |
-          python -m black --diff src/liminal_bridge/mesh.py src/liminal_bridge/server.py tests/test_multimodal_transport.py tests/test_command_delivery.py tests/test_server_entrypoint.py scripts/check_root_install_hooks.py tests/test_install_hook_guard.py
-          bash scripts/lint.sh
+        run: bash scripts/lint.sh
       - name: Run complete suite, including adversarial cases
         if: always()
         env:
