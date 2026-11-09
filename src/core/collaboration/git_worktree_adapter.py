@@ -87,6 +87,32 @@ class GitWorktreeAdapter(BaseExecutionAdapter):
     def get_worktree_path(self, handle: AttemptHandle) -> Optional[str]:
         return self.active_worktrees.get(handle.handle_id)
 
+    def run_command(
+        self,
+        handle: AttemptHandle,
+        command: list,
+        timeout: Optional[float] = None,
+        env: Optional[Dict[str, str]] = None,
+    ) -> subprocess.CompletedProcess:
+        """Runs a command isolated inside the attempt's worktree with timeout protection."""
+        worktree_path = self.get_worktree_path(handle)
+        if not worktree_path or not os.path.exists(worktree_path):
+            raise RuntimeError("Worktree not found or already cleaned up")
+
+        effective_timeout = timeout or (handle.limits.timeout_seconds if handle.limits else 300.0)
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+
+        return subprocess.run(
+            command,
+            cwd=worktree_path,
+            env=merged_env,
+            timeout=effective_timeout,
+            capture_output=True,
+            text=True,
+        )
+
     def extract_diff(self, handle: AttemptHandle) -> str:
         """Extracts the git diff against baseline_ref in the isolated worktree."""
         worktree_path = self.get_worktree_path(handle)
