@@ -22,6 +22,7 @@ from .adapter import (
 )
 from .coordinator import CollaborationCoordinator
 from .git_worktree_adapter import GitWorktreeAdapter
+from .container_adapter import ContainerExecutionAdapter
 from .conductor import EnsembleConductor, AdvisoryNudge, WorkerFlowManager
 from .admission import AdmissionHandoffEmitter
 
@@ -39,6 +40,7 @@ __all__ = [
     "BaseExecutionAdapter",
     "DeterministicExecutionAdapter",
     "GitWorktreeAdapter",
+    "ContainerExecutionAdapter",
     "AttemptHandle",
     "AttemptObservation",
     "AttemptLimits",
