@@ -17,9 +17,9 @@ if [ ! -f "$FILE" ]; then
 fi
 
 AGENTS=$(get_triage_agents)
-if [ -z "$AGENTS" ]; then
-    # No agents configured, consider it refined
-    echo "ALL_REFINED"
+if [[ -z "${AGENTS//[[:space:]]/}" ]]; then
+    # Hold raw issues until a reviewer is configured.
+    echo "NO_AGENTS_CONFIGURED"
     exit 0
 fi
 
@@ -35,7 +35,7 @@ for agent in $AGENTS; do
         # Check if it's a CLI agent
         agent_upper=$(echo "$agent" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
 
-        local cmd=""
+        cmd=""
         if [ -n "${VARS_JSON:-}" ]; then
             cmd=$(echo "$VARS_JSON" | jq -r ".${agent_upper}_COMMAND // empty")
         fi
@@ -50,7 +50,7 @@ for agent in $AGENTS; do
         fi
 
         # Check if it is an async agent defined in reviewers.yml
-        local config=""
+        config=""
         if [ -z "$cmd" ]; then
              config=$(get_agent_config "$agent" || echo "")
         fi
@@ -58,7 +58,7 @@ for agent in $AGENTS; do
         if [ -n "$cmd" ]; then
             echo "Running CLI agent: $agent" >&2
             # CLI agents are expected to update the file and return 0
-            if $cmd "$FILE"; then
+            if $cmd "$FILE" >&2; then
                 mark_refined_by "$FILE" "$agent"
                 echo "Agent $agent refined $FILE (sync)" >&2
                 # Continue to next agent for the same file

@@ -34,9 +34,9 @@ async def main():
     # Check if Architect is configured
     if not architect.client and not architect.google_model:
         print(
-            "Warning: Architect not configured (missing API key or package). Skipping refinement."
+            "Error: Architect not configured (missing API key or package). Cannot refine issue."
         )
-        sys.exit(0)
+        sys.exit(1)
 
     print(f"Refining issue: {args.filepath}...")
     try:
