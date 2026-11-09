@@ -785,7 +785,11 @@ class LiminalMesh:
     async def broadcast_macro(self, payload: Any):
         """Submit one envelope through MQTT and DHT and report each route."""
         msg = self._signed_envelope(payload)
-        result = {"message_id": payload["message_id"], "mqtt": "disabled", "dht": "pending"}
+        result = {
+            "message_id": payload["message_id"],
+            "mqtt": "disabled",
+            "dht": "pending",
+        }
         if self.mqtt_host:
             result["mqtt"] = "failed"
             try:
@@ -951,11 +955,12 @@ class LiminalMesh:
                             f"Warning: BLE delivery to {device.address} failed: {exc}"
                         )
                 if result["ble_attempted"]:
-                    result["ble"] = (
-                        "submitted"
-                        if result["ble_submitted"] == result["ble_attempted"]
-                        else "partial" if result["ble_submitted"] else "failed"
-                    )
+                    if result["ble_submitted"] == result["ble_attempted"]:
+                        result["ble"] = "submitted"
+                    elif result["ble_submitted"]:
+                        result["ble"] = "partial"
+                    else:
+                        result["ble"] = "failed"
             except Exception as exc:
                 result["ble"] = "failed"
                 print(f"Warning: BLE broadcast failed: {exc}")
