@@ -66,7 +66,7 @@ def test_successful_refinement_is_idempotent_and_separates_output(tmp_path):
     issue.write_text("# Raw issue\n")
     agent = tmp_path / "reviewer"
     agent.write_text(
-        "#!/bin/sh\ncat \"$TRIAGE_TEST_BODY\" > \"$1\"\nprintf 'agent logs\\n'\n"
+        '#!/bin/sh\ncat "$TRIAGE_TEST_BODY" > "$1"\nprintf \'agent logs\\n\'\n'
     )
     agent.chmod(0o755)
     payload = tmp_path / "body.md"
