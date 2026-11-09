@@ -6,6 +6,7 @@ except ImportError:
 import asyncio
 import json
 import hashlib
+import secrets
 import time
 import os
 import base64
@@ -143,6 +144,48 @@ class LiminalMesh:
 
         # Observability
         self.log_aggregator = LogAggregator()
+
+    def _signed_envelope(self, payload: Dict[str, Any]) -> Dict[str, str]:
+        """Sign one encrypted envelope for all transports on this broadcast."""
+        payload.setdefault("message_id", secrets.token_hex(16))
+        encrypted_data = self._encrypt(payload)
+        signature = self.private_key.sign(encrypted_data.encode())
+        return {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex}
+
+    def _command_is_duplicate(self, origin: str, message_id: Any) -> bool:
+        """Persist a bounded transport receipt before dispatching a command.
+
+        This deduplicates repeated envelopes; it is not a coordinator execution
+        receipt. Durable tasks still use the authenticated service.
+        """
+        if message_id is None:
+            return False  # Legacy sender without a transport-level message ID.
+        if (
+            not isinstance(message_id, str)
+            or len(message_id) != 32
+            or any(c not in "0123456789abcdef" for c in message_id)
+        ):
+            return True  # Do not execute commands with malformed message IDs.
+
+        now = time.time()
+        stored = self.storage.get_metadata("command_message_receipts_v1")
+        if not isinstance(stored, dict):
+            stored = {}
+        cutoff = now - 86400
+        recent = {
+            key: stamp
+            for key, stamp in stored.items()
+            if isinstance(stamp, (int, float)) and stamp >= cutoff
+        }
+        key = f"{origin}:{message_id}"
+        if key in recent:
+            return True
+
+        recent[key] = now
+        if len(recent) > 4096:
+            recent = dict(sorted(recent.items(), key=lambda item: item[1])[-4096:])
+        self.storage.save_metadata("command_message_receipts_v1", recent)
+        return False
 
     async def _periodic_snapshot(self):
         """Periodically saves a snapshot of the mesh state."""
@@ -717,7 +760,8 @@ class LiminalMesh:
     async def broadcast(self, payload: Any, urgency: str = "low"):
         """Broadcasts a payload to all peers."""
 
-        # Attach origin info
+        # Attach origin info and one ID reused across all transports.
+        payload.setdefault("message_id", secrets.token_hex(16))
         payload["origin"] = self.node_id
         payload["timestamp"] = time.time()
         payload["urgency"] = urgency
@@ -736,44 +780,35 @@ class LiminalMesh:
             await self.broadcast_micro(payload)
         else:
             # Default fallback to Hyperswarm (DHT)
-            encrypted_data = self._encrypt(payload)
-            signature = self.private_key.sign(encrypted_data.encode())
-            msg = {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex}
-            await self._send_to_sidecar("broadcast", msg)
+            await self._send_to_sidecar("broadcast", self._signed_envelope(payload))
 
     async def broadcast_macro(self, payload: Any):
-        """Routes high urgency messages via macro transport (e.g., MQTT/5G).
-        Defaults to Hyperswarm if no macro transport is configured."""
-        encrypted_data = self._encrypt(payload)
-        signature = self.private_key.sign(encrypted_data.encode())
-        msg = {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex}
-
+        """Send to MQTT peers and DHT peers, without assuming full coverage."""
+        msg = self._signed_envelope(payload)
+        mqtt_delivered = False
         if self.mqtt_host:
             try:
-                if getattr(self, "_mqtt_client", None):
-                    # Reuse existing client connection
-                    await self._mqtt_client.publish(
-                        f"keystone/{self.topic}/macro", json.dumps(msg).encode()
-                    )
-                    return
+                encoded = json.dumps(msg).encode()
+                topic = f"keystone/{self.topic}/macro"
+                if self._mqtt_client:
+                    await self._mqtt_client.publish(topic, encoded)
                 else:
-                    # Fallback to creating a one-off connection if background task failed
                     import aiomqtt
 
                     async with aiomqtt.Client(
                         hostname=self.mqtt_host, port=self.mqtt_port
                     ) as client:
-                        await client.publish(
-                            f"keystone/{self.topic}/macro", json.dumps(msg).encode()
-                        )
-                        return
-            except Exception as e:
-                print(
-                    f"Warning: MQTT broadcast failed, falling back to Hyperswarm: {e}"
-                )
+                        await client.publish(topic, encoded)
+                mqtt_delivered = True
+            except Exception as exc:
+                print(f"Warning: MQTT delivery failed: {exc}")
 
-        # Default fallback to hyperswarm by sending 'broadcast' to sidecar
-        await self._send_to_sidecar("broadcast", msg)
+        try:
+            await self._send_to_sidecar("broadcast", msg)
+        except Exception:
+            if not mqtt_delivered:
+                raise
+            print("Warning: DHT unavailable; MQTT delivery was attempted")
 
     async def _ble_listener(self):
         """Background task that starts a BLE GATT Server via bless and periodically scans via bleak."""
@@ -877,46 +912,38 @@ class LiminalMesh:
                 await asyncio.sleep(30)
 
     async def broadcast_micro(self, payload: Any):
-        """Routes low urgency messages via micro transport (e.g., BLE/Visual).
-        Defaults to Hyperswarm if no micro transport is configured."""
-        encrypted_data = self._encrypt(payload)
-        signature = self.private_key.sign(encrypted_data.encode())
-        msg = {"e": encrypted_data, "s": signature.hex(), "p": self.public_key_hex}
-
+        """Send to all discovered BLE peers and DHT peers in the mixed mesh."""
+        msg = self._signed_envelope(payload)
+        ble_delivered = False
         if self.ble_enabled:
-            success = False
             try:
                 import bleak
 
-                msg_bytes = json.dumps(msg).encode()
-
-                devices = await bleak.BleakScanner.discover(
-                    timeout=3.0, return_adv=True
-                )
+                encoded = json.dumps(msg).encode()
+                devices = await bleak.BleakScanner.discover(timeout=3.0, return_adv=True)
                 for device, advertisement in devices.values():
                     advertised_uuids = [
-                        str(u).lower() for u in advertisement.service_uuids
+                        str(uuid).lower() for uuid in advertisement.service_uuids
                     ]
                     if self._ble_service_uuid.lower() not in advertised_uuids:
                         continue
                     try:
                         async with bleak.BleakClient(device) as client:
                             await client.write_gatt_char(
-                                self._ble_characteristic_uuid, msg_bytes, response=True
+                                self._ble_characteristic_uuid, encoded, response=True
                             )
-                            success = True
-                    except Exception as e:
-                        print(f"Warning: BLE delivery to {device.address} failed: {e}")
-            except Exception as e:
-                print(
-                    f"Warning: BLE micro broadcast failed, falling back to Hyperswarm: {e}"
-                )
+                        ble_delivered = True
+                    except Exception as exc:
+                        print(f"Warning: BLE delivery to {device.address} failed: {exc}")
+            except Exception as exc:
+                print(f"Warning: BLE broadcast failed: {exc}")
 
-            if success:
-                return
-
-        # Default fallback to hyperswarm by sending 'broadcast' to sidecar
-        await self._send_to_sidecar("broadcast", msg)
+        try:
+            await self._send_to_sidecar("broadcast", msg)
+        except Exception:
+            if not ble_delivered:
+                raise
+            print("Warning: DHT unavailable; BLE delivery was attempted")
 
     def _increment_clock(self):
         """Increments the local logical clock."""
@@ -1199,23 +1226,19 @@ class LiminalMesh:
             status_filter = payload.get("status_filter")
             command = payload.get("command")
 
-            # Check if we are the target
-            is_target = target == self.node_id
-            if not is_target and capabilities:
-                # Check if we have the required capabilities or properties
-                # Supports both boolean flags ("gpu") and kv tags ("role=gpu" or "parallel_group=ring_1")
-                is_target = all(cap in self.capabilities for cap in capabilities)
-
-            # If no target/capabilities, it might be a general broadcast
-            if target is None and not capabilities:
-                is_target = True
+            # All selectors are conjunctive. A targeted command must never
+            # be executed by a different node that shares its capabilities.
+            is_target = (target is None or target == self.node_id) and all(
+                cap in self.capabilities for cap in capabilities
+            )
 
             # If status_filter is provided, we must match it
             if status_filter and getattr(self, "status", "unknown") != status_filter:
                 is_target = False
 
             if is_target and self.on_command_request:
-                # Trigger callback (async)
+                if self._command_is_duplicate(origin, payload.get("message_id")):
+                    return
                 asyncio.create_task(self.on_command_request(origin, command))
 
         elif p_type == "ping":
