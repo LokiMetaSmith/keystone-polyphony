@@ -17,13 +17,18 @@ if [ ! -f "$FILE" ]; then
 fi
 
 AGENTS=$(get_triage_agents)
-if [ -z "$AGENTS" ]; then
-    # No agents configured, consider it refined
-    echo "ALL_REFINED"
+if [[ -z "${AGENTS//[[:space:]]/}" ]]; then
+    # Hold raw issues until a reviewer is configured.
+    echo "NO_AGENTS_CONFIGURED"
     exit 0
 fi
 
 for agent in $AGENTS; do
+    if [[ ! "$agent" =~ ^[[:alpha:]][[:alnum:]_-]*$ ]]; then
+        echo "Invalid triage agent identifier: $agent" >&2
+        echo "INVALID_AGENT"
+        exit 0
+    fi
     if is_refined_by "$FILE" "$agent"; then
         continue
     fi
@@ -35,7 +40,7 @@ for agent in $AGENTS; do
         # Check if it's a CLI agent
         agent_upper=$(echo "$agent" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
 
-        local cmd=""
+        cmd=""
         if [ -n "${VARS_JSON:-}" ]; then
             cmd=$(echo "$VARS_JSON" | jq -r ".${agent_upper}_COMMAND // empty")
         fi
@@ -50,15 +55,21 @@ for agent in $AGENTS; do
         fi
 
         # Check if it is an async agent defined in reviewers.yml
-        local config=""
+        config=""
         if [ -z "$cmd" ]; then
              config=$(get_agent_config "$agent" || echo "")
         fi
 
         if [ -n "$cmd" ]; then
             echo "Running CLI agent: $agent" >&2
-            # CLI agents are expected to update the file and return 0
-            if $cmd "$FILE"; then
+            # Exit status alone is not proof that useful work occurred.
+            before=$(sha256sum "$FILE" | cut -d ' ' -f 1)
+            if $cmd "$FILE" >&2; then
+                if [[ ! -f "$FILE" ]] || [[ "$before" == "$(sha256sum "$FILE" | cut -d ' ' -f 1)" ]]; then
+                    echo "Agent $agent did not revise the issue" >&2
+                    echo "NO_REFINEMENT"
+                    exit 0
+                fi
                 mark_refined_by "$FILE" "$agent"
                 echo "Agent $agent refined $FILE (sync)" >&2
                 # Continue to next agent for the same file
@@ -133,4 +144,9 @@ $BODY" \
     fi
 done
 
+# A claimed refinement must meet the publishable issue contract.
+if ! python3 scripts/validate_issue.py "$FILE" >&2; then
+    echo "INVALID_REFINEMENT"
+    exit 0
+fi
 echo "ALL_REFINED"

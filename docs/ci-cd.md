@@ -64,44 +64,20 @@ graph TD
     T -- Yes --> U[publish-swept-issues: Call agent-issues workflow]
 ```
 
-### 3. Publish Agent Issues
-**Trigger:** `push` modifying `.github/issues/*.md`, `workflow_call`, or `workflow_dispatch`.
-**File:** `agent-issues.yml`
+### 3. Triage and Publish Agent Issues
+**Trigger:** `push` to `staging` modifying `.github/issues/*.md`, `workflow_call`, or `workflow_dispatch`.
+**File:** `agent-issue-triage.yml`
 
-This workflow handles automated issue generation by AI agents. When markdown files are pushed to `.github/issues/`, this action parses them, translates them into actual GitHub Issues on the upstream repository, and applies the `pre-review` label to signal that the issue needs triage.
-
-```mermaid
-graph TD
-    A[Agent pushes markdown to .github/issues/] --> B{Is GH_TOKEN set?}
-    B -- No --> C((Skip Publish))
-    B -- Yes --> D[Iterate markdown issue files]
-    D --> E{Issue fingerprint exists upstream?}
-    E -- Yes --> F[Skip creation]
-    E -- No --> G[Ensure 'pre-review' label exists]
-    G --> H[Create GitHub Issue with 'pre-review' label]
-    F --> I[Remove markdown file from git]
-    H --> I
-    I --> J[Commit file removal & Push]
-```
-
-### 4. Issue Reviewer
-**Trigger:** `issues` (labeled) or `workflow_dispatch`.
-**File:** `issue-reviewer.yml`
-
-When an issue is labeled with `pre-review`, this workflow assigns it to a reviewer (AI agent or human) defined in `.github/reviewers.yml`. It uses a round-robin strategy based on the issue number and checks per-reviewer rolling 24h quotas (defined as repository variables). Over-quota issues receive a `quota-hold` label and are retried automatically.
-
-```mermaid
-graph TD
-    A[Issue labeled / workflow_dispatch sweep] --> B{Has 'pre-review' label?}
-    B -- No --> Skip((Skip))
-    B -- Yes --> C{Already has a reviewer?}
-    C -- Yes --> Skip
-    C -- No --> D[Assign Reviewer Round-Robin]
-    D --> E{Under reviewer quota?}
-    E -- No --> F[Apply 'quota-hold' label]
-    E -- Yes --> G[Apply Reviewer label]
-    G --> H[Post review instructions]
-```
+The workflow dispatches issue files to the ordered reviewers in `TRIAGE_AGENTS`
+and publishes fully refined files with the `ready for work` label. Configure at
+least one reviewer: an empty or whitespace-only list holds the files for a later
+run. A failed CLI reviewer or an unconfigured Architect cannot mark a file as
+refined. Async reviewers and quota-limited reviews remain queued for a later run.
+The publisher also verifies a title, human interaction story, prerequisites,
+scope, actionable criteria, and a Gherkin scenario. Successful CLI exit without
+changes does not count as refinement, and an invalid issue with a forged marker
+is also held for review.
+The previous standalone issue reviewer has been superseded by this pipeline.
 
 ### 5. CLI Agent Issue Solver
 **Trigger:** `issues` (labeled `ready for work`), `workflow_dispatch`.
