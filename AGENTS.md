@@ -53,7 +53,7 @@ The `agent-issue-solver` workflow supports multiple CLI-based agents. To use a s
 - **OpenClaw**: A community-driven CLI for Anthropic's Claude. Set `AGENT_CLI` to `openclaw`.
 - **Claude Code**: Anthropic's official CLI. Set `AGENT_CLI` to `claude`.
 
-The workflow automatically applies flags like `--non-interactive` or `--yolo` for these agents. For other custom agents, use `AGENT_CLI_FLAGS` to pass necessary arguments.
+OpenCode runs through `scripts/run-issue-agent.py` using `opencode run`, a streamed stdin prompt, and the `OPENROUTER_API_KEY` Actions secret (legacy `AGENT_API_KEY` remains a fallback). The runner checks completion events and isolates CLI state. Native Claude uses `--print`; OpenClaw retains `--yolo`. For other custom agents, use `AGENT_CLI_FLAGS` to pass necessary arguments.
 
 ## 6. Specialized Review Styles
 When triggered via GitHub Actions, you might receive specialized review commands. Adjust your analysis focus accordingly:
