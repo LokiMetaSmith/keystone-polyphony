@@ -32,15 +32,17 @@ async def main():
     architect = Architect()
 
     # Check if Architect is configured
-    if not architect.client and not architect.google_model:
+    if not architect.is_configured():
         print(
-            "Warning: Architect not configured (missing API key or package). Skipping refinement."
+            "Error: Architect not configured (missing API key or package). Cannot refine issue."
         )
-        sys.exit(0)
+        sys.exit(1)
 
     print(f"Refining issue: {args.filepath}...")
     try:
         refined_content = await architect.refine_issue(content)
+        if not refined_content or refined_content.strip() == content.strip():
+            raise ValueError("Architect did not revise the issue")
 
         # Add the refinement marker if not present
         if "<!-- triage-refined: architect -->" not in refined_content:
