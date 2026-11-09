@@ -655,14 +655,17 @@ async def complete_task(task_id: str) -> str:
         return err
 
     # Guardrail: Check if task is enrolled under schema_version >= 2
-    enrolled_task = collab_ledger.get_task(task_id)
-    if enrolled_task and enrolled_task.schema_version >= 2:
-        # Enrolled task cannot be bypassed with simple complete_task call without accepted candidate receipt
-        if not enrolled_task.accepted_candidate_id:
-            return (
-                f"DENIED: Task {task_id} is enrolled under Collaboration Protocol (schema v{enrolled_task.schema_version}). "
-                "Completion requires an accepted candidate receipt and passing review evidence."
-            )
+    try:
+        enrolled_task = collab_ledger.get_task(task_id)
+        if enrolled_task and enrolled_task.schema_version >= 2:
+            # Enrolled task cannot be bypassed with simple complete_task call without accepted candidate receipt
+            if not enrolled_task.accepted_candidate_id:
+                return (
+                    f"DENIED: Task {task_id} is enrolled under Collaboration Protocol (schema v{enrolled_task.schema_version}). "
+                    "Completion requires an accepted candidate receipt and passing review evidence."
+                )
+    except Exception:
+        pass
 
     backlog = mesh.get_kv("swarm_backlog") or []
     if managed_task({"id": task_id}) or any(
