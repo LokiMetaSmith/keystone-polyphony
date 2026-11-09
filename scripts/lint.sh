@@ -16,6 +16,14 @@ FAILED=0
 
 echo ">>> Running lint checks..."
 
+# Prevent a repeat of the credential-capturing root npm install hook.
+# This repository has no approved root Node.js package manifest.
+echo "Checking repository root install-hook boundary..."
+if ! python3 scripts/check_root_install_hooks.py; then
+    echo "[ERROR] Root package manifest policy failed."
+    FAILED=1
+fi
+
 # 1. Python Formatting (Black)
 if command -v black >/dev/null 2>&1; then
     echo "Checking Python formatting..."

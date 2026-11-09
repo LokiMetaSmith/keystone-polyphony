@@ -167,14 +167,15 @@ To run the bridge manually and connect your local environment to the swarm, you 
   The system will automatically detect the provider based on the key format.
 - `DUCKY_MODEL` (Optional): The model to use (default: `gpt-4o`). For Gemini, use a model name like `gemini-1.5-pro`. For Claude, it defaults to `claude-3-5-sonnet-20240620`.
 
-Example `jules_config.json`:
+Example `jules_config.json` (use an absolute `PYTHONPATH` so MCP clients can launch from any directory):
 
 ```json
 {
   "keystone-polyphony": {
-    "command": "python",
-    "args": ["/path/to/keystone-polyphony/src/liminal_bridge/server.py"],
+    "command": "python3",
+    "args": ["-m", "src.liminal_bridge.server"],
     "env": {
+      "PYTHONPATH": "/absolute/path/to/keystone-polyphony",
       "SWARM_KEY": "your-secret-swarm-key",
       "DUCKY_API_KEY": "your-llm-api-key",
       "DUCKY_MODEL": "gpt-4o"
