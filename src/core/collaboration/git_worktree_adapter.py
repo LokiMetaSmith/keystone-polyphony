@@ -99,7 +99,9 @@ class GitWorktreeAdapter(BaseExecutionAdapter):
         if not worktree_path or not os.path.exists(worktree_path):
             raise RuntimeError("Worktree not found or already cleaned up")
 
-        effective_timeout = timeout or (handle.limits.timeout_seconds if handle.limits else 300.0)
+        effective_timeout = timeout or (
+            handle.limits.timeout_seconds if handle.limits else 300.0
+        )
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)

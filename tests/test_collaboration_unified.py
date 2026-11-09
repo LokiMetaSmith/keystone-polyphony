@@ -52,7 +52,7 @@ def test_unified_coordinator_lifecycle():
     with tempfile.TemporaryDirectory() as tmp_dir:
         db_path = os.path.join(tmp_dir, "authority.db")
         coord = Coordinator(db_path)
-        
+
         # Enroll a task
         task = coord.enroll(
             title="Unified Task",
