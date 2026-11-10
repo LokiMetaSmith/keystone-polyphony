@@ -10,6 +10,11 @@ from .models import (
     ReviewReceipt,
     ReviewVerdict,
     ResourceEnvelope,
+    HostSignalType,
+    HostSignalStatus,
+    ConductorLeaseStatus,
+    ConductorLease,
+    HostTelemetrySignal,
 )
 from .ledger import FencedLedger
 from .adapter import (
@@ -43,6 +48,11 @@ __all__ = [
     "ReviewReceipt",
     "ReviewVerdict",
     "ResourceEnvelope",
+    "HostSignalType",
+    "HostSignalStatus",
+    "ConductorLeaseStatus",
+    "ConductorLease",
+    "HostTelemetrySignal",
     "FencedLedger",
     "BaseExecutionAdapter",
     "DeterministicExecutionAdapter",
