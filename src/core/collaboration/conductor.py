@@ -8,7 +8,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Set
 import time
 import hashlib
-from .models import TaskObjective, TaskStatus
+from .models import (
+    TaskObjective,
+    TaskStatus,
+    HostSignalType,
+    HostTelemetrySignal,
+    ConductorLease,
+)
 from .ledger import FencedLedger
 
 
@@ -195,6 +201,73 @@ class EnsembleConductor:
             and (n.target_actor_id is None or n.target_actor_id == actor_id)
         ]
         return valid
+
+    def evaluate_and_act(
+        self,
+        actor_id: str,
+        now: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Evaluates current swarm health, dynamically claims the conductor lease if eligible,
+        and emits host signals (SCALE_UP, SPAWN_REVIEWER, IDLE_DRAIN) if anomalies/bottlenecks are detected.
+        """
+        current_time = now if now is not None else time.time()
+        result = {
+            "claimed_lease": False,
+            "fence_token": None,
+            "emitted_signals": [],
+        }
+
+        # 1. Check if actor already holds Conductor lease or can claim it
+        current_lease = self.ledger.get_conductor_lease(now=current_time)
+        if current_lease and current_lease.actor_id == actor_id:
+            result["fence_token"] = current_lease.fence_token
+        else:
+            # Attempt to claim lease
+            ok_claim, lease, _ = self.ledger.acquire_conductor_lease(
+                actor_id=actor_id,
+                lease_ttl=90.0,
+                now=current_time,
+            )
+            if ok_claim and lease:
+                result["claimed_lease"] = True
+                result["fence_token"] = lease.fence_token
+                current_lease = lease
+
+        all_tasks = self.ledger.list_tasks()
+        integrating_tasks = [t for t in all_tasks if t.status == TaskStatus.INTEGRATING]
+        open_tasks = [t for t in all_tasks if t.status == TaskStatus.OPEN]
+
+        # 2. Check for review deadlocks (integrating tasks stuck)
+        for t in integrating_tasks:
+            # If conductor is held, or if this actor authored a candidate on an integrating task
+            ok_sig, sig, _ = self.ledger.emit_host_signal(
+                actor_id=actor_id,
+                signal_type=HostSignalType.SPAWN_REVIEWER,
+                requested_worker_delta=1,
+                target_task_ids=[t.task_id],
+                rationale=f"Task {t.task_id} is awaiting independent review verification",
+                now=current_time,
+            )
+            if ok_sig and sig:
+                result["emitted_signals"].append(sig.to_dict())
+
+        # 3. If actor is active Conductor, check for high backlog needing SCALE_UP
+        if current_lease and current_lease.actor_id == actor_id:
+            if len(open_tasks) >= 3:
+                target_ids = [t.task_id for t in open_tasks[:5]]
+                ok_scale, scale_sig, _ = self.ledger.emit_host_signal(
+                    actor_id=actor_id,
+                    signal_type=HostSignalType.SCALE_UP,
+                    requested_worker_delta=min(len(open_tasks), 3),
+                    target_task_ids=target_ids,
+                    rationale=f"Backlog pressure: {len(open_tasks)} open tasks pending execution",
+                    now=current_time,
+                )
+                if ok_scale and scale_sig:
+                    result["emitted_signals"].append(scale_sig.to_dict())
+
+        return result
 
 
 class WorkerFlowManager:
