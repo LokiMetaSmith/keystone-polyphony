@@ -112,6 +112,10 @@ case "$1" in
         fi
         $PYTHON_EXEC scripts/ping.py "$2" "${@:3}"
         ;;
+    conductor)
+        shift
+        $PYTHON_EXEC scripts/conductor.py "$@"
+        ;;
     task)
         shift
         $PYTHON_EXEC scripts/task.py "$@"

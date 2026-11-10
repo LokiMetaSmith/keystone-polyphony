@@ -27,9 +27,15 @@ from .models import (
 class FencedLedger:
     def __init__(self, db_path: str = ":memory:"):
         self.db_path = db_path
+        self._mem_conn = None
+        if self.db_path == ":memory:":
+            self._mem_conn = sqlite3.connect(":memory:", timeout=10.0)
+            self._mem_conn.row_factory = sqlite3.Row
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._mem_conn is not None:
+            return self._mem_conn
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         # Enforce WAL mode and busy timeout for strict concurrent serialization
@@ -1266,3 +1272,39 @@ class FencedLedger:
             )
             conn.commit()
             return True, f"Signal {signal_id} updated to {new_status_val}"
+
+    def prune_host_signals(
+        self,
+        older_than_seconds: float = 86400.0,
+        statuses: Optional[List[HostSignalStatus]] = None,
+        now: Optional[float] = None,
+    ) -> int:
+        """Prunes terminal host signals older than the retention threshold to compact the ledger."""
+        current_time = now if now is not None else time.time()
+        cutoff_time = current_time - older_than_seconds
+        target_statuses = statuses or [
+            HostSignalStatus.FULFILLED,
+            HostSignalStatus.REJECTED,
+        ]
+        status_vals = [
+            s.value if isinstance(s, HostSignalStatus) else str(s)
+            for s in target_statuses
+        ]
+
+        if not status_vals:
+            return 0
+
+        placeholders = ",".join("?" for _ in status_vals)
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                f"""
+                DELETE FROM host_signal_outbox
+                WHERE host_status IN ({placeholders})
+                  AND updated_at < ?
+                """,
+                (*status_vals, cutoff_time),
+            )
+            deleted_count = cursor.rowcount
+            conn.commit()
+            return deleted_count

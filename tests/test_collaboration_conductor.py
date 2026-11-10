@@ -432,3 +432,64 @@ async def test_mcp_host_signal_dual_key_auth(temp_db, monkeypatch):
         actor_id="agent_1", fence_token=fence_token, swarm_key=test_swarm_key
     )
     assert json.loads(res_step)["success"] is True
+
+
+def test_host_signal_pruning(setup_conductor):
+    """Pruning deletes fulfilled and rejected signals older than threshold."""
+    ledger, coordinator, _ = setup_conductor
+
+    # Force claim conductor lease
+    ledger.acquire_conductor_lease(
+        "cond_prune", force_for_solo_deadlock=True, now=100.0
+    )
+
+    # Emit signal at t=100
+    ok, sig, _ = ledger.emit_host_signal(
+        "cond_prune",
+        HostSignalType.SCALE_UP,
+        1,
+        ["t1"],
+        "scale",
+        now=100.0,
+    )
+    assert ok is True
+
+    # Acknowledge/fulfill at t=105
+    ledger.acknowledge_host_signal(
+        sig.signal_id, HostSignalStatus.FULFILLED, "done", now=105.0
+    )
+
+    # Prune with 60s retention at t=150 -> not pruned yet (150 - 105 = 45 < 60)
+    del_early = ledger.prune_host_signals(older_than_seconds=60.0, now=150.0)
+    assert del_early == 0
+
+    # Prune with 60s retention at t=200 -> pruned! (200 - 105 = 95 > 60)
+    del_late = ledger.prune_host_signals(older_than_seconds=60.0, now=200.0)
+    assert del_late == 1
+
+    # Outbox is now empty
+    assert len(ledger.poll_host_signals(HostSignalStatus.FULFILLED)) == 0
+
+
+def test_conductor_evaluate_and_act(setup_conductor):
+    """EnsembleConductor.evaluate_and_act claims podium and emits appropriate signals."""
+    ledger, coordinator, conductor = setup_conductor
+
+    # Register 3 tasks to create backlog
+    coordinator.register_task("t1", "T1", "Desc", "base", ["c"])
+    coordinator.register_task("t2", "T2", "Desc", "base", ["c"])
+    coordinator.register_task("t3", "T3", "Desc", "base", ["c"])
+
+    # Worker w1 claims t1 and submits -> t1 enters INTEGRATING
+    ok, h, _ = coordinator.dispatch_attempt("t1", "w1", now=100.0)
+    coordinator.submit_attempt(
+        "t1", h.attempt_id, "w1", 1, "req1", "diff1", 1.0, now=105.0
+    )
+
+    # evaluate_and_act by w_idle
+    res = conductor.evaluate_and_act("w_idle", now=110.0)
+    assert res["claimed_lease"] is True
+    assert res["fence_token"] == 1
+    # Emitted SPAWN_REVIEWER for t1 and SCALE_UP for open tasks
+    signal_types = [s["signal_type"] for s in res["emitted_signals"]]
+    assert HostSignalType.SPAWN_REVIEWER.value in signal_types
