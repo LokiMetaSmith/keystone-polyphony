@@ -20,6 +20,7 @@ import time
 import hashlib
 import json
 import secrets
+import hmac
 
 # Get the directory containing this script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -59,6 +60,11 @@ try:
         DeterministicExecutionAdapter,
         EnsembleConductor,
         ReviewVerdict,
+        HostSignalType,
+        HostSignalStatus,
+        ConductorLeaseStatus,
+        ConductorLease,
+        HostTelemetrySignal,
     )
 except ImportError:
     from core.collaboration import (
@@ -67,6 +73,11 @@ except ImportError:
         DeterministicExecutionAdapter,
         EnsembleConductor,
         ReviewVerdict,
+        HostSignalType,
+        HostSignalStatus,
+        ConductorLeaseStatus,
+        ConductorLease,
+        HostTelemetrySignal,
     )
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
@@ -80,6 +91,22 @@ collab_conductor = EnsembleConductor(collab_ledger)
 
 # Initialize components
 SWARM_KEY = get_or_create_swarm_key()
+HOST_CONTROL_KEY = os.getenv("OPENJULES_HOST_KEY", "")
+
+
+def _verify_swarm_key(provided_key: str) -> bool:
+    if not provided_key or not SWARM_KEY:
+        return False
+    return hmac.compare_digest(provided_key.encode("utf-8"), SWARM_KEY.encode("utf-8"))
+
+
+def _verify_host_key(provided_key: str) -> bool:
+    if not provided_key or not HOST_CONTROL_KEY:
+        return False
+    return hmac.compare_digest(
+        provided_key.encode("utf-8"), HOST_CONTROL_KEY.encode("utf-8")
+    )
+
 
 # Use environment variables or defaults for persistence
 DB_PATH = os.getenv("LIMINAL_DB", "liminal.db")
@@ -819,6 +846,177 @@ async def evaluate_enrolled_candidate(
             "review_id": receipt.review_id,
             "verdict": receipt.verdict.value,
             "blocking_findings": receipt.blocking_findings,
+        },
+        indent=2,
+    )
+
+
+# --- Emergent Conductor & OpenJules Host Gated Tools ---
+
+
+@mcp.tool()
+async def claim_emergent_conductor(
+    actor_id: str, swarm_key: str, lease_ttl: float = 90.0
+) -> str:
+    """Emergent claim of singleton Conductor podium by an idle agent inside the swarm."""
+    if not _verify_swarm_key(swarm_key):
+        return json.dumps(
+            {"success": False, "error": "Unauthorized: invalid swarm key"}, indent=2
+        )
+
+    ok, lease, reason = collab_ledger.acquire_conductor_lease(
+        actor_id=actor_id, lease_ttl=lease_ttl
+    )
+    if not ok or not lease:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "message": reason,
+            "data": lease.to_dict(),
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def step_down_conductor(actor_id: str, fence_token: int, swarm_key: str) -> str:
+    """Steps down from the Conductor role so the agent can claim coding or review tasks."""
+    if not _verify_swarm_key(swarm_key):
+        return json.dumps(
+            {"success": False, "error": "Unauthorized: invalid swarm key"}, indent=2
+        )
+
+    ok, reason = collab_ledger.release_conductor_lease(
+        actor_id=actor_id, fence_token=fence_token
+    )
+    if not ok:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "message": reason,
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def request_host_scaling(
+    actor_id: str,
+    signal_type: str,
+    requested_worker_delta: int,
+    target_task_ids: list[str],
+    rationale: str,
+    swarm_key: str,
+) -> str:
+    """Emits a host scaling signal into host_signal_outbox for external execution host (OpenJules) polling."""
+    if not _verify_swarm_key(swarm_key):
+        return json.dumps(
+            {"success": False, "error": "Unauthorized: invalid swarm key"}, indent=2
+        )
+
+    try:
+        sig_type = HostSignalType(signal_type.upper())
+    except ValueError:
+        return json.dumps(
+            {"success": False, "error": f"Invalid signal type: {signal_type}"},
+            indent=2,
+        )
+
+    ok, signal, reason = collab_ledger.emit_host_signal(
+        actor_id=actor_id,
+        signal_type=sig_type,
+        requested_worker_delta=requested_worker_delta,
+        target_task_ids=target_task_ids,
+        rationale=rationale,
+    )
+    if not ok or not signal:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "message": reason,
+            "data": signal.to_dict(),
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def openjules_poll_outbox(host_key: str, status_filter: str = "PENDING") -> str:
+    """External execution host (OpenJules) endpoint to poll pending signals. Requires OPENJULES_HOST_KEY."""
+    if not HOST_CONTROL_KEY:
+        return json.dumps(
+            {
+                "success": False,
+                "error": "Host authentication disabled: OPENJULES_HOST_KEY unset",
+            },
+            indent=2,
+        )
+
+    if not _verify_host_key(host_key):
+        return json.dumps(
+            {"success": False, "error": "Unauthorized: invalid host key"}, indent=2
+        )
+
+    try:
+        status_enum = HostSignalStatus(status_filter.upper())
+    except ValueError:
+        return json.dumps(
+            {"success": False, "error": f"Invalid status filter: {status_filter}"},
+            indent=2,
+        )
+
+    signals = collab_ledger.poll_host_signals(status=status_enum)
+    return json.dumps(
+        {
+            "success": True,
+            "data": [s.to_dict() for s in signals],
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()
+async def openjules_ack_signal(
+    signal_id: str, new_status: str, response_note: str, host_key: str
+) -> str:
+    """External execution host (OpenJules) endpoint to acknowledge/fulfill host signals. Requires OPENJULES_HOST_KEY."""
+    if not HOST_CONTROL_KEY:
+        return json.dumps(
+            {
+                "success": False,
+                "error": "Host authentication disabled: OPENJULES_HOST_KEY unset",
+            },
+            indent=2,
+        )
+
+    if not _verify_host_key(host_key):
+        return json.dumps(
+            {"success": False, "error": "Unauthorized: invalid host key"}, indent=2
+        )
+
+    try:
+        status_enum = HostSignalStatus(new_status.upper())
+    except ValueError:
+        return json.dumps(
+            {"success": False, "error": f"Invalid status: {new_status}"}, indent=2
+        )
+
+    ok, reason = collab_ledger.acknowledge_host_signal(
+        signal_id=signal_id, new_status=status_enum, response_note=response_note
+    )
+    if not ok:
+        return json.dumps({"success": False, "reason": reason}, indent=2)
+
+    return json.dumps(
+        {
+            "success": True,
+            "message": reason,
         },
         indent=2,
     )

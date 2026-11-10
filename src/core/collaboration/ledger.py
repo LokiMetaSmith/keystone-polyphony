@@ -16,15 +16,26 @@ from .models import (
     ReviewReceipt,
     ReviewVerdict,
     ResourceEnvelope,
+    HostSignalType,
+    HostSignalStatus,
+    ConductorLeaseStatus,
+    ConductorLease,
+    HostTelemetrySignal,
 )
 
 
 class FencedLedger:
     def __init__(self, db_path: str = ":memory:"):
         self.db_path = db_path
+        self._mem_conn = None
+        if self.db_path == ":memory:":
+            self._mem_conn = sqlite3.connect(":memory:", timeout=10.0)
+            self._mem_conn.row_factory = sqlite3.Row
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
+        if self._mem_conn is not None:
+            return self._mem_conn
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         # Enforce WAL mode and busy timeout for strict concurrent serialization
@@ -117,6 +128,31 @@ class FencedLedger:
                     rationale TEXT NOT NULL,
                     expires_at REAL NOT NULL,
                     created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS conductor_state (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    lease_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    fence_token INTEGER NOT NULL,
+                    active_worker_count INTEGER NOT NULL,
+                    expires_at REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS host_signal_outbox (
+                    signal_id TEXT PRIMARY KEY,
+                    emitted_by_actor TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    requested_worker_delta INTEGER NOT NULL,
+                    target_task_ids TEXT NOT NULL,
+                    unsettled_cost_snapshot REAL NOT NULL,
+                    rationale TEXT NOT NULL,
+                    host_status TEXT NOT NULL,
+                    host_response_note TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
                 );
                 """)
 
@@ -779,3 +815,496 @@ class FencedLedger:
                 )
                 for r in cursor.fetchall()
             ]
+
+    # --- Emergent Conductor Leases & Host Signal Outbox ---
+
+    def acquire_conductor_lease(
+        self,
+        actor_id: str,
+        min_active_workers_for_conductor: int = 3,
+        lease_ttl: float = 90.0,
+        force_for_solo_deadlock: bool = False,
+        now: Optional[float] = None,
+    ) -> Tuple[bool, Optional[ConductorLease], str]:
+        """Atomically acquires the singleton Conductor lease."""
+        current_time = now if now is not None else time.time()
+
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+
+            # 1. Bar claimant if actively holding a coding assignment
+            asgn_cursor = conn.execute(
+                """
+                SELECT 1 FROM assignments
+                WHERE actor_id = ?
+                  AND status IN (?, ?)
+                  AND lease_expires_at > ?
+                LIMIT 1
+                """,
+                (
+                    actor_id,
+                    AttemptStatus.ASSIGNED.value,
+                    AttemptStatus.RUNNING.value,
+                    current_time,
+                ),
+            )
+            if asgn_cursor.fetchone():
+                conn.rollback()
+                return (
+                    False,
+                    None,
+                    f"Agent {actor_id} holds an active coding assignment and cannot claim Conductor lease",
+                )
+
+            # 2. Check current conductor state
+            cond_cursor = conn.execute(
+                "SELECT * FROM conductor_state WHERE singleton_id = 1"
+            )
+            cond_row = cond_cursor.fetchone()
+
+            current_fence = 0
+            if cond_row:
+                current_fence = cond_row["fence_token"]
+                lease_status = cond_row["status"]
+                lease_expires = cond_row["expires_at"]
+
+                # If lease is active and not expired
+                if (
+                    lease_status == ConductorLeaseStatus.ACTIVE.value
+                    and lease_expires > current_time
+                ):
+                    if cond_row["actor_id"] == actor_id:
+                        # Re-entrant renewal by active conductor
+                        new_expires = current_time + lease_ttl
+                        conn.execute(
+                            """
+                            UPDATE conductor_state
+                            SET expires_at = ?
+                            WHERE singleton_id = 1
+                            """,
+                            (new_expires,),
+                        )
+                        conn.commit()
+                        lease = ConductorLease(
+                            lease_id=cond_row["lease_id"],
+                            actor_id=cond_row["actor_id"],
+                            fence_token=cond_row["fence_token"],
+                            active_worker_count=cond_row["active_worker_count"],
+                            expires_at=new_expires,
+                            status=ConductorLeaseStatus.ACTIVE,
+                            created_at=cond_row["created_at"],
+                        )
+                        return True, lease, "Conductor lease renewed"
+                    else:
+                        conn.rollback()
+                        return (
+                            False,
+                            None,
+                            f"Conductor lease currently held by {cond_row['actor_id']}",
+                        )
+                elif (
+                    lease_status == ConductorLeaseStatus.ACTIVE.value
+                    and lease_expires <= current_time
+                ):
+                    # Mark expired
+                    conn.execute(
+                        "UPDATE conductor_state SET status = ? WHERE singleton_id = 1",
+                        (ConductorLeaseStatus.EXPIRED.value,),
+                    )
+
+            # 3. Calculate active workers count directly from assignments table
+            workers_cursor = conn.execute(
+                """
+                SELECT COUNT(DISTINCT actor_id) AS cnt
+                FROM assignments
+                WHERE status IN (?, ?) AND lease_expires_at > ?
+                """,
+                (
+                    AttemptStatus.ASSIGNED.value,
+                    AttemptStatus.RUNNING.value,
+                    current_time,
+                ),
+            )
+            active_worker_count = workers_cursor.fetchone()["cnt"]
+
+            # 4. Check tasks in INTEGRATING or HELD
+            stuck_cursor = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt FROM tasks
+                WHERE status IN (?, ?)
+                """,
+                (TaskStatus.INTEGRATING.value, TaskStatus.HELD.value),
+            )
+            stuck_task_count = stuck_cursor.fetchone()["cnt"]
+
+            # Eligibility condition: active_workers >= min_active_workers_for_conductor OR stuck_tasks > 0 OR force_for_solo_deadlock
+            eligible = (
+                (active_worker_count >= min_active_workers_for_conductor)
+                or (stuck_task_count > 0)
+                or force_for_solo_deadlock
+            )
+
+            if not eligible:
+                conn.rollback()
+                return (
+                    False,
+                    None,
+                    f"Chamber mode: insufficient active workers ({active_worker_count} < {min_active_workers_for_conductor}) and no integrating/held tasks",
+                )
+
+            # 5. Acquire lease with incremented fence_token
+            new_fence = current_fence + 1
+            lease_id = f"cond_lease_{new_fence}"
+            expires_at = current_time + lease_ttl
+
+            conn.execute(
+                """
+                INSERT INTO conductor_state (
+                    singleton_id, lease_id, actor_id, fence_token,
+                    active_worker_count, expires_at, status, created_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    lease_id = excluded.lease_id,
+                    actor_id = excluded.actor_id,
+                    fence_token = excluded.fence_token,
+                    active_worker_count = excluded.active_worker_count,
+                    expires_at = excluded.expires_at,
+                    status = excluded.status,
+                    created_at = excluded.created_at
+                """,
+                (
+                    lease_id,
+                    actor_id,
+                    new_fence,
+                    active_worker_count,
+                    expires_at,
+                    ConductorLeaseStatus.ACTIVE.value,
+                    current_time,
+                ),
+            )
+            conn.commit()
+
+            lease = ConductorLease(
+                lease_id=lease_id,
+                actor_id=actor_id,
+                fence_token=new_fence,
+                active_worker_count=active_worker_count,
+                expires_at=expires_at,
+                status=ConductorLeaseStatus.ACTIVE,
+                created_at=current_time,
+            )
+            return True, lease, "Conductor lease acquired"
+
+    def release_conductor_lease(
+        self,
+        actor_id: str,
+        fence_token: int,
+    ) -> Tuple[bool, str]:
+        """Releases the Conductor lease so the actor can step down to coding/reviewing."""
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cond_cursor = conn.execute(
+                "SELECT * FROM conductor_state WHERE singleton_id = 1"
+            )
+            cond_row = cond_cursor.fetchone()
+            if not cond_row:
+                conn.rollback()
+                return False, "No conductor lease exists"
+
+            if cond_row["actor_id"] != actor_id:
+                conn.rollback()
+                return False, f"Actor {actor_id} is not the current conductor"
+
+            if cond_row["fence_token"] != fence_token:
+                conn.rollback()
+                return (
+                    False,
+                    f"Fence token mismatch: provided {fence_token} vs current {cond_row['fence_token']}",
+                )
+
+            if cond_row["status"] != ConductorLeaseStatus.ACTIVE.value:
+                conn.rollback()
+                return False, f"Conductor lease is already {cond_row['status']}"
+
+            conn.execute(
+                "UPDATE conductor_state SET status = ? WHERE singleton_id = 1",
+                (ConductorLeaseStatus.RELEASED.value,),
+            )
+            conn.commit()
+            return True, "Conductor lease stepped down"
+
+    def get_conductor_lease(
+        self, now: Optional[float] = None
+    ) -> Optional[ConductorLease]:
+        """Gets current conductor lease, lazily marking expired leases."""
+        current_time = now if now is not None else time.time()
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "SELECT * FROM conductor_state WHERE singleton_id = 1"
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.commit()
+                return None
+
+            status = row["status"]
+            if (
+                status == ConductorLeaseStatus.ACTIVE.value
+                and row["expires_at"] <= current_time
+            ):
+                conn.execute(
+                    "UPDATE conductor_state SET status = ? WHERE singleton_id = 1",
+                    (ConductorLeaseStatus.EXPIRED.value,),
+                )
+                conn.commit()
+                return None
+            conn.commit()
+
+            if status != ConductorLeaseStatus.ACTIVE.value:
+                return None
+
+            return ConductorLease(
+                lease_id=row["lease_id"],
+                actor_id=row["actor_id"],
+                fence_token=row["fence_token"],
+                active_worker_count=row["active_worker_count"],
+                expires_at=row["expires_at"],
+                status=ConductorLeaseStatus(row["status"]),
+                created_at=row["created_at"],
+            )
+
+    def emit_host_signal(
+        self,
+        actor_id: str,
+        signal_type: HostSignalType,
+        requested_worker_delta: int,
+        target_task_ids: List[str],
+        rationale: str,
+        now: Optional[float] = None,
+    ) -> Tuple[bool, Optional[HostTelemetrySignal], str]:
+        """Atomically emits a host telemetry scaling signal with deduplication and cost snapshotting."""
+        current_time = now if now is not None else time.time()
+        sorted_targets = sorted(list(target_task_ids))
+
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+
+            # 1. Authorize emission
+            # Active Conductor can emit SCALE_UP, IDLE_DRAIN, ESCALATE_TRIAGE
+            # Any worker can emit SPAWN_REVIEWER if they authored a candidate stuck in 'integrating' for at least one target_task_id
+            cond_cursor = conn.execute(
+                "SELECT * FROM conductor_state WHERE singleton_id = 1"
+            )
+            cond_row = cond_cursor.fetchone()
+            is_active_conductor = (
+                cond_row is not None
+                and cond_row["actor_id"] == actor_id
+                and cond_row["status"] == ConductorLeaseStatus.ACTIVE.value
+                and cond_row["expires_at"] > current_time
+            )
+
+            if signal_type in (
+                HostSignalType.SCALE_UP,
+                HostSignalType.IDLE_DRAIN,
+                HostSignalType.ESCALATE_TRIAGE,
+            ):
+                if not is_active_conductor:
+                    conn.rollback()
+                    return (
+                        False,
+                        None,
+                        f"Only active Conductor can emit {signal_type.value}",
+                    )
+            elif signal_type == HostSignalType.SPAWN_REVIEWER:
+                if not is_active_conductor:
+                    # Verify actor authored a candidate in integrating state for at least one target_task_id
+                    auth_cand = False
+                    for tid in sorted_targets:
+                        c_cursor = conn.execute(
+                            """
+                            SELECT 1 FROM tasks t
+                            JOIN candidates c ON t.task_id = c.task_id
+                            WHERE t.task_id = ?
+                              AND t.status = ?
+                              AND c.author_actor_id = ?
+                            LIMIT 1
+                            """,
+                            (tid, TaskStatus.INTEGRATING.value, actor_id),
+                        )
+                        if c_cursor.fetchone():
+                            auth_cand = True
+                            break
+
+                    if not auth_cand:
+                        conn.rollback()
+                        return (
+                            False,
+                            None,
+                            f"Actor {actor_id} is not active Conductor and has no candidate awaiting review in target tasks",
+                        )
+            else:
+                conn.rollback()
+                return False, None, f"Unknown signal type {signal_type}"
+
+            # 2. Check deduplication for identical PENDING signals with same signal_type and sorted target_task_ids
+            existing_cursor = conn.execute(
+                """
+                SELECT * FROM host_signal_outbox
+                WHERE host_status = ? AND signal_type = ?
+                """,
+                (HostSignalStatus.PENDING.value, signal_type.value),
+            )
+            for row in existing_cursor.fetchall():
+                try:
+                    row_targets = json.loads(row["target_task_ids"])
+                except Exception:
+                    row_targets = [row["target_task_ids"]]
+                if sorted(row_targets) == sorted_targets:
+                    conn.rollback()
+                    existing_signal = HostTelemetrySignal.from_dict(dict(row))
+                    return (
+                        True,
+                        existing_signal,
+                        "Deduplicated: identical pending host signal returned",
+                    )
+
+            # 3. Snapshot total unsettled cost globally across all tasks
+            cost_cursor = conn.execute("SELECT envelope FROM tasks")
+            total_unsettled_cost = 0.0
+            for r in cost_cursor.fetchall():
+                try:
+                    env_data = json.loads(r["envelope"])
+                    env = ResourceEnvelope.from_dict(env_data)
+                    total_unsettled_cost += (
+                        env.settled_budget + env.in_flight_reserved_budget
+                    )
+                except Exception:
+                    continue
+
+            signal_id = f"sig_{hashlib.sha256(f'{signal_type.value}:{sorted_targets}:{current_time}'.encode()).hexdigest()[:16]}"
+            new_signal = HostTelemetrySignal(
+                signal_id=signal_id,
+                emitted_by_actor=actor_id,
+                signal_type=signal_type,
+                requested_worker_delta=requested_worker_delta,
+                target_task_ids=sorted_targets,
+                unsettled_cost_snapshot=total_unsettled_cost,
+                rationale=rationale,
+                host_status=HostSignalStatus.PENDING,
+                host_response_note="",
+                created_at=current_time,
+                updated_at=current_time,
+            )
+
+            conn.execute(
+                """
+                INSERT INTO host_signal_outbox (
+                    signal_id, emitted_by_actor, signal_type, requested_worker_delta,
+                    target_task_ids, unsettled_cost_snapshot, rationale,
+                    host_status, host_response_note, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_signal.signal_id,
+                    new_signal.emitted_by_actor,
+                    new_signal.signal_type.value,
+                    new_signal.requested_worker_delta,
+                    json.dumps(new_signal.target_task_ids),
+                    new_signal.unsettled_cost_snapshot,
+                    new_signal.rationale,
+                    new_signal.host_status.value,
+                    new_signal.host_response_note,
+                    new_signal.created_at,
+                    new_signal.updated_at,
+                ),
+            )
+            conn.commit()
+            return True, new_signal, "Host signal emitted"
+
+    def poll_host_signals(
+        self, status: HostSignalStatus = HostSignalStatus.PENDING
+    ) -> List[HostTelemetrySignal]:
+        """Polls host signals filtered by status."""
+        status_val = (
+            status.value if isinstance(status, HostSignalStatus) else str(status)
+        )
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM host_signal_outbox WHERE host_status = ? ORDER BY created_at ASC",
+                (status_val,),
+            )
+            return [HostTelemetrySignal.from_dict(dict(r)) for r in cursor.fetchall()]
+
+    def acknowledge_host_signal(
+        self,
+        signal_id: str,
+        new_status: HostSignalStatus,
+        response_note: str = "",
+        now: Optional[float] = None,
+    ) -> Tuple[bool, str]:
+        """Updates host signal status and response note."""
+        current_time = now if now is not None else time.time()
+        new_status_val = (
+            new_status.value
+            if isinstance(new_status, HostSignalStatus)
+            else str(new_status)
+        )
+
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "SELECT * FROM host_signal_outbox WHERE signal_id = ?",
+                (signal_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.rollback()
+                return False, f"Signal {signal_id} not found"
+
+            conn.execute(
+                """
+                UPDATE host_signal_outbox
+                SET host_status = ?, host_response_note = ?, updated_at = ?
+                WHERE signal_id = ?
+                """,
+                (new_status_val, response_note, current_time, signal_id),
+            )
+            conn.commit()
+            return True, f"Signal {signal_id} updated to {new_status_val}"
+
+    def prune_host_signals(
+        self,
+        older_than_seconds: float = 86400.0,
+        statuses: Optional[List[HostSignalStatus]] = None,
+        now: Optional[float] = None,
+    ) -> int:
+        """Prunes terminal host signals older than the retention threshold to compact the ledger."""
+        current_time = now if now is not None else time.time()
+        cutoff_time = current_time - older_than_seconds
+        target_statuses = statuses or [
+            HostSignalStatus.FULFILLED,
+            HostSignalStatus.REJECTED,
+        ]
+        status_vals = [
+            s.value if isinstance(s, HostSignalStatus) else str(s)
+            for s in target_statuses
+        ]
+
+        if not status_vals:
+            return 0
+
+        placeholders = ",".join("?" for _ in status_vals)
+        with self._get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                f"""
+                DELETE FROM host_signal_outbox
+                WHERE host_status IN ({placeholders})
+                  AND updated_at < ?
+                """,
+                (*status_vals, cutoff_time),
+            )
+            deleted_count = cursor.rowcount
+            conn.commit()
+            return deleted_count
