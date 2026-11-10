@@ -208,6 +208,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Optional decision models and local ensemble demo: [`docs/decision-models.md`](docs/decision-models.md)
 - Durable worker choice, coordinator service and worktree trial: [`docs/durable-collaboration.md`](docs/durable-collaboration.md)
 - Decision-gated PR admission to staging: [`docs/decision-merge.md`](docs/decision-merge.md)
+- Emergent Conductor leases and gated host signal outbox: [`docs/emergent-conductor-host-signals.md`](docs/emergent-conductor-host-signals.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)
 - Contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
