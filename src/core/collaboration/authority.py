@@ -14,9 +14,8 @@ import sqlite3
 import time
 from contextlib import contextmanager
 
-
-class Conflict(ValueError):
-    """A precondition failed; retry only after observing new state."""
+from .managed_runtime import ManagedRuntimeAuthority
+from .errors import Conflict
 
 
 def canonical(value):
@@ -49,7 +48,7 @@ def managed_task(task):
     )
 
 
-class Coordinator:
+class Coordinator(ManagedRuntimeAuthority):
     def __init__(self, path, clock=time.time, monotonic_clock=None, boot_id=None):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = str(path)
@@ -332,62 +331,93 @@ class Coordinator:
 
     def start_attempt(self, task_id, worker, capabilities, seconds, request_key):
         """Worker chooses task_id; intent does not authorize any shared write."""
-        positive(seconds)
         with self.transaction() as db:
-            key = digest([worker, request_key])
-            payload = {
-                "task": task_id,
-                "seconds": seconds,
-                "capabilities": capabilities,
-            }
-            prior = db.execute(
-                "SELECT body FROM records WHERE kind='start' AND id=?", (key,)
-            ).fetchone()
-            if prior:
-                saved = json.loads(prior[0])
-                if saved["payload"] != payload:
-                    raise Conflict("retry key payload changed")
-                return self._get(db, "attempt", saved["attempt"])
-            task = self._get(db, "task", task_id)
-            if task["status"] in {"accepted", "awaiting_review"}:
-                raise Conflict("already accepted or candidate awaiting review")
-            if not set(task["required"]) <= set(capabilities):
-                raise Conflict("capability mismatch")
-            dependencies = self._dependency_bindings(db, task, (task_id,))
-            if any(
-                a["task"] == task_id and not a["termination_confirmed"]
-                for a in self._all(db, "attempt")
-            ):
-                raise Conflict("previous execution still reserved; termination unknown")
-            if (
-                task["attempts"] >= task["max_attempts"]
-                or task["allocated_seconds"] + seconds > task["budget_seconds"]
-            ):
-                raise Conflict("task budget exhausted")
-            aid = secrets.token_hex(16)
-            attempt = {
-                "id": aid,
-                "task": task_id,
-                "worker": worker,
-                "number": task["attempts"] + 1,
-                "requirements_revision": task["revision"],
-                "dependency_admissions": dependencies,
-                "started": self.clock(),
-                "deadline": self.clock() + seconds,
-                "monotonic_deadline": self.monotonic_clock() + seconds,
-                "boot_id": self.boot_id,
-                "state": "reserved",
-                "termination_confirmed": False,
-                "cost": None,
-            }
-            task.pop("current_candidate", None)
-            task.pop("dependency_problem", None)
-            task["attempts"] += 1
-            task["allocated_seconds"] += seconds
-            task["status"] = "in_progress"
-            self._save(db, "task", task_id, task)
-            self._save(db, "start", key, {"payload": payload, "attempt": aid})
-            return self._save(db, "attempt", aid, attempt)
+            return self._start_attempt(
+                db, task_id, worker, capabilities, seconds, request_key
+            )
+
+    def _start_attempt(
+        self, db, task_id, worker, capabilities, seconds, request_key, external=None
+    ):
+        """Common atomic budget reservation for local and managed execution."""
+        positive(seconds)
+        key = digest([worker, request_key])
+        payload = {
+            "task": task_id,
+            "seconds": seconds,
+            "capabilities": capabilities,
+        }
+        if external is not None:
+            payload["external"] = external
+        prior = db.execute(
+            "SELECT body FROM records WHERE kind='start' AND id=?", (key,)
+        ).fetchone()
+        if prior:
+            saved = json.loads(prior[0])
+            if saved["payload"] != payload:
+                raise Conflict("retry key payload changed")
+            return self._get(db, "attempt", saved["attempt"])
+        task = self._get(db, "task", task_id)
+        if task.get("managed_scope") and external is None:
+            raise Conflict("managed task requires its bound external runtime")
+        if external is not None and any(
+            a["worker"] == worker and not a["termination_confirmed"]
+            for a in self._all(db, "attempt")
+        ):
+            raise Conflict("worker incarnation has an unresolved root execution")
+        if task["status"] in {"accepted", "awaiting_review"}:
+            raise Conflict("already accepted or candidate awaiting review")
+        if not set(task["required"]) <= set(capabilities):
+            raise Conflict("capability mismatch")
+        dependencies = self._dependency_bindings(db, task, (task_id,))
+        if any(
+            a["task"] == task_id and not a["termination_confirmed"]
+            for a in self._all(db, "attempt")
+        ):
+            raise Conflict("previous execution still reserved; termination unknown")
+        if (
+            task["attempts"] >= task["max_attempts"]
+            or task["allocated_seconds"] + seconds > task["budget_seconds"]
+        ):
+            raise Conflict("task budget exhausted")
+        aid = secrets.token_hex(16)
+        attempt = {
+            "id": aid,
+            "task": task_id,
+            "worker": worker,
+            "number": task["attempts"] + 1,
+            "requirements_revision": task["revision"],
+            "dependency_admissions": dependencies,
+            "started": self.clock(),
+            "deadline": self.clock() + seconds,
+            "monotonic_deadline": self.monotonic_clock() + seconds,
+            "boot_id": self.boot_id,
+            "state": "reserved",
+            "termination_confirmed": False,
+            "cost": None,
+        }
+        if external is not None:
+            attempt.update(
+                state="unknown",
+                execution_mode="external",
+                approved_requirements=task["requirements"],
+                runtime_binding=external
+                | {
+                    "attempt_id": aid,
+                    "launch_key": "polyphony:" + aid,
+                    "spec_digest": digest(external),
+                    "deadline": attempt["deadline"],
+                    "requirements_revision": task["revision"],
+                },
+            )
+        task.pop("current_candidate", None)
+        task.pop("dependency_problem", None)
+        task["attempts"] += 1
+        task["allocated_seconds"] += seconds
+        task["status"] = "in_progress"
+        self._save(db, "task", task_id, task)
+        self._save(db, "start", key, {"payload": payload, "attempt": aid})
+        return self._save(db, "attempt", aid, attempt)
 
     def observe(self, attempt_id, state, termination_confirmed=False):
         """Adapter/owner only; a cancellation request is not proof of death."""
@@ -405,6 +435,10 @@ class Coordinator:
             raise ValueError("termination needs adapter confirmation")
         with self.transaction() as db:
             a = self._get(db, "attempt", attempt_id)
+            if a.get("execution_mode") == "external":
+                raise Conflict(
+                    "external receipt requires its bound runtime and capture"
+                )
             if a["termination_confirmed"]:
                 return a
             if a.get("cancel_requested") and not termination_confirmed:
@@ -431,9 +465,12 @@ class Coordinator:
     def authorize_launch(self, attempt_id, worker):
         with self.transaction() as db:
             attempt = self._permission(db, attempt_id, worker)
+            if attempt.get("execution_mode") == "external":
+                raise Conflict("attempt is bound to an external runtime")
             if attempt["state"] != "reserved":
                 raise Conflict("launch outcome unknown; reconcile before retry")
             attempt["state"] = "unknown"
+            attempt["execution_mode"] = "local"
             self._save(db, "attempt", attempt_id, attempt)
             task = self._get(db, "task", attempt["task"])
             return attempt, task["requirements"]
@@ -589,6 +626,14 @@ class Coordinator:
             a = self._get(db, "attempt", attempt_id)
             if a["worker"] != worker:
                 raise Conflict("wrong author")
+            binding = a.get("runtime_binding")
+            if binding and (
+                not a["termination_confirmed"]
+                or not a.get("launch_fenced")
+                or a.get("captured_artifacts", {}).get("patch") != artifact_id
+                or binding["base"] != base
+            ):
+                raise Conflict("external candidate requires its verified final capture")
             task = self._get(db, "task", a["task"])
             if task["revision"] != a["requirements_revision"]:
                 raise Conflict("requirements changed; salvage work in a new attempt")
@@ -620,6 +665,11 @@ class Coordinator:
                     **identity,
                     "author": worker,
                     "attempt": attempt_id,
+                    **(
+                        {"author_principal": binding["runtime_principal"]}
+                        if binding
+                        else {}
+                    ),
                 },
             )
 
@@ -655,6 +705,7 @@ class Coordinator:
             if (
                 reviewer not in task["reviewers"]
                 or reviewer == candidate["author"]
+                or reviewer == candidate.get("author_principal")
                 or check not in task["checks"]
             ):
                 raise Conflict("reviewer/check not authorized or not independent")
@@ -779,6 +830,7 @@ class Coordinator:
                     if e["check"] == check
                     and e["reviewer"] in task["reviewers"]
                     and e["reviewer"] != c["author"]
+                    and e["reviewer"] != c.get("author_principal")
                 ]
                 if not applicable or not all(e["passed"] for e in applicable):
                     raise Conflict(f"missing or failed required check: {check}")
