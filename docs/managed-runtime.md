@@ -7,8 +7,9 @@ requirements, attempt budgets, artifact identity and independent acceptance.
 Ordinary peer discussion remains independent of this service.
 
 This is the root-runtime slice of [#109](https://github.com/niklas-olsson/keystone-polyphony/issues/109)
-and [#112](https://github.com/niklas-olsson/keystone-polyphony/issues/112). Delegated
-children, convergence of every experimental CLI/MCP entry point, automatic forge
+and [#112](https://github.com/niklas-olsson/keystone-polyphony/issues/112). The
+[bounded child grant API](child-grants.md) adds optional canonical delegation;
+actual child runtime execution, convergence of every experimental CLI/MCP entry point, automatic forge
 publication and cross-host authority failover remain separate work. Capabilities
 explicitly return `children: false`. Internal acceptance always retains
 `release_authorized: false` and is not GitHub approval or merge provenance.
@@ -75,7 +76,8 @@ also approved in the OpenJules profile, not a branch name:
 Checks and reviewers are nonempty distinct lists. `max_attempts` is 1–1000.
 Time limits are positive finite seconds, at most seven days; a profile's attempt
 duration cannot exceed its repository task budget. Profile definitions have
-exactly `base`, `attempt_seconds`, and `capabilities`. Unsupported fields are
+`base`, `attempt_seconds`, and `capabilities`, with optional explicitly approved
+[child policy fields](child-grants.md). Unsupported fields are
 rejected. Image, repository checkout path, command and runtime secrets belong
 in OpenJules' approved profile, not in issue text or this API's launch payload.
 

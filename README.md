@@ -208,6 +208,7 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Optional decision models and local ensemble demo: [`docs/decision-models.md`](docs/decision-models.md)
 - Durable worker choice, coordinator service and worktree trial: [`docs/durable-collaboration.md`](docs/durable-collaboration.md)
 - Authenticated OpenJules root-runtime handoff and managed task submission: [`docs/managed-runtime.md`](docs/managed-runtime.md)
+- Canonical bounded child grants and runtime integration requirements: [`docs/child-grants.md`](docs/child-grants.md)
 - Decision-gated PR admission to staging: [`docs/decision-merge.md`](docs/decision-merge.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
 - VSCode Integration: [`docs/vscode-integration.md`](docs/vscode-integration.md)

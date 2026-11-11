@@ -647,6 +647,12 @@ class Coordinator(ManagedRuntimeAuthority):
                 "task": task["id"],
                 "dependency_admissions": dependencies,
             }
+            if binding:
+                lineage = self._child_terminal_lineage(db, attempt_id)
+                if lineage:
+                    if a.get("child_lineage") != lineage:
+                        raise Conflict("root terminal child lineage changed")
+                    identity["child_lineage"] = lineage
             cid = digest(identity)
             existing = db.execute(
                 "SELECT body FROM records WHERE kind='candidate' AND id=?", (cid,)
