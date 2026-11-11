@@ -17,6 +17,7 @@ from aiohttp import ClientSession, web
 from .coordinator import Conflict, Coordinator
 from .worktree_adapter import run_attempt
 from .approved_inputs import PublicRequirements
+from .managed_service import install_managed_routes, protect_legacy_call
 
 PRINCIPAL = web.RequestKey("principal", dict)
 
@@ -34,6 +35,8 @@ ROLE_OPERATIONS = {
     },
     "reviewer": {"evidence"},
     "conductor": {"advise"},
+    "ingress": set(),
+    "runtime": set(),
 }
 # Reserved for server-injected identity. Never accept these from remote payloads.
 IDENTITY_FIELD = {
@@ -49,7 +52,9 @@ IDENTITY_FIELD = {
 }
 
 
-def create_app(store, credentials, adapter=None, execution=None, input_provider=None):
+def create_app(
+    store, credentials, adapter=None, execution=None, input_provider=None, managed=None
+):
     input_provider = input_provider or PublicRequirements()
     if not credentials:
         raise ValueError("explicit credentials required")
@@ -81,6 +86,17 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         if principal is None:
             raise web.HTTPUnauthorized()
         request[PRINCIPAL] = principal
+        if principal["role"] in {"runtime", "ingress"} and not request.path.startswith(
+            "/managed/"
+        ):
+            raise web.HTTPForbidden()
+        if "repositories" in principal and request.path in {
+            "/snapshot",
+            "/events",
+            "/execute",
+            "/cancel",
+        }:
+            raise web.HTTPForbidden()
         try:
             return await handler(request)
         except Conflict as exc:
@@ -103,6 +119,8 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
     async def snapshot(request):
         if adapter:
             for attempt in store.snapshot()["attempt"]:
+                if attempt.get("execution_mode") == "external":
+                    continue
                 active = executions.get(attempt["id"])
                 if capture_unresolved(active):
                     if (
@@ -125,7 +143,11 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
                             state["state"],
                             state["termination_confirmed"],
                         )
-        return web.json_response(store.snapshot())
+        return web.json_response(
+            store.snapshot()
+            if request[PRINCIPAL]["role"] == "owner"
+            else store.scoped_snapshot()
+        )
 
     async def execute(request):
         principal = request[PRINCIPAL]
@@ -215,6 +237,7 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
             not attempt
             or principal["role"] != "worker"
             or attempt["worker"] != principal["identity"]
+            or attempt.get("execution_mode") == "external"
             or adapter is None
         ):
             raise web.HTTPForbidden()
@@ -266,7 +289,13 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         return web.json_response({"cursor": store.cursor()})
 
     async def artifact(request):
-        return web.Response(text=store.artifact(request.match_info["id"]))
+        principal = request[PRINCIPAL]
+        if "repositories" in principal:
+            raise web.HTTPForbidden()
+        reader = (
+            store.artifact if principal["role"] == "owner" else store.scoped_artifact
+        )
+        return web.Response(text=reader(request.match_info["id"]))
 
     async def call(request):
         op = request.match_info["operation"]
@@ -277,6 +306,7 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
             payload = await request.json()
             if not isinstance(payload, dict):
                 raise ValueError("object payload required")
+            protect_legacy_call(store, principal, op, payload)
             # Server policy, never conductor-controlled throttling.
             if op == "advise" and any(
                 k in payload for k in ("minimum_interval", "ttl")
@@ -294,6 +324,7 @@ def create_app(store, credentials, adapter=None, execution=None, input_provider=
         except (ValueError, TypeError, KeyError) as exc:
             return web.json_response({"error": str(exc)}, status=400)
 
+    install_managed_routes(app, store, credentials, PRINCIPAL, managed)
     app.router.add_post("/execute", execute)
     app.router.add_post("/cancel", cancel)
     app.router.add_get("/snapshot", snapshot)
@@ -338,6 +369,9 @@ def main():
     parser.add_argument("--credentials", required=True)
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument(
+        "--managed-config", help="owner-only managed repository/profile policy JSON"
+    )
+    parser.add_argument(
         "--execution-config",
         help="owner-only JSON: repository, root, base, command argv",
     )
@@ -358,7 +392,17 @@ def main():
             if key in os.environ
         } | execution.get("env", {})
     web.run_app(
-        create_app(Coordinator(args.db), credentials, adapter, execution),
+        create_app(
+            Coordinator(args.db),
+            credentials,
+            adapter,
+            execution,
+            managed=(
+                json.loads(Path(args.managed_config).read_text())
+                if args.managed_config
+                else None
+            ),
+        ),
         host="127.0.0.1",
         port=args.port,
     )

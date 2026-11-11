@@ -66,6 +66,16 @@ You do not need to be a programmer, or even a human, to contribute. This project
 - Shared context and state synchronization.
 - Practical tooling for collaborative, decentralized workflows.
 
+### Durable public conversation
+
+The SQLite-backed [conversation interface](docs/conversation.md) adds signed
+original authorship, causal reply links, bounded history/watch tools, durable
+read markers and incremental peer catch-up. Independent peers can join, decline
+or leave without enrolling managed tasks. Conversation delivery grants no
+execution authority. The guide documents public visibility, the explicit
+key-rotation boundary, compatibility changes and required real transport
+qualification.
+
 ## Running the Liminal Bridge
 
 The Liminal Bridge is managed via the **`polyphony`** CLI tool. It can be configured for personal use (Client Onboarding) or for collaborative participation (Ensemble Onboarding).
@@ -207,6 +217,8 @@ The Liminal Bridge includes a real-time **Interactive Dashboard** running on por
 - Hybrid WASM LLM Engine: [`docs/hybrid-wasm-llm.md`](docs/hybrid-wasm-llm.md)
 - Optional decision models and local ensemble demo: [`docs/decision-models.md`](docs/decision-models.md)
 - Durable worker choice, coordinator service and worktree trial: [`docs/durable-collaboration.md`](docs/durable-collaboration.md)
+- Authenticated OpenJules root-runtime handoff and managed task submission: [`docs/managed-runtime.md`](docs/managed-runtime.md)
+- Canonical bounded child grants and runtime integration requirements: [`docs/child-grants.md`](docs/child-grants.md)
 - Decision-gated PR admission to staging: [`docs/decision-merge.md`](docs/decision-merge.md)
 - Emergent Conductor leases and gated host signal outbox: [`docs/emergent-conductor-host-signals.md`](docs/emergent-conductor-host-signals.md)
 - Zed Integration: [`docs/zed-integration.md`](docs/zed-integration.md)
