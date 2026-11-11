@@ -6,6 +6,8 @@ import math
 from aiohttp import web
 
 from src.core.collaboration.authority import digest, immutable_revision
+from src.core.collaboration.child_grants import CHILD_POLICY_FIELDS, child_policy
+from .child_service import install_child_routes
 from src.core.collaboration.managed_runtime import (
     ClaimNotAllocated,
     bounded_text,
@@ -77,12 +79,47 @@ def validate_managed_config(value):
             raise ValueError("approved profiles required")
         for name, profile in policy["profiles"].items():
             bounded_text(name, "profile")
-            _fields(profile, {"base", "attempt_seconds", "capabilities"}, "profile")
+            if not isinstance(profile, dict):
+                raise ValueError("profile must be an object")
+            required = {"base", "attempt_seconds", "capabilities"}
+            optional = set(profile) & CHILD_POLICY_FIELDS
+            _fields(profile, required | optional, "profile")
             immutable_revision(profile["base"])
             _seconds(profile["attempt_seconds"], "attempt_seconds")
             if profile["attempt_seconds"] > policy["budget_seconds"]:
                 raise ValueError("attempt duration exceeds repository task budget")
             _names(profile["capabilities"], "capabilities", empty=True)
+            if optional:
+                if (
+                    "max_children" not in profile
+                    or type(profile["max_children"]) is not int
+                    or not 0 <= profile["max_children"] <= 64
+                ):
+                    raise ValueError("max_children must be an integer from 0 to 64")
+                if profile["max_children"] or optional != {"max_children"}:
+                    if optional != CHILD_POLICY_FIELDS:
+                        raise ValueError(
+                            "enabled child profiles require every child policy field"
+                        )
+                    _seconds(profile["max_child_seconds"], "max_child_seconds")
+                    if profile["max_child_seconds"] > profile["attempt_seconds"]:
+                        raise ValueError("child duration exceeds root duration")
+                    if (
+                        type(profile["max_child_turns"]) is not int
+                        or not 1 <= profile["max_child_turns"] <= 1000
+                    ):
+                        raise ValueError(
+                            "max_child_turns must be an integer from 1 to 1000"
+                        )
+                    _names(
+                        profile["child_capabilities"], "child_capabilities", empty=True
+                    )
+                    if not set(profile["child_capabilities"]) <= set(
+                        profile["capabilities"]
+                    ):
+                        raise ValueError(
+                            "child capabilities exceed parent capabilities"
+                        )
     # Copy configuration so a caller cannot mutate policy after validation.
     return json.loads(json.dumps(value, allow_nan=False))
 
@@ -187,6 +224,8 @@ def install_managed_routes(app, store, credentials, principal_key, config):
                 "managed_dispatch": profile is not None,
                 "external_root": profile is not None,
                 "children": False,
+                "child_grants": child_policy(profile) is not None,
+                "child_policy": child_policy(profile),
                 "profile_supported": profile is not None,
                 "reason": "" if profile else "approved profile not found",
             }
@@ -316,6 +355,7 @@ def install_managed_routes(app, store, credentials, principal_key, config):
         )
         return web.json_response({"schema_version": 1, **binding, "candidate": result})
 
+    install_child_routes(app, store, authorize, body, query)
     for name, handler in (
         ("enroll", enroll),
         ("claim", claim),
