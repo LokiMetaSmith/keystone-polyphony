@@ -10,7 +10,7 @@ import re
 import secrets
 
 from .errors import Conflict
-from .child_grants import ChildGrantAuthority
+from .delegated_grants import DelegatedGrantAuthority
 
 CAPTURE_KINDS = frozenset({"patch", "log", "manifest"})
 
@@ -46,7 +46,7 @@ def scope(deployment_id, repository):
     }
 
 
-class ManagedRuntimeAuthority(ChildGrantAuthority):
+class ManagedRuntimeAuthority(DelegatedGrantAuthority):
     """Mixin sharing Coordinator transactions, budgets, artifacts and review."""
 
     def managed_enroll(
@@ -346,7 +346,7 @@ class ManagedRuntimeAuthority(ChildGrantAuthority):
                     raise Conflict("terminal receipt changed")
                 return attempt
             if termination_confirmed:
-                lineage = self._child_terminal_lineage(db, attempt_id)
+                lineage = self._delegation_terminal_lineage(db, attempt_id)
                 for kind, artifact in artifacts.items():
                     saved = self._get(db, "runtime_capture", digest([attempt_id, kind]))
                     if saved["artifact_id"] != artifact:
@@ -366,7 +366,7 @@ class ManagedRuntimeAuthority(ChildGrantAuthority):
                     runtime_receipt=receipt,
                 )
                 if lineage:
-                    attempt["child_lineage"] = lineage
+                    attempt["delegation_lineage"] = lineage
             if attempt.get("cancel_requested") and not termination_confirmed:
                 state = "cancel_requested"
             attempt["state"] = state

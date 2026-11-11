@@ -1,11 +1,11 @@
-"""Trusted-runtime endpoints for bounded, rooted child sessions."""
+"""Trusted-runtime endpoints for bounded delegated grants and capability attenuation."""
 
 from aiohttp import web
 
-from src.core.collaboration.child_grants import ChildNotAllocated
+from src.core.collaboration.delegated_grants import DelegatedGrantNotAllocated
 
 
-def install_child_routes(app, store, authorize, body, query):
+def install_delegation_routes(app, store, authorize, body, query):
     def context(request, fields, roles):
         principal, binding, policy = authorize(request, fields, roles)
         return (
@@ -31,32 +31,35 @@ def install_child_routes(app, store, authorize, body, query):
         fields = await body(request, extra)
         common, profiles = context(request, fields, {"runtime"})
         try:
-            result = store.managed_child_grant(
+            result = store.managed_delegated_grant(
                 **common,
                 **{key: fields[key] for key in extra - {"attempt_id"}},
                 profiles=profiles,
             )
-        except ChildNotAllocated as exc:
+        except DelegatedGrantNotAllocated as exc:
             return web.json_response(
-                {"error": str(exc), "code": "child_not_allocated"}, status=409
+                {"error": str(exc), "code": "delegated_grant_not_allocated"},
+                status=409,
             )
         return web.json_response(result)
 
     async def permission(request):
-        fields = await body(request, {"attempt_id", "child_id"})
+        fields = await body(request, {"attempt_id", "delegation_id"})
         common, profiles = context(request, fields, {"runtime"})
         return web.json_response(
-            store.managed_child_permission(
-                **common, child_id=fields["child_id"], profiles=profiles
+            store.managed_delegated_permission(
+                **common,
+                delegation_id=fields["delegation_id"],
+                profiles=profiles,
             )
         )
 
     async def turn(request):
-        extra = {"attempt_id", "child_id", "request_key", "request_digest"}
+        extra = {"attempt_id", "delegation_id", "request_key", "request_digest"}
         fields = await body(request, extra)
         common, profiles = context(request, fields, {"runtime"})
         return web.json_response(
-            store.managed_child_turn(
+            store.managed_delegated_turn(
                 **common,
                 **{key: fields[key] for key in extra - {"attempt_id"}},
                 profiles=profiles,
@@ -67,8 +70,10 @@ def install_child_routes(app, store, authorize, body, query):
         fields = query(request, {"attempt_id"})
         common, profiles = context(request, fields, {"runtime", "owner"})
         return web.json_response(
-            store.managed_children_read(
-                **common, profiles=profiles, child_id=request.match_info.get("child_id")
+            store.managed_delegations_read(
+                **common,
+                profiles=profiles,
+                delegation_id=request.match_info.get("delegation_id"),
             )
         )
 
@@ -76,19 +81,19 @@ def install_child_routes(app, store, authorize, body, query):
         fields = query(request, {"attempt_id"})
         common, _ = context(request, fields, {"runtime", "owner"})
         return web.Response(
-            text=store.managed_child_artifact(
+            text=store.managed_delegation_artifact(
                 **common,
-                child_id=request.match_info["child_id"],
+                delegation_id=request.match_info["delegation_id"],
                 artifact_id=request.match_info["artifact_id"],
             )
         )
 
     async def capture(request):
-        extra = {"attempt_id", "child_id", "kind", "content"}
+        extra = {"attempt_id", "delegation_id", "kind", "content"}
         fields = await body(request, extra)
         common, _ = context(request, fields, {"runtime"})
         return web.json_response(
-            store.managed_child_capture(
+            store.managed_delegation_capture(
                 **common, **{key: fields[key] for key in extra - {"attempt_id"}}
             )
         )
@@ -96,7 +101,7 @@ def install_child_routes(app, store, authorize, body, query):
     async def observe(request):
         extra = {
             "attempt_id",
-            "child_id",
+            "delegation_id",
             "state",
             "termination_confirmed",
             "launch_fenced",
@@ -104,7 +109,7 @@ def install_child_routes(app, store, authorize, body, query):
         }
         fields = await body(request, extra)
         common, _ = context(request, fields, {"runtime"})
-        child = store.managed_child_observe(
+        delegation = store.managed_delegation_observe(
             **common, **{key: fields[key] for key in extra - {"attempt_id"}}
         )
         return web.json_response(
@@ -113,23 +118,23 @@ def install_child_routes(app, store, authorize, body, query):
                 "deployment_id": common["deployment_id"],
                 "repository": common["repository"],
                 "root_attempt_id": common["attempt_id"],
-                "child": child,
+                "delegation": delegation,
             }
         )
 
     async def control(request):
         action = request.match_info.get("action", "cancel")
         extra = {"attempt_id", "reason"} | (
-            {"child_id"} if action == "revoke" else set()
+            {"delegation_id"} if action == "revoke" else set()
         )
         fields = await body(request, extra)
         common, _ = context(request, fields, {"runtime", "owner"})
         return web.json_response(
-            store.managed_child_control(
+            store.managed_delegation_control(
                 **common,
                 action=action,
                 reason=fields["reason"],
-                child_id=fields.get("child_id"),
+                delegation_id=fields.get("delegation_id"),
             )
         )
 
@@ -140,9 +145,11 @@ def install_child_routes(app, store, authorize, body, query):
         ("capture", capture),
         ("observe", observe),
     ):
-        app.router.add_post("/managed/children/" + name, handler)
-    app.router.add_post("/managed/children/{action:close|revoke}", control)
+        app.router.add_post("/managed/delegations/" + name, handler)
+    app.router.add_post("/managed/delegations/{action:close|revoke}", control)
     app.router.add_post("/managed/cancel", control)
-    app.router.add_get("/managed/children", read)
-    app.router.add_get("/managed/children/{child_id}", read)
-    app.router.add_get("/managed/children/{child_id}/artifacts/{artifact_id}", artifact)
+    app.router.add_get("/managed/delegations", read)
+    app.router.add_get("/managed/delegations/{delegation_id}", read)
+    app.router.add_get(
+        "/managed/delegations/{delegation_id}/artifacts/{artifact_id}", artifact
+    )

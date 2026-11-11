@@ -1,7 +1,7 @@
-"""One-level child allocations in the canonical task and artifact journal.
+"""One-level delegated grant allocations in the canonical task and artifact journal.
 
 Only a trusted runtime consumes these grants. Its broker must authenticate guest
-contexts independently; a child identifier from guest JSON is never authority.
+contexts independently; a delegation identifier from guest JSON is never authority.
 """
 
 import hashlib
@@ -12,30 +12,35 @@ import secrets
 
 from .errors import Conflict
 
-CHILD_POLICY_FIELDS = frozenset(
-    {"max_children", "max_child_seconds", "max_child_turns", "child_capabilities"}
+DELEGATED_GRANT_POLICY_FIELDS = frozenset(
+    {
+        "max_delegated_grants",
+        "max_grant_seconds",
+        "max_grant_turns",
+        "grant_capabilities",
+    }
 )
 CAPTURES = frozenset({"patch", "log", "manifest"})
 
 
-class ChildNotAllocated(Conflict):
-    """A new child grant was conclusively rejected before allocation."""
+class DelegatedGrantNotAllocated(Conflict):
+    """A new delegated grant was conclusively rejected before allocation."""
 
 
-def child_policy(profile):
+def delegated_grant_policy(profile):
     """Read defaults without inserting them into an approved profile digest."""
-    if not profile or not profile.get("max_children", 0):
+    if not profile or not profile.get("max_delegated_grants", 0):
         return None
-    return {key: profile[key] for key in CHILD_POLICY_FIELDS}
+    return {key: profile[key] for key in DELEGATED_GRANT_POLICY_FIELDS}
 
 
 def _seconds(value):
     if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
-        raise ValueError("child seconds must be positive and finite")
+        raise ValueError("grant seconds must be positive and finite")
 
 
-class ChildGrantAuthority:
-    def _child_root(self, db, attempt_id, binding, runtime_principal):
+class DelegatedGrantAuthority:
+    def _delegation_root(self, db, attempt_id, binding, runtime_principal):
         from .managed_runtime import bounded_text
 
         if runtime_principal is not None:
@@ -49,55 +54,57 @@ class ChildGrantAuthority:
             raise Conflict("root is outside the managed scope")
         return root
 
-    def _child(self, db, root, child_id):
+    def _delegation(self, db, root, delegation_id):
         from .managed_runtime import bounded_text
 
-        child = self._get(db, "child", bounded_text(child_id, "child_id"))
-        if child["binding"]["root_attempt_id"] != root["id"]:
-            raise Conflict("child is outside the authorized root lineage")
-        return child
+        delegation = self._get(
+            db, "delegation", bounded_text(delegation_id, "delegation_id")
+        )
+        if delegation["binding"]["root_attempt_id"] != root["id"]:
+            raise Conflict("delegation is outside the authorized root lineage")
+        return delegation
 
-    def _children(self, db, root_id):
+    def _delegations(self, db, root_id):
         return [
-            child
-            for child in self._all(db, "child")
-            if child["binding"]["root_attempt_id"] == root_id
+            delegation
+            for delegation in self._all(db, "delegation")
+            if delegation["binding"]["root_attempt_id"] == root_id
         ]
 
-    def _child_permission(self, db, root, child, profile):
+    def _delegation_permission(self, db, root, delegation, profile):
         current = self._managed_permission(db, root, profile)
         allowed, reason = current["launch_allowed"], current["reason"]
-        if child["termination_confirmed"] or child.get("revoked"):
-            allowed, reason = False, "child is terminated or revoked"
+        if delegation["termination_confirmed"] or delegation.get("revoked"):
+            allowed, reason = False, "delegation is terminated or revoked"
         elif (
-            child["boot_id"] != self.boot_id
-            or self.monotonic_clock() >= child["monotonic_deadline"]
+            delegation["boot_id"] != self.boot_id
+            or self.monotonic_clock() >= delegation["monotonic_deadline"]
         ):
-            allowed, reason = False, "child permission expired"
+            allowed, reason = False, "delegation permission expired"
         remaining = (
             max(
                 0,
-                min(root["monotonic_deadline"], child["monotonic_deadline"])
+                min(root["monotonic_deadline"], delegation["monotonic_deadline"])
                 - self.monotonic_clock(),
             )
             if allowed
             else 0
         )
-        binding = child["binding"]
+        binding = delegation["binding"]
         return {
             "schema_version": 1,
             "deployment_id": binding["deployment_id"],
             "repository": binding["repository"],
             "root_attempt_id": root["id"],
-            "child": child,
+            "delegation": delegation,
             "binding": binding,
-            "instructions": child["instructions"],
+            "instructions": delegation["instructions"],
             "launch_allowed": allowed,
             "remaining_seconds": remaining,
             "reason": reason,
         }
 
-    def managed_child_grant(
+    def managed_delegated_grant(
         self,
         deployment_id,
         repository,
@@ -114,7 +121,7 @@ class ChildGrantAuthority:
         from .managed_runtime import bounded_text, scope
 
         bounded_text(request_key, "request_key")
-        bounded_text(instructions, "child instructions", 1_000_000)
+        bounded_text(instructions, "grant instructions", 1_000_000)
         _seconds(seconds)
         if type(max_turns) is not int or max_turns < 1:
             raise ValueError("max_turns must be a positive integer")
@@ -124,7 +131,7 @@ class ChildGrantAuthority:
             or any(not isinstance(value, str) for value in capabilities)
             or len(set(capabilities)) != len(capabilities)
         ):
-            raise ValueError("child capabilities must be distinct identifiers")
+            raise ValueError("grant capabilities must be distinct identifiers")
         for value in capabilities:
             bounded_text(value, "capability")
         payload = {
@@ -136,38 +143,45 @@ class ChildGrantAuthority:
         binding = scope(deployment_id, repository)
         key = digest([runtime_principal, attempt_id, request_key])
         with self.transaction() as db:
-            root = self._child_root(db, attempt_id, binding, runtime_principal)
+            root = self._delegation_root(db, attempt_id, binding, runtime_principal)
             profile = profiles.get(root["runtime_binding"]["profile"])
             prior = db.execute(
-                "SELECT body FROM records WHERE kind='child_start' AND id=?", (key,)
+                "SELECT body FROM records WHERE kind='delegation_start' AND id=?",
+                (key,),
             ).fetchone()
             if prior:
                 saved = json.loads(prior[0])
                 if saved["payload"] != payload:
-                    raise Conflict("child retry key payload changed")
-                child = self._child(db, root, saved["child_id"])
-                return self._child_permission(db, root, child, profile)
-            policy = child_policy(profile)
+                    raise Conflict("delegation retry key payload changed")
+                delegation = self._delegation(db, root, saved["delegation_id"])
+                return self._delegation_permission(db, root, delegation, profile)
+            policy = delegated_grant_policy(profile)
             permission = self._managed_permission(db, root, profile)
             if not permission["launch_allowed"]:
-                raise ChildNotAllocated(permission["reason"])
-            if root.get("child_admission_closed") or policy is None:
-                raise ChildNotAllocated("child admission is closed or unsupported")
-            if len(self._children(db, attempt_id)) >= policy["max_children"]:
-                raise ChildNotAllocated("root lifetime child grant limit exhausted")
+                raise DelegatedGrantNotAllocated(permission["reason"])
+            if root.get("delegation_admission_closed") or policy is None:
+                raise DelegatedGrantNotAllocated(
+                    "delegation admission is closed or unsupported"
+                )
+            if len(self._delegations(db, attempt_id)) >= policy["max_delegated_grants"]:
+                raise DelegatedGrantNotAllocated(
+                    "root lifetime delegated grant limit exhausted"
+                )
             if (
-                seconds > policy["max_child_seconds"]
-                or max_turns > policy["max_child_turns"]
-                or not set(capabilities) <= set(policy["child_capabilities"])
+                seconds > policy["max_grant_seconds"]
+                or max_turns > policy["max_grant_turns"]
+                or not set(capabilities) <= set(policy["grant_capabilities"])
             ):
-                raise ChildNotAllocated("child request exceeds approved policy")
+                raise DelegatedGrantNotAllocated(
+                    "delegated grant request exceeds approved policy"
+                )
             task = self._get(db, "task", root["task"])
             if task["allocated_seconds"] + seconds > task["budget_seconds"]:
-                raise ChildNotAllocated("task time allowance exhausted")
-            child_id = "child_" + secrets.token_hex(16)
+                raise DelegatedGrantNotAllocated("task time allowance exhausted")
+            delegation_id = "del_" + secrets.token_hex(16)
             immutable = {
                 **binding,
-                "child_id": child_id,
+                "delegation_id": delegation_id,
                 "root_attempt_id": attempt_id,
                 "parent_attempt_id": attempt_id,
                 "task_id": root["task"],
@@ -177,7 +191,7 @@ class ChildGrantAuthority:
                 "profile_digest": root["runtime_binding"]["profile_digest"],
                 "requirements_revision": root["requirements_revision"],
                 "base": root["runtime_binding"]["base"],
-                "launch_key": "polyphony-child:" + child_id,
+                "launch_key": "polyphony-delegation:" + delegation_id,
                 "allocated_seconds": seconds,
                 "deadline": min(root["deadline"], self.clock() + seconds),
                 "max_turns": max_turns,
@@ -187,8 +201,8 @@ class ChildGrantAuthority:
                 ).hexdigest(),
             }
             immutable["grant_digest"] = digest(immutable)
-            child = {
-                "id": child_id,
+            delegation = {
+                "id": delegation_id,
                 "binding": immutable,
                 "instructions": instructions,
                 "boot_id": self.boot_id,
@@ -201,38 +215,41 @@ class ChildGrantAuthority:
             }
             task["allocated_seconds"] += seconds
             self._save(db, "task", task["id"], task)
-            self._save(db, "child", child_id, child)
+            self._save(db, "delegation", delegation_id, delegation)
             self._save(
-                db, "child_start", key, {"payload": payload, "child_id": child_id}
+                db,
+                "delegation_start",
+                key,
+                {"payload": payload, "delegation_id": delegation_id},
             )
-            return self._child_permission(db, root, child, profile)
+            return self._delegation_permission(db, root, delegation, profile)
 
-    def managed_child_permission(
+    def managed_delegated_permission(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
-        child_id,
+        delegation_id,
         profiles,
     ):
         from .managed_runtime import scope
 
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
-            child = self._child(db, root, child_id)
+            delegation = self._delegation(db, root, delegation_id)
             profile = profiles.get(root["runtime_binding"]["profile"])
-            return self._child_permission(db, root, child, profile)
+            return self._delegation_permission(db, root, delegation, profile)
 
-    def managed_child_turn(
+    def managed_delegated_turn(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
-        child_id,
+        delegation_id,
         request_key,
         request_digest,
         profiles,
@@ -246,70 +263,73 @@ class ChildGrantAuthority:
         ):
             raise ValueError("request_digest must be a SHA-256 content hash")
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
-            child = self._child(db, root, child_id)
+            delegation = self._delegation(db, root, delegation_id)
             profile = profiles.get(root["runtime_binding"]["profile"])
-            key = digest([child_id, request_key])
+            key = digest([delegation_id, request_key])
             prior = db.execute(
-                "SELECT body FROM records WHERE kind='child_turn' AND id=?", (key,)
+                "SELECT body FROM records WHERE kind='delegation_turn' AND id=?",
+                (key,),
             ).fetchone()
-            current = self._child_permission(db, root, child, profile)
+            current = self._delegation_permission(db, root, delegation, profile)
             if prior:
                 turn = json.loads(prior[0])
                 if turn["request_digest"] != request_digest:
-                    raise Conflict("child turn retry payload changed")
+                    raise Conflict("delegation turn retry payload changed")
                 return current | {"turn": turn}
             if not current["launch_allowed"]:
-                raise Conflict("child turn permission expired or revoked")
-            if child["turns_allocated"] >= child["binding"]["max_turns"]:
-                raise Conflict("child turn allowance exhausted")
-            child["turns_allocated"] += 1
-            self._save(db, "child", child_id, child)
+                raise Conflict("delegation turn permission expired or revoked")
+            if delegation["turns_allocated"] >= delegation["binding"]["max_turns"]:
+                raise Conflict("delegation turn allowance exhausted")
+            delegation["turns_allocated"] += 1
+            self._save(db, "delegation", delegation_id, delegation)
             turn = {
                 "turn_id": key,
-                "child_id": child_id,
+                "delegation_id": delegation_id,
                 "root_attempt_id": attempt_id,
-                "number": child["turns_allocated"],
+                "number": delegation["turns_allocated"],
                 "request_digest": request_digest,
             }
-            self._save(db, "child_turn", key, turn)
-            return self._child_permission(db, root, child, profile) | {"turn": turn}
+            self._save(db, "delegation_turn", key, turn)
+            return self._delegation_permission(db, root, delegation, profile) | {
+                "turn": turn
+            }
 
-    def managed_children_read(
+    def managed_delegations_read(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
         profiles,
-        child_id=None,
+        delegation_id=None,
     ):
         from .managed_runtime import scope
 
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
             profile = profiles.get(root["runtime_binding"]["profile"])
-            children = (
-                [self._child(db, root, child_id)]
-                if child_id is not None
-                else self._children(db, attempt_id)
+            delegations = (
+                [self._delegation(db, root, delegation_id)]
+                if delegation_id is not None
+                else self._delegations(db, attempt_id)
             )
             return {
                 "schema_version": 1,
                 **scope(deployment_id, repository),
                 "root_attempt_id": attempt_id,
-                "admission_closed": root.get("child_admission_closed", False),
-                "children": [
-                    self._child_permission(db, root, child, profile)
-                    for child in children
+                "admission_closed": root.get("delegation_admission_closed", False),
+                "delegations": [
+                    self._delegation_permission(db, root, delegation, profile)
+                    for delegation in delegations
                 ],
             }
 
-    def managed_child_control(
+    def managed_delegation_control(
         self,
         deployment_id,
         repository,
@@ -317,34 +337,41 @@ class ChildGrantAuthority:
         attempt_id,
         action,
         reason,
-        child_id=None,
+        delegation_id=None,
     ):
         from .managed_runtime import bounded_text, scope
 
         bounded_text(reason, "reason", 2000)
         if action not in {"close", "cancel", "revoke"}:
-            raise ValueError("invalid child control action")
+            raise ValueError("invalid delegation control action")
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
             if action == "revoke":
-                children = [self._child(db, root, child_id)]
+                delegations = [self._delegation(db, root, delegation_id)]
             else:
-                children = self._children(db, attempt_id) if action == "cancel" else []
-                if not root.get("child_admission_closed"):
+                delegations = (
+                    self._delegations(db, attempt_id) if action == "cancel" else []
+                )
+                if not root.get("delegation_admission_closed"):
                     root.update(
-                        child_admission_closed=True, child_admission_reason=reason
+                        delegation_admission_closed=True,
+                        delegation_admission_reason=reason,
                     )
                 if action == "cancel" and not root["termination_confirmed"]:
                     root.update(cancel_requested=True, state="cancel_requested")
                 self._save(db, "attempt", attempt_id, root)
-            for child in children:
-                if not child["termination_confirmed"] and not child.get("revoked"):
-                    child.update(
-                        revoked=True, revocation_reason=reason, state="cancel_requested"
+            for delegation in delegations:
+                if not delegation["termination_confirmed"] and not delegation.get(
+                    "revoked"
+                ):
+                    delegation.update(
+                        revoked=True,
+                        revocation_reason=reason,
+                        state="cancel_requested",
                     )
-                    self._save(db, "child", child["id"], child)
+                    self._save(db, "delegation", delegation["id"], delegation)
             return {
                 "schema_version": 1,
                 **scope(deployment_id, repository),
@@ -352,13 +379,13 @@ class ChildGrantAuthority:
                 "action": action,
             }
 
-    def managed_child_capture(
+    def managed_delegation_capture(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
-        child_id,
+        delegation_id,
         kind,
         content,
     ):
@@ -366,53 +393,58 @@ class ChildGrantAuthority:
         from .managed_runtime import scope
 
         if kind not in CAPTURES or not isinstance(content, str):
-            raise ValueError("child patch, log or manifest UTF-8 capture required")
+            raise ValueError("delegation patch, log or manifest UTF-8 capture required")
         raw = content.encode()
         if len(raw) > 4_000_000:
-            raise ValueError("child capture exceeds 4 MB limit")
+            raise ValueError("delegation capture exceeds 4 MB limit")
         if kind == "manifest" and not isinstance(json.loads(content), dict):
-            raise ValueError("child manifest must be a JSON object")
+            raise ValueError("delegation manifest must be a JSON object")
         artifact = hashlib.sha256(raw).hexdigest()
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
-            child = self._child(db, root, child_id)
-            key = digest([child_id, kind])
+            delegation = self._delegation(db, root, delegation_id)
+            key = digest([delegation_id, kind])
             prior = db.execute(
-                "SELECT body FROM records WHERE kind='child_capture' AND id=?", (key,)
+                "SELECT body FROM records WHERE kind='delegation_capture' AND id=?",
+                (key,),
             ).fetchone()
             if prior:
                 saved = json.loads(prior[0])
                 if saved["artifact_id"] != artifact:
-                    raise Conflict("final child capture already has different content")
+                    raise Conflict(
+                        "final delegation capture already has different content"
+                    )
                 return saved
-            if child["termination_confirmed"]:
-                raise Conflict("terminated child capture cannot be changed")
+            if delegation["termination_confirmed"]:
+                raise Conflict("terminated delegation capture cannot be changed")
             db.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (artifact, raw))
             return self._save(
                 db,
-                "child_capture",
+                "delegation_capture",
                 key,
                 {
                     "schema_version": 1,
                     **scope(deployment_id, repository),
                     "root_attempt_id": attempt_id,
-                    "child_id": child_id,
+                    "delegation_id": delegation_id,
                     "kind": kind,
                     "artifact_id": artifact,
                     "runtime_principal": runtime_principal,
                 },
             )
 
-    def _verify_child_capture(self, db, child):
+    def _verify_delegation_capture(self, db, delegation):
         from .authority import digest
 
-        artifacts = child.get("captured_artifacts", {})
+        artifacts = delegation.get("captured_artifacts", {})
         if set(artifacts) != CAPTURES:
-            raise Conflict("child terminal receipt requires every capture")
+            raise Conflict("delegation terminal receipt requires every capture")
         for kind, artifact in artifacts.items():
-            saved = self._get(db, "child_capture", digest([child["id"], kind]))
+            saved = self._get(
+                db, "delegation_capture", digest([delegation["id"], kind])
+            )
             row = db.execute(
                 "SELECT content FROM artifacts WHERE id=?", (artifact,)
             ).fetchone()
@@ -421,15 +453,15 @@ class ChildGrantAuthority:
                 or row is None
                 or hashlib.sha256(bytes(row[0])).hexdigest() != artifact
             ):
-                raise Conflict("child durable capture verification failed")
+                raise Conflict("delegation durable capture verification failed")
 
-    def managed_child_observe(
+    def managed_delegation_observe(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
-        child_id,
+        delegation_id,
         state,
         termination_confirmed,
         launch_fenced,
@@ -444,14 +476,14 @@ class ChildGrantAuthority:
             "exited",
             "timed_out",
         }:
-            raise ValueError("invalid child execution state")
+            raise ValueError("invalid delegation execution state")
         if type(termination_confirmed) is not bool or type(launch_fenced) is not bool:
-            raise ValueError("child receipt flags must be boolean")
+            raise ValueError("delegation receipt flags must be boolean")
         if not isinstance(artifacts, dict) or any(
             not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
             for value in artifacts.values()
         ):
-            raise ValueError("child artifact hash mapping required")
+            raise ValueError("delegation artifact hash mapping required")
         if termination_confirmed:
             if (
                 state not in {"exited", "timed_out"}
@@ -459,10 +491,12 @@ class ChildGrantAuthority:
                 or set(artifacts) != CAPTURES
             ):
                 raise Conflict(
-                    "child terminal receipt requires fence and every capture"
+                    "delegation terminal receipt requires fence and every capture"
                 )
         elif artifacts or launch_fenced:
-            raise ValueError("nonterminal child cannot assert capture or launch fence")
+            raise ValueError(
+                "nonterminal delegation cannot assert capture or launch fence"
+            )
         receipt = {
             "state": state,
             "termination_confirmed": termination_confirmed,
@@ -470,69 +504,71 @@ class ChildGrantAuthority:
             "artifacts": artifacts,
         }
         with self.transaction() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
-            child = self._child(db, root, child_id)
-            if child["termination_confirmed"]:
-                if child.get("runtime_receipt") != receipt:
-                    raise Conflict("child terminal receipt changed")
-                self._verify_child_capture(db, child)
-                return child
+            delegation = self._delegation(db, root, delegation_id)
+            if delegation["termination_confirmed"]:
+                if delegation.get("runtime_receipt") != receipt:
+                    raise Conflict("delegation terminal receipt changed")
+                self._verify_delegation_capture(db, delegation)
+                return delegation
             if termination_confirmed:
-                child["captured_artifacts"] = artifacts
-                self._verify_child_capture(db, child)
-                child.update(
+                delegation["captured_artifacts"] = artifacts
+                self._verify_delegation_capture(db, delegation)
+                delegation.update(
                     termination_confirmed=True,
                     launch_fenced=True,
                     runtime_receipt=receipt,
                 )
-            if child.get("revoked") and not termination_confirmed:
+            if delegation.get("revoked") and not termination_confirmed:
                 state = "cancel_requested"
-            child["state"] = state
+            delegation["state"] = state
             if state == "cancel_requested":
-                child["revoked"] = True
-            return self._save(db, "child", child_id, child)
+                delegation["revoked"] = True
+            return self._save(db, "delegation", delegation_id, delegation)
 
-    def managed_child_artifact(
+    def managed_delegation_artifact(
         self,
         deployment_id,
         repository,
         runtime_principal,
         attempt_id,
-        child_id,
+        delegation_id,
         artifact_id,
     ):
         from .managed_runtime import scope
 
         with self.connect() as db:
-            root = self._child_root(
+            root = self._delegation_root(
                 db, attempt_id, scope(deployment_id, repository), runtime_principal
             )
-            self._child(db, root, child_id)
+            self._delegation(db, root, delegation_id)
             if not any(
-                c["child_id"] == child_id and c["artifact_id"] == artifact_id
-                for c in self._all(db, "child_capture")
+                c["delegation_id"] == delegation_id and c["artifact_id"] == artifact_id
+                for c in self._all(db, "delegation_capture")
             ):
-                raise Conflict("artifact is outside the authorized child lineage")
+                raise Conflict("artifact is outside the authorized delegation lineage")
             row = db.execute(
                 "SELECT content FROM artifacts WHERE id=?", (artifact_id,)
             ).fetchone()
             if row is None or hashlib.sha256(bytes(row[0])).hexdigest() != artifact_id:
-                raise Conflict("child durable artifact verification failed")
+                raise Conflict("delegation durable artifact verification failed")
             return bytes(row[0]).decode()
 
-    def _child_terminal_lineage(self, db, root_id):
+    def _delegation_terminal_lineage(self, db, root_id):
         lineage = []
-        for child in self._children(db, root_id):
-            if not child["termination_confirmed"] or not child.get("launch_fenced"):
-                raise Conflict("root has an unresolved child execution")
-            self._verify_child_capture(db, child)
+        for delegation in self._delegations(db, root_id):
+            if not delegation["termination_confirmed"] or not delegation.get(
+                "launch_fenced"
+            ):
+                raise Conflict("root has an unresolved delegation execution")
+            self._verify_delegation_capture(db, delegation)
             lineage.append(
                 {
-                    "child_id": child["id"],
-                    "grant_digest": child["binding"]["grant_digest"],
-                    "artifacts": child["captured_artifacts"],
+                    "delegation_id": delegation["id"],
+                    "grant_digest": delegation["binding"]["grant_digest"],
+                    "artifacts": delegation["captured_artifacts"],
                 }
             )
-        return sorted(lineage, key=lambda row: row["child_id"])
+        return sorted(lineage, key=lambda row: row["delegation_id"])

@@ -648,11 +648,11 @@ class Coordinator(ManagedRuntimeAuthority):
                 "dependency_admissions": dependencies,
             }
             if binding:
-                lineage = self._child_terminal_lineage(db, attempt_id)
+                lineage = self._delegation_terminal_lineage(db, attempt_id)
                 if lineage:
-                    if a.get("child_lineage") != lineage:
-                        raise Conflict("root terminal child lineage changed")
-                    identity["child_lineage"] = lineage
+                    if a.get("delegation_lineage") != lineage:
+                        raise Conflict("root terminal delegation lineage changed")
+                    identity["delegation_lineage"] = lineage
             cid = digest(identity)
             existing = db.execute(
                 "SELECT body FROM records WHERE kind='candidate' AND id=?", (cid,)

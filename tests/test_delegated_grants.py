@@ -1,4 +1,4 @@
-"""Atomic child admission, scoped recovery and root capture barriers."""
+"""Atomic delegated grant admission, scoped recovery and root capture barriers."""
 
 from concurrent.futures import ThreadPoolExecutor
 import copy
@@ -9,12 +9,12 @@ from aiohttp.test_utils import TestClient, TestServer
 import pytest
 
 from src.core.collaboration.authority import Coordinator, Conflict, digest
-from src.core.collaboration.child_grants import ChildNotAllocated
+from src.core.collaboration.delegated_grants import DelegatedGrantNotAllocated
 from src.liminal_bridge.coordinator_service import create_app
 from src.liminal_bridge.managed_service import validate_managed_config
 
 REPOSITORY = "github:github.com/example/project"
-SCOPE = {"deployment_id": "child-test", "repository": REPOSITORY}
+SCOPE = {"deployment_id": "grant-test", "repository": REPOSITORY}
 BASE = "a" * 40
 
 
@@ -34,10 +34,10 @@ def config():
                         "base": BASE,
                         "attempt_seconds": 60,
                         "capabilities": ["python", "tests"],
-                        "max_children": 2,
-                        "max_child_seconds": 30,
-                        "max_child_turns": 3,
-                        "child_capabilities": ["python"],
+                        "max_delegated_grants": 2,
+                        "max_grant_seconds": 30,
+                        "max_grant_turns": 3,
+                        "grant_capabilities": ["python"],
                     }
                 },
             }
@@ -72,15 +72,15 @@ def root_attempt(store, config, key="one"):
     return task, root
 
 
-def child(store, config, root, key="child-one", **changes):
-    return store.managed_child_grant(
+def grant(store, config, root, key="grant-one", **changes):
+    return store.managed_delegated_grant(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
         profiles=profiles(config),
         **{
             "request_key": key,
-            "instructions": "Private child instructions " + key,
+            "instructions": "Private grant instructions " + key,
             "seconds": 20,
             "max_turns": 2,
             "capabilities": ["python"],
@@ -89,18 +89,18 @@ def child(store, config, root, key="child-one", **changes):
     )
 
 
-def capture_child(store, root, cid):
+def capture_grant(store, root, did):
     hashes = {}
     for kind, content in {
-        "patch": "child patch " + cid,
-        "log": "child log " + cid,
-        "manifest": json.dumps({"child": cid}),
+        "patch": "grant patch " + did,
+        "log": "grant log " + did,
+        "manifest": json.dumps({"delegation": did}),
     }.items():
-        result = store.managed_child_capture(
+        result = store.managed_delegation_capture(
             **SCOPE,
             runtime_principal="runtime",
             attempt_id=root["id"],
-            child_id=cid,
+            delegation_id=did,
             kind=kind,
             content=content,
         )
@@ -108,12 +108,12 @@ def capture_child(store, root, cid):
     return hashes
 
 
-def end_child(store, root, cid, hashes, **changes):
-    return store.managed_child_observe(
+def end_grant(store, root, did, hashes, **changes):
+    return store.managed_delegation_observe(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
-        child_id=cid,
+        delegation_id=did,
         **{
             "state": "exited",
             "termination_confirmed": True,
@@ -154,25 +154,25 @@ def end_root(store, root, hashes):
 
 
 @pytest.mark.parametrize("limit,budget,expected", [(2, 300, 2), (4, 90, 1)])
-def test_concurrent_children_share_one_task_allowance(
+def test_concurrent_delegations_share_one_task_allowance(
     tmp_path, config, limit, budget, expected
 ):
     policy = config["repositories"][REPOSITORY]
     policy["budget_seconds"] = budget
-    policy["profiles"]["approved"]["max_children"] = limit
+    policy["profiles"]["approved"]["max_delegated_grants"] = limit
     path = tmp_path / "authority.db"
     store = Coordinator(path, clock=lambda: 100, boot_id="boot")
     task, root = root_attempt(store, config)
 
     def allocate(number):
         try:
-            return child(
+            return grant(
                 Coordinator(path, clock=lambda: 100, boot_id="boot"),
                 config,
                 root,
                 str(number),
-            )["binding"]["child_id"]
-        except ChildNotAllocated:
+            )["binding"]["delegation_id"]
+        except DelegatedGrantNotAllocated:
             return None
 
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -183,10 +183,10 @@ def test_concurrent_children_share_one_task_allowance(
     assert len(snapshot["task"]) == len(snapshot["attempt"]) == 1
     assert snapshot["task"][0]["allocated_seconds"] == 60 + 20 * expected
     assert snapshot["task"][0]["attempts"] == 1
-    for cid in identities:
-        end_child(store, root, cid, capture_child(store, root, cid))
-    with pytest.raises(ChildNotAllocated):
-        child(store, config, root, "no-refund")
+    for did in identities:
+        end_grant(store, root, did, capture_grant(store, root, did))
+    with pytest.raises(DelegatedGrantNotAllocated):
+        grant(store, config, root, "no-refund")
     assert store.snapshot()["task"][0]["allocated_seconds"] == 60 + 20 * expected
 
 
@@ -196,10 +196,15 @@ def test_grant_and_turn_retries_survive_restart_revocation_and_profile_removal(
     path = tmp_path / "authority.db"
     store = Coordinator(path, clock=lambda: 100, boot_id="boot")
     task, root = root_attempt(store, config)
-    first = child(store, config, root)
-    cid = first["binding"]["child_id"]
-    args = dict(SCOPE, runtime_principal="runtime", attempt_id=root["id"], child_id=cid)
-    turn = store.managed_child_turn(
+    first = grant(store, config, root)
+    did = first["binding"]["delegation_id"]
+    args = dict(
+        SCOPE,
+        runtime_principal="runtime",
+        attempt_id=root["id"],
+        delegation_id=did,
+    )
+    turn = store.managed_delegated_turn(
         **args,
         request_key="model-one",
         request_digest="a" * 64,
@@ -207,13 +212,13 @@ def test_grant_and_turn_retries_survive_restart_revocation_and_profile_removal(
     )
     assert turn["turn"]["number"] == 1
     with pytest.raises(Conflict, match="turn retry payload"):
-        store.managed_child_turn(
+        store.managed_delegated_turn(
             **args,
             request_key="model-one",
             request_digest="b" * 64,
             profiles=profiles(config),
         )
-    store.managed_child_control(
+    store.managed_delegation_control(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
@@ -223,96 +228,98 @@ def test_grant_and_turn_retries_survive_restart_revocation_and_profile_removal(
     reopened = Coordinator(path, clock=lambda: 100, boot_id="boot")
     removed = copy.deepcopy(config)
     removed["repositories"][REPOSITORY]["profiles"] = {}
-    recovered = child(reopened, removed, root)
+    recovered = grant(reopened, removed, root)
     assert recovered["binding"] == first["binding"]
     assert recovered["instructions"] == first["instructions"]
     assert not recovered["launch_allowed"]
-    retried_turn = reopened.managed_child_turn(
+    retried_turn = reopened.managed_delegated_turn(
         **args, request_key="model-one", request_digest="a" * 64, profiles={}
     )
     assert retried_turn["turn"] == turn["turn"] and not retried_turn["launch_allowed"]
-    assert retried_turn["child"]["turns_allocated"] == 1
+    assert retried_turn["delegation"]["turns_allocated"] == 1
     assert reopened.snapshot()["task"][0]["allocated_seconds"] == 80
-    with pytest.raises(Conflict, match="child retry"):
-        child(reopened, removed, root, instructions="Changed request")
-    with pytest.raises(ChildNotAllocated):
-        child(reopened, removed, root, "new request")
+    with pytest.raises(Conflict, match="delegation retry"):
+        grant(reopened, removed, root, instructions="Changed request")
+    with pytest.raises(DelegatedGrantNotAllocated):
+        grant(reopened, removed, root, "new request")
     with pytest.raises(Conflict):
-        reopened.managed_child_turn(
+        reopened.managed_delegated_turn(
             **args, request_key="new-turn", request_digest="c" * 64, profiles={}
         )
-    end_child(reopened, root, cid, capture_child(reopened, root, cid))
+    end_grant(reopened, root, did, capture_grant(reopened, root, did))
 
 
-def test_deadline_revision_and_reboot_never_extend_child_permission(tmp_path, config):
+def test_deadline_revision_and_reboot_never_extend_grant_permission(tmp_path, config):
     now = [100]
     profile = profiles(config)["approved"]
-    profile["max_child_seconds"] = 60
+    profile["max_grant_seconds"] = 60
     store = Coordinator(tmp_path / "authority.db", clock=lambda: now[0], boot_id="one")
     task, root = root_attempt(store, config)
     now[0] = 150
-    granted = child(store, config, root, seconds=60)
-    cid = granted["binding"]["child_id"]
+    granted = grant(store, config, root, seconds=60)
+    did = granted["binding"]["delegation_id"]
     assert granted["binding"]["deadline"] == root["deadline"] == 160
     assert granted["remaining_seconds"] == 10
     assert store.snapshot()["task"][0]["allocated_seconds"] == 120
     store.revise(task["id"], 1, "new requirements", ["tests"], ["reviewer"])
-    assert not child(store, config, root, seconds=60)["launch_allowed"]
-    assert child(store, config, root, seconds=60)["binding"] == granted["binding"]
+    assert not grant(store, config, root, seconds=60)["launch_allowed"]
+    assert grant(store, config, root, seconds=60)["binding"] == granted["binding"]
     reopened = Coordinator(store.path, clock=lambda: now[0], boot_id="two")
-    permission = reopened.managed_child_permission(
+    permission = reopened.managed_delegated_permission(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
-        child_id=cid,
+        delegation_id=did,
         profiles=profiles(config),
     )
     assert (
         not permission["launch_allowed"]
-        and not permission["child"]["termination_confirmed"]
+        and not permission["delegation"]["termination_confirmed"]
     )
-    end_child(reopened, root, cid, capture_child(reopened, root, cid))
+    end_grant(reopened, root, did, capture_grant(reopened, root, did))
 
 
 def test_turn_limit_drain_and_capability_narrowing(tmp_path, config):
     store = Coordinator(tmp_path / "authority.db")
     _, root = root_attempt(store, config)
     for changes in ({"capabilities": ["owner"]}, {"max_turns": 4}, {"seconds": 31}):
-        with pytest.raises(ChildNotAllocated):
-            child(store, config, root, **changes)
-    granted = child(store, config, root)
-    cid = granted["binding"]["child_id"]
+        with pytest.raises(DelegatedGrantNotAllocated):
+            grant(store, config, root, **changes)
+    granted = grant(store, config, root)
+    did = granted["binding"]["delegation_id"]
     args = dict(
         SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
-        child_id=cid,
+        delegation_id=did,
         profiles=profiles(config),
     )
     for number in range(2):
-        turn = store.managed_child_turn(
+        turn = store.managed_delegated_turn(
             **args, request_key=str(number), request_digest="a" * 64
         )
         assert turn["turn"]["number"] == number + 1
     with pytest.raises(Conflict, match="turn allowance"):
-        store.managed_child_turn(**args, request_key="third", request_digest="a" * 64)
-    store.managed_child_control(
+        store.managed_delegated_turn(
+            **args, request_key="third", request_digest="a" * 64
+        )
+    store.managed_delegation_control(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
         action="close",
         reason="worker draining",
     )
-    assert store.managed_child_permission(**args)["launch_allowed"]
-    with pytest.raises(ChildNotAllocated, match="admission is closed"):
-        child(store, config, root, "after drain")
+    assert store.managed_delegated_permission(**args)["launch_allowed"]
+    with pytest.raises(DelegatedGrantNotAllocated, match="admission is closed"):
+        grant(store, config, root, "after drain")
     with pytest.raises(Conflict):
-        store.managed_child_grant(
+        store.managed_delegated_grant(
             **SCOPE,
             runtime_principal="runtime",
-            attempt_id=cid,
+            attempt_id=did,
             profiles=profiles(config),
-            request_key="grandchild",
+            request_key="grandgrant",
             instructions="recursive",
             seconds=1,
             max_turns=1,
@@ -320,7 +327,7 @@ def test_turn_limit_drain_and_capability_narrowing(tmp_path, config):
         )
 
 
-def test_child_expiry_uses_monotonic_time_without_refund(tmp_path, config):
+def test_grant_expiry_uses_monotonic_time_without_refund(tmp_path, config):
     wall, monotonic = [100], [100]
     store = Coordinator(
         tmp_path / "authority.db",
@@ -329,16 +336,18 @@ def test_child_expiry_uses_monotonic_time_without_refund(tmp_path, config):
         boot_id="same-boot",
     )
     _, root = root_attempt(store, config)
-    granted = child(store, config, root, seconds=5)
-    cid = granted["binding"]["child_id"]
+    granted = grant(store, config, root, seconds=5)
+    did = granted["binding"]["delegation_id"]
     args = dict(
         SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
-        child_id=cid,
+        delegation_id=did,
         profiles=profiles(config),
     )
-    turn = store.managed_child_turn(**args, request_key="one", request_digest="a" * 64)
+    turn = store.managed_delegated_turn(
+        **args, request_key="one", request_digest="a" * 64
+    )
     wall[0], monotonic[0] = 10, 106
     assert store.managed_permission(
         **SCOPE,
@@ -346,35 +355,35 @@ def test_child_expiry_uses_monotonic_time_without_refund(tmp_path, config):
         attempt_id=root["id"],
         profiles=profiles(config),
     )["launch_allowed"]
-    denied = store.managed_child_permission(**args)
+    denied = store.managed_delegated_permission(**args)
     assert not denied["launch_allowed"] and denied["remaining_seconds"] == 0
-    assert not child(store, config, root, seconds=5)["launch_allowed"]
-    replay = store.managed_child_turn(
+    assert not grant(store, config, root, seconds=5)["launch_allowed"]
+    replay = store.managed_delegated_turn(
         **args, request_key="one", request_digest="a" * 64
     )
     assert replay["turn"] == turn["turn"] and not replay["launch_allowed"]
     assert store.snapshot()["task"][0]["allocated_seconds"] == 65
-    end_child(store, root, cid, capture_child(store, root, cid))
+    end_grant(store, root, did, capture_grant(store, root, did))
 
 
-def test_root_waits_for_every_verified_child_and_binds_candidate_lineage(
+def test_root_waits_for_every_verified_delegation_and_binds_candidate_lineage(
     tmp_path, config
 ):
     store = Coordinator(tmp_path / "authority.db")
     _, root = root_attempt(store, config)
-    first = child(store, config, root)["binding"]["child_id"]
-    second = child(store, config, root, "second")["binding"]["child_id"]
+    first = grant(store, config, root)["binding"]["delegation_id"]
+    second = grant(store, config, root, "second")["binding"]["delegation_id"]
     root_hashes = capture_root(store, root)
-    with pytest.raises(Conflict, match="unresolved child"):
+    with pytest.raises(Conflict, match="unresolved delegation"):
         end_root(store, root, root_hashes)
-    hashes = capture_child(store, root, first)
+    hashes = capture_grant(store, root, first)
     with pytest.raises(Conflict):
-        end_child(store, root, first, hashes, launch_fenced=False)
-    end_child(store, root, first, hashes)
+        end_grant(store, root, first, hashes, launch_fenced=False)
+    end_grant(store, root, first, hashes)
     with pytest.raises(Conflict):
         end_root(store, root, root_hashes)
-    second_hashes = capture_child(store, root, second)
-    end_child(store, root, second, second_hashes)
+    second_hashes = capture_grant(store, root, second)
+    end_grant(store, root, second, second_hashes)
     with store.connect() as db:
         original = db.execute(
             "SELECT content FROM artifacts WHERE id=?", (hashes["log"],)
@@ -390,21 +399,24 @@ def test_root_waits_for_every_verified_child_and_binds_candidate_lineage(
             "UPDATE artifacts SET content=? WHERE id=?", (original, hashes["log"])
         )
     final = end_root(store, root, root_hashes)
-    assert {row["child_id"] for row in final["child_lineage"]} == {first, second}
+    assert {row["delegation_id"] for row in final["delegation_lineage"]} == {
+        first,
+        second,
+    }
     candidate = store.managed_candidate(
         **SCOPE,
         runtime_principal="runtime",
         attempt_id=root["id"],
         artifact_id=root_hashes["patch"],
     )
-    assert candidate["child_lineage"] == final["child_lineage"]
+    assert candidate["delegation_lineage"] == final["delegation_lineage"]
     assert len(store.snapshot()["task"]) == 1
     with pytest.raises(Conflict):
-        store.managed_child_artifact(
+        store.managed_delegation_artifact(
             **SCOPE,
             runtime_principal="runtime",
             attempt_id=root["id"],
-            child_id=second,
+            delegation_id=second,
             artifact_id=hashes["patch"],
         )
     with pytest.raises(Conflict):
@@ -415,21 +427,21 @@ def test_old_profile_digest_and_invalid_policy_are_fail_closed(config):
     old = copy.deepcopy(config)
     profile = profiles(old)["approved"]
     for field in (
-        "max_children",
-        "max_child_seconds",
-        "max_child_turns",
-        "child_capabilities",
+        "max_delegated_grants",
+        "max_grant_seconds",
+        "max_grant_turns",
+        "grant_capabilities",
     ):
         profile.pop(field)
     expected = digest(profile)
     validated = validate_managed_config(old)
     assert validated == old and digest(profiles(validated)["approved"]) == expected
     for changes in (
-        {"max_children": True},
-        {"max_children": 65},
-        {"child_capabilities": ["owner"]},
-        {"max_child_turns": 0},
-        {"max_child_seconds": 61},
+        {"max_delegated_grants": True},
+        {"max_delegated_grants": 65},
+        {"grant_capabilities": ["owner"]},
+        {"max_grant_turns": 0},
+        {"max_grant_seconds": 61},
     ):
         invalid = copy.deepcopy(config)
         profiles(invalid)["approved"].update(changes)
@@ -493,27 +505,29 @@ async def test_http_rooted_reads_controls_and_unforgeable_service_roles(
 
         request = {
             "request_key": "one",
-            "instructions": "Private HTTP child",
+            "instructions": "Private HTTP grant",
             "seconds": 20,
             "max_turns": 2,
             "capabilities": ["python"],
         }
-        result = await post("/managed/children/grant", request)
-        cid = result["binding"]["child_id"]
+        result = await post("/managed/delegations/grant", request)
+        did = result["binding"]["delegation_id"]
         await post(
-            "/managed/children/grant", request | {"runtime_principal": "forged"}, 400
+            "/managed/delegations/grant",
+            request | {"runtime_principal": "forged"},
+            400,
         )
-        await post("/managed/children/grant", request, 403, "i")
-        await post("/managed/children/grant", request, 409, "f")
+        await post("/managed/delegations/grant", request, 403, "i")
+        await post("/managed/delegations/grant", request, 409, "f")
         await post(
-            "/managed/children/permission",
-            {"child_id": cid, "attempt_id": other_root["id"]},
+            "/managed/delegations/permission",
+            {"delegation_id": did, "attempt_id": other_root["id"]},
             409,
         )
         await post(
-            "/managed/children/revoke",
+            "/managed/delegations/revoke",
             {
-                "child_id": cid,
+                "delegation_id": did,
                 "attempt_id": other_root["id"],
                 "reason": "sibling attack",
             },
@@ -522,40 +536,40 @@ async def test_http_rooted_reads_controls_and_unforgeable_service_roles(
         query = "?deployment_id=" + SCOPE["deployment_id"] + "&repository=" + REPOSITORY
         headers = {"Authorization": "Bearer " + "r" * 40}
         response = await client.get(
-            "/managed/children/" + cid + query + "&attempt_id=" + root["id"],
+            "/managed/delegations/" + did + query + "&attempt_id=" + root["id"],
             headers=headers,
         )
         assert response.status == 200
-        assert (await response.json())["children"][0][
+        assert (await response.json())["delegations"][0][
             "instructions"
-        ] == "Private HTTP child"
+        ] == "Private HTTP grant"
         response = await client.get(
-            "/managed/children/" + cid + query + "&attempt_id=" + other_root["id"],
+            "/managed/delegations/" + did + query + "&attempt_id=" + other_root["id"],
             headers=headers,
         )
         assert response.status == 409
         response = await client.get(
-            "/managed/children" + query + "&attempt_id=" + root["id"],
+            "/managed/delegations" + query + "&attempt_id=" + root["id"],
             headers={"Authorization": "Bearer " + "i" * 40},
         )
         assert response.status == 403
         response = await client.get("/managed/snapshot" + query, headers=headers)
-        assert "Private HTTP child" not in await response.text()
+        assert "Private HTTP grant" not in await response.text()
         response = await client.get(
             "/managed/capabilities" + query + "&profile=approved", headers=headers
         )
         cap = await response.json()
-        assert cap["children"] is False and cap["child_grants"] is True
+        assert cap["children"] is False and cap["delegated_grants"] is True
         await post("/managed/cancel", {"reason": "owner stop"}, token="o")
         untouched = next(
             row for row in store.snapshot()["attempt"] if row["id"] == other_root["id"]
         )
         assert untouched["state"] == "unknown" and not untouched.get("cancel_requested")
         denied = await post(
-            "/managed/children/grant", request | {"request_key": "later"}, 409
+            "/managed/delegations/grant", request | {"request_key": "later"}, 409
         )
-        assert denied["code"] == "child_not_allocated"
-        recovered = await post("/managed/children/grant", request)
+        assert denied["code"] == "delegated_grant_not_allocated"
+        recovered = await post("/managed/delegations/grant", request)
         assert (
             recovered["binding"] == result["binding"]
             and not recovered["launch_allowed"]
